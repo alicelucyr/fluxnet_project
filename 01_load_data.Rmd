@@ -73,7 +73,7 @@ read_flux <- function(fname) {
 
 This function (read_daily_flux):
 - Same as read_flux
-- Reads in daily datan and gives daily data
+- Reads in daily data and gives daily data
 
 ```{r}
 read_daily_flux <- function(fname) {
