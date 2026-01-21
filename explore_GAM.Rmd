@@ -145,5 +145,279 @@ summary(Tum_final$GPP)
 
 Filtered by growing season, by shortwave radiation threshold and made sure GPP > 0 
 
-Now we can start to plot 
+Now we can start to plot GPP per year.
+
+```{r}
+library(ggplot2)
+
+ggplot(Cum_final, aes(year, GPP)) +
+  geom_point(alpha = 0.6, color = "green") +
+  labs(title = "Aus Cum GPP by year") +
+  theme_minimal()
+
+
+
+```
+So now, I want to plot average, max and minimum GPP per year for each site
+
+```{r}
+library(dplyr)
+
+#Combine the datasets
+
+dataframe_aus <- bind_rows(Tum_final, Cum_final)
+
+```
+
+Summarise per site per year
+
+```{r}
+df_summary <- dataframe_aus %>%
+  group_by(site, year) %>%
+  summarise(
+    GPP_mean = mean(GPP, na.rm = TRUE),
+    GPP_max = max(GPP, na.rm = TRUE),
+    GPP_min = min(GPP, na.rm = TRUE)
+  ) %>%
+  
+  ungroup()
+```
+
+
+plot
+
+```{r}
+library(tidyr)
+library(ggplot2)
+
+df_long <- df_summary %>%
+  pivot_longer(
+    cols = c(GPP_mean, GPP_max, GPP_min),
+    names_to = "stat",
+    values_to = "GPP"
+  )
+
+ggplot(df_long, aes(x = year, y = GPP, color = stat)) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~site) +
+  theme_minimal() +
+  labs(y = "GPP", x = "Year", color = "Statistic")
+
+```
+```{r}
+ggplot(df_summary, aes(x = year, group = site)) +
+  geom_ribbon(aes(ymin = GPP_min, ymax = GPP_max, fill = site), alpha = 0.2) +
+  geom_line(aes(y = GPP_mean, color = site), size = 1) +
+  theme_minimal() +
+  labs(y = "GPP", x = "Year")
+
+```
+Now let's have a look at the VPD
+
+```{r}
+summary(Tum_data$VPD)
+```
+
+```{r}
+summary(Cum_data$VPD)
+```
+
+Double check VPD
+1. Loaded in daily data, filtered to growing season
+now
+2. Load in half-hourly data, convert to daily, in theory the VPD range should be exactly the same
+
+```{r}
+read_flux <- function(fname) {
+  
+  #Ensure it reads one file at a time
+  if (length(fname) != 1) {
+    stop("read_flux() expects a single filename")
+  }
+  
+  df <- read.csv(fname)
+  
+  #extract site code from file name
+  base <- basename(fname)
+  no_ext <- gsub("\\.csv$", "", base)
+  
+ site <- regmatches(
+  no_ext,
+  regexpr("[A-Z]{2}-[A-Za-z]{3}[0-9]?", no_ext)
+)
+  #add site column
+  df$site <- site
+  
+   # Convert TIMESTAMP_START to datetime and set as index
+  df <- df %>%
+    mutate(date = ymd_hm(TIMESTAMP_START)) %>%
+    select(-TIMESTAMP_START, -TIMESTAMP_END) %>%
+    relocate(date)
+
+  df <- df %>%
+    mutate(
+      year = year(date),
+      doy = yday(date),
+      hod = hour(date)
+    )
+  
+#renaming some variables
+  
+   df <- df %>%
+    rename(
+      GPP = GPP_NT_VUT_REF,
+      Qle = LE_F_MDS,
+      Tair = TA_F_MDS,
+      SW_rad = SW_IN_F_MDS,
+      Rn = NETRAD,
+      VPD = VPD_F_MDS
+    )
+
+  vars_to_keep <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "VPD")
+  df <- df %>% select(date, all_of(vars_to_keep), year, doy, hod, site)
+  
+  return(df)
+  
+}
+```
+
+```{r}
+Cum_data_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUXDATAKIT/FLX_AU-Cum_FLUXDATAKIT_FULLSET_HH_2013_2018_2-3.csv")
+```
+
+```{r}
+Tum_data_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUXDATAKIT/FLX_AU-Tum_FLUXDATAKIT_FULLSET_HH_2002_2017_2-3.csv")
+```
+
+Now convert these datasets to daily:
+
+```{r}
+convert_to_daily <- function(df) {
+  
+  #Conversion constants
+  
+  UMOL_TO_MOL <- 1E-6
+  MOL_C_TO_GRAMS_C <- 12.0
+  SEC_2_HALF_HOUR <- 1800.
+  WM2_TO_KG_M2_S <- 1.0 /  ( 2.45 * 1E6)
+  PA_2_KPA = 0.001
+  HPA_2_KPA = 0.1
+  
+  df <- df %>%
+    mutate(
+      GPP = GPP * UMOL_TO_MOL * MOL_C_TO_GRAMS_C * SEC_2_HALF_HOUR,
+      ET = Qle * WM2_TO_KG_M2_S * SEC_2_HALF_HOUR, 
+      VPD = VPD * HPA_2_KPA,
+    )
+  
+  df$date <- ymd_hms(df$date)
+  
+  #Resample to daily
+  
+  df <- df %>%
+    mutate(date = floor_date(date, "day")) %>%
+    group_by(date) %>%
+    summarise(
+      GPP = sum(GPP, na.rm = TRUE),
+      ET = sum(ET, na.rm = TRUE), 
+      Qle = mean(Qle, na.rm = TRUE), 
+      SW_rad = mean(SW_rad, na.rm = TRUE),
+      Tair = mean(Tair, na.rm = TRUE), 
+      VPD = mean(VPD, na.rm = TRUE)
+    )
+  
+  return(df)
+  
+}
+```
+
+```{r}
+daily_Tum <- convert_to_daily(Tum_data_HH)
+
+daily_cum <- convert_to_daily(Cum_data_HH)
+```
+```{r}
+summary(daily_Tum$VPD)
+```
+
+```{r}
+summary(daily_cum$VPD)
+```
+
+Now, I am going to try fit GAMs. Using Cum_final and Tum_final. 
+
+Data - daily, growing-season GPP data for each site - Cum_final and Tum_final
+Met variables - Tair, VPD, SW_rad
+
+```{r}
+#Just gonna drop missing variables if there are any 
+
+Tum_final <- Tum_final %>% drop_na()
+
+Cum_final <- Cum_final %>% drop_na()
+
+```
+
+Create training/testing split:
+
+Temporal split - first 13 years train, last 2 years test
+
+```{r}
+
+train_data <- Tum_final %>% filter(year <= 2013)
+test_data <- Tum_final %>% filter(year > 2013)
+
+```
+
+Fit a GAM:
+
+```{r}
+library(mgcv)
+library(nlme)
+```
+
+```{r}
+gam_model1 <- gam(GPP ~ s(Tair) + s(VPD) + s(SW_rad), 
+                  data = train_data,
+                  method = "REML")
+```
+
+Predict on test data:
+
+```{r}
+
+predictions_gam1 <- predict(gam_model1, newdata = test_data)
+
+results_gam <- data.frame(
+  observed = test_data$GPP,
+  predicted = predictions_gam1
+)
+
+```
+
+Evaluate performance:
+
+```{r}
+rmse_gam <- sqrt(mean((results_gam$observed - results_gam$predicted)^2))
+rsq_gam  <- cor(results_gam$observed, results_gam$predicted)^2
+nse_gam  <- 1 - sum((results_gam$observed - results_gam$predicted)^2) /
+                 sum((results_gam$observed - mean(results_gam$observed))^2)
+
+cat("RMSE:", rmse_gam, "\n")
+cat("R-squared:", rsq_gam, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
+
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(results_gam, aes(x = observed, y = predicted)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  theme_minimal() +
+  labs(x = "Observed GPP", y = "Predicted GPP")
+
+```
 
