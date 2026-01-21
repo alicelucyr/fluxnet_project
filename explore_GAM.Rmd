@@ -97,4 +97,53 @@ Tum_data <- read_daily_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FL
 Cum_data <- read_daily_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUXDATAKIT/FLX_AU-Cum_FLUXDATAKIT_FULLSET_DD_2013_2018_2-3.csv")
 ```
 
-Now I am going to plot GPP across time
+I want to filter out growing season using short-wave radiation:
+
+```{r}
+define_gs <- function(df, rad_thresh = 100) {
+  df <- df %>%
+    mutate(
+      growing_season = SW_rad > rad_thresh & GPP > 0
+    )
+  
+  return(df)
+}
+```
+
+Apply to datasets:
+
+```{r}
+Tum_data <- define_gs(Tum_data)
+
+Cum_data <- define_gs(Cum_data)
+```
+
+Filter out to final subset of the data:
+
+```{r}
+
+Tum_final <- Tum_data %>% filter(growing_season)
+
+Cum_final <- Cum_data %>% filter(growing_season)
+
+
+```
+
+Confirm:
+
+```{r}
+ggplot(Cum_data, aes(date, GPP)) +
+  geom_line() +
+  geom_point(aes(color = growing_season)) +
+  scale_color_manual(values = c("grey70", "darkgreen")) +
+  theme_minimal()
+
+```
+```{r}
+summary(Tum_final$GPP)
+```
+
+Filtered by growing season, by shortwave radiation threshold and made sure GPP > 0 
+
+Now we can start to plot 
+
