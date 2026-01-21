@@ -420,4 +420,78 @@ ggplot(results_gam, aes(x = observed, y = predicted)) +
   labs(x = "Observed GPP", y = "Predicted GPP")
 
 ```
+GAM 1 - predictors VPD, Tair, and Shortwave radiation
+Results:
+RMSE: 2.075 (square of the residual, same as GPP, the lower RMSE the better)
+R-squared: 0.6877 (proportion of the variation in the dependent variable that is predictable from the independent variables, model explains 68% of the variability in the dependent variable)
+NSE: 0.626
 
+Now lets try train the model on Au-Tum site and then test on the Au-Cum site
+
+```{r}
+train_data_2 <- Tum_final
+test_data_2 <- Cum_final
+```
+
+```{r}
+library(mgcv)
+library(nlme)
+
+gam_model2 <- gam(GPP ~ s(Tair) + s(VPD) + s(SW_rad), 
+                  data = train_data_2,
+                  method = "REML")
+
+
+```
+
+Predict on the test data:
+
+```{r}
+predictions_gam2 <- predict(gam_model2, newdata = test_data_2)
+
+results_gam_2 <- data.frame(
+  observed = test_data_2$GPP,
+  predicted = predictions_gam2
+)
+
+```
+
+Evaluate performance
+
+```{r}
+rmse_gam2 <- sqrt(mean((results_gam_2$observed - results_gam_2$predicted)^2))
+rsq_gam2  <- cor(results_gam_2$observed, results_gam_2$predicted)^2
+nse_gam2  <- 1 - sum((results_gam_2$observed - results_gam_2$predicted)^2) /
+                 sum((results_gam_2$observed - mean(results_gam_2$observed))^2)
+
+cat("RMSE:", rmse_gam2, "\n")
+cat("R-squared:", rsq_gam2, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam2, "\n")
+
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(results_gam_2, aes(x = observed, y = predicted)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  theme_minimal() +
+  labs(x = "Observed GPP", y = "Predicted GPP")
+
+```
+```{r}
+summary(train_data_2[, c("Tair", "VPD", "SW_rad")])
+summary(test_data_2[, c("Tair", "VPD", "SW_rad")])
+```
+Trained out of site - not very good at predicting another site.
+
+Today I have done:
+- Finished functions reading flux csv, extracting site names
+- Started drafting GAMs, trained two GAMS - one within site and one out of site using GPP ~ VPD, Shortwave radiation and Tair
+
+Thursday:
+- What met variables are most important for predicting GPP (GAM)?
+- What other variables are important for loading in the flux data? 
+- What are the units of the variables? 
+- Play around with plots and ggplot - get a firm grasp on ggplot + being able to plot and present results from GAMs etc
