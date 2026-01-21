@@ -37,10 +37,57 @@ Going to add in read_flux function with extra column specifying site, country co
 
 ```{r}
 
+library(tidyverse)
+library(dplyr)
 
+#This reads the CSV file into a data frame called df, df now contains all columns from the CSV
 
+read_fluxdata <- function(fname) {
+  df <- read.csv(fname)
+  
+  #extracts file name and adds it to a column
+  site <- gsub(".csv", "", basename(fname))
+  df$site <- site
+
+  #convert TIMESTAMP_START to datetime and set as index
+  df <- df %>%
+    mutate(date = ymd_hm(TIMESTAMP)) %>%
+    relocate(date)
+  
+  df <- df %>%
+    mutate(
+      year = year(date),
+      doy = yday(date),
+      hod = hour(date)
+    )
+  
+  #Renaming a few things
+  df <- df %>%
+    rename(
+      GPP = GPP_NT_VUT_REF,
+      Qle = LE_F_MDS,
+      Short_rad = SW_IN_F_MDS,
+      VPD = VPD_F_MDS,
+      TEMP = TA_F_MDS
+    )
+  
+  vars_to_keep <- c("GPP", "Qle", "TEMP", "Short_rad", "VPD")
+  df <- df %>% select(date, all_of(vars_to_keep), year, doy, hod)
+  
+  return(df)
+  
+}
 
 ```
+
+Using the function to load in csv file of AU-Tum, Tumbarumba. Evergreen broadleaf forests, Australia.
+
+```{r}
+Tum_data <- read_fluxdata("/Users/alicerolfe/year_4_project/fluxnet_project/FLUXDATAKIT/FLX_AU-Tum_FLUXDATAKIT_FULLSET_DD_2002_2017_2-3.csv")
+
+```
+
+
 
 
 
