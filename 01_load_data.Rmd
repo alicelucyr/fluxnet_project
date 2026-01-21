@@ -8,39 +8,135 @@ date: "2026-01-20"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+Read in an eddy covariance flux file:
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
-```
-
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
-```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
-
-#Testing commit and push
-
-*Tue 20 Jan*
-Housekeeping - sorting out files and setting up github.
-See 'week 1' folder for preparation week code, exploring data, playing with functions + reading in flux files.
-Going to add in read_flux function with extra column specifying site, country code and country pulling information from the file name, then read in some flux files.
+This function (read_flux):
+- Reads in one flux csv file 
+- Works for HH data, see below for daily data
+- Outputs half-hourly data
 
 ```{r}
 
+read_flux <- function(fname) {
+  
+  #Ensure it reads one file at a time
+  if (length(fname) != 1) {
+    stop("read_flux() expects a single filename")
+  }
+  
+  df <- read.csv(fname)
+  
+  #extract site code from file name
+  base <- basename(fname)
+  no_ext <- gsub("\\.csv$", "", base)
+  
+ site <- regmatches(
+  no_ext,
+  regexpr("[A-Z]{2}-[A-Za-z]{3}[0-9]?", no_ext)
+)
+  #add site column
+  df$site <- site
+  
+   # Convert TIMESTAMP_START to datetime and set as index
+  df <- df %>%
+    mutate(date = ymd_hm(TIMESTAMP_START)) %>%
+    select(-TIMESTAMP_START, -TIMESTAMP_END) %>%
+    relocate(date)
 
+  df <- df %>%
+    mutate(
+      year = year(date),
+      doy = yday(date),
+      hod = hour(date)
+    )
+  
+#renaming some variables
+  
+   df <- df %>%
+    rename(
+      GPP = GPP_NT_VUT_REF,
+      Qle = LE_F_MDS,
+      Tair = TA_F_MDS,
+      SW_rad = SW_IN_F_MDS,
+      Rn = NETRAD,
+      VPD = VPD_F_MDS
+    )
 
+  vars_to_keep <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "VPD")
+  df <- df %>% select(date, all_of(vars_to_keep), year, doy, hod, site)
+  
+  return(df)
+  
+}
 
 ```
+
+This function (read_daily_flux):
+- Same as read_flux
+- Reads in daily datan and gives daily data
+
+```{r}
+read_daily_flux <- function(fname) {
+  
+   #Ensure it reads one file at a time
+  if (length(fname) != 1) {
+    stop("read_flux() expects a single filename")
+  }
+  
+  df <- read.csv(fname)
+  
+  #extract site code from file name
+  base <- basename(fname)
+  no_ext <- gsub("\\.csv$", "", base)
+  
+ site <- regmatches(
+  no_ext,
+  regexpr("[A-Z]{2}-[A-Za-z]{3}[0-9]?", no_ext)
+)
+  #add site column
+  df$site <- site
+  
+   # Convert TIMESTAMP to datetime and set as index
+  df <- df %>%
+    mutate(date = ymd(TIMESTAMP)) %>%
+    select(-TIMESTAMP) %>%
+    relocate(date)
+
+  df <- df %>%
+    mutate(
+      year = year(date),
+      doy = yday(date)
+    )
+  
+#renaming some variables
+  
+   df <- df %>%
+    rename(
+      GPP = GPP_NT_VUT_REF,
+      Qle = LE_F_MDS,
+      Tair = TA_F_MDS,
+      SW_rad = SW_IN_F_MDS,
+      Rn = NETRAD,
+      VPD = VPD_F_MDS
+    )
+
+  vars_to_keep <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "VPD")
+  df <- df %>% select(date, all_of(vars_to_keep), year, doy, site)
+  
+  return(df)
+  
+}
+```
+
+
+
+
+
+
+
+
+
+
 
 
 
