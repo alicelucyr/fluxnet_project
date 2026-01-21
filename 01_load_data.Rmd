@@ -8,52 +8,41 @@ date: "2026-01-20"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+Read in an eddy covariance flux file:
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
-```{r cars}
-summary(cars)
-```
-
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
-```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
-
-#Testing commit and push
-
-*Tue 20 Jan*
-Housekeeping - sorting out files and setting up github.
-See 'week 1' folder for preparation week code, exploring data, playing with functions + reading in flux files.
-Going to add in read_flux function with extra column specifying site, country code and country pulling information from the file name, then read in some flux files.
+This function (read_flux):
+- Reads in one flux csv file 
+- Works for HH data, see below for daily data
+- Outputs half-hourly data
 
 ```{r}
 
-library(tidyverse)
-library(dplyr)
-
-#This reads the CSV file into a data frame called df, df now contains all columns from the CSV
-
-read_fluxdata <- function(fname) {
+read_flux <- function(fname) {
+  
+  #Ensure it reads one file at a time
+  if (length(fname) != 1) {
+    stop("read_flux() expects a single filename")
+  }
+  
   df <- read.csv(fname)
   
-  #extracts file name and adds it to a column
-  site <- gsub(".csv", "", basename(fname))
-  df$site <- site
-
-  #convert TIMESTAMP_START to datetime and set as index
-  df <- df %>%
-    mutate(date = ymd_hm(TIMESTAMP)) %>%
-    relocate(date)
+  #extract site code from file name
+  base <- basename(fname)
+  no_ext <- gsub("\\.csv$", "", base)
   
+ site <- regmatches(
+  no_ext,
+  regexpr("[A-Z]{2}-[A-Za-z]{3}[0-9]?", no_ext)
+)
+  #add site column
+  df$site <- site
+  
+   # Convert TIMESTAMP_START to datetime and set as index
+  df <- df %>%
+    mutate(date = ymd_hm(TIMESTAMP_START)) %>%
+    select(-TIMESTAMP_START, -TIMESTAMP_END) %>%
+    relocate(date)
+
   df <- df %>%
     mutate(
       year = year(date),
@@ -61,18 +50,20 @@ read_fluxdata <- function(fname) {
       hod = hour(date)
     )
   
-  #Renaming a few things
-  df <- df %>%
+#renaming some variables
+  
+   df <- df %>%
     rename(
       GPP = GPP_NT_VUT_REF,
       Qle = LE_F_MDS,
-      Short_rad = SW_IN_F_MDS,
-      VPD = VPD_F_MDS,
-      TEMP = TA_F_MDS
+      Tair = TA_F_MDS,
+      SW_rad = SW_IN_F_MDS,
+      Rn = NETRAD,
+      VPD = VPD_F_MDS
     )
-  
-  vars_to_keep <- c("GPP", "Qle", "TEMP", "Short_rad", "VPD")
-  df <- df %>% select(date, all_of(vars_to_keep), year, doy, hod)
+
+  vars_to_keep <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "VPD")
+  df <- df %>% select(date, all_of(vars_to_keep), year, doy, hod, site)
   
   return(df)
   
@@ -80,12 +71,70 @@ read_fluxdata <- function(fname) {
 
 ```
 
-Using the function to load in csv file of AU-Tum, Tumbarumba. Evergreen broadleaf forests, Australia.
+This function (read_daily_flux):
+- Same as read_flux
+- Reads in daily datan and gives daily data
 
 ```{r}
-Tum_data <- read_fluxdata("/Users/alicerolfe/year_4_project/fluxnet_project/FLUXDATAKIT/FLX_AU-Tum_FLUXDATAKIT_FULLSET_DD_2002_2017_2-3.csv")
+read_daily_flux <- function(fname) {
+  
+   #Ensure it reads one file at a time
+  if (length(fname) != 1) {
+    stop("read_flux() expects a single filename")
+  }
+  
+  df <- read.csv(fname)
+  
+  #extract site code from file name
+  base <- basename(fname)
+  no_ext <- gsub("\\.csv$", "", base)
+  
+ site <- regmatches(
+  no_ext,
+  regexpr("[A-Z]{2}-[A-Za-z]{3}[0-9]?", no_ext)
+)
+  #add site column
+  df$site <- site
+  
+   # Convert TIMESTAMP to datetime and set as index
+  df <- df %>%
+    mutate(date = ymd(TIMESTAMP)) %>%
+    select(-TIMESTAMP) %>%
+    relocate(date)
 
+  df <- df %>%
+    mutate(
+      year = year(date),
+      doy = yday(date)
+    )
+  
+#renaming some variables
+  
+   df <- df %>%
+    rename(
+      GPP = GPP_NT_VUT_REF,
+      Qle = LE_F_MDS,
+      Tair = TA_F_MDS,
+      SW_rad = SW_IN_F_MDS,
+      Rn = NETRAD,
+      VPD = VPD_F_MDS
+    )
+
+  vars_to_keep <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "VPD")
+  df <- df %>% select(date, all_of(vars_to_keep), year, doy, site)
+  
+  return(df)
+  
+}
 ```
+
+
+
+
+
+
+
+
 
 
 
