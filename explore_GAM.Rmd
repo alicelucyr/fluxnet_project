@@ -9,3 +9,92 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 Read in two flux csv sites, fit GAMs training and testing within and out of site
+
+Going to read in two sites (daily data) using the function I made
+AU-Tum - evergreen broadleaf forest, mild with no dry season, warm summer
+AU-Cum - evergreen broadleaf forest
+
+Aims:
+1. Plot average, max and min GPP per year per site
+
+2. Look at VPD across both sites, is there any issues?
+
+3. Fit GAMs
+- Which met variables explain the most variation in GPP? VPD, temp, shortwave radiation...Which GAM is the best? One with only VPD, one with only shortwave radiation, one with both? R^2 and RMSE
+
+- Training and testing within site - can a GAM trained on 80% of the data from AU-Tum (e.g., years 1-18) predict GPP on the final 20% (e.g., last 2 years?)
+
+- Training and testing out of site - can a GAM trained on 100% of data from AU-Tum predict GPP of AU-Cum?
+
+
+```{r}
+rm(list = ls())
+```
+
+
+```{r}
+library(tidyverse)
+
+read_daily_flux <- function(fname) {
+  
+   #Ensure it reads one file at a time
+  if (length(fname) != 1) {
+    stop("read_flux() expects a single filename")
+  }
+  
+  df <- read.csv(fname)
+  
+  #extract site code from file name
+  base <- basename(fname)
+  no_ext <- gsub("\\.csv$", "", base)
+  
+ site <- regmatches(
+  no_ext,
+  regexpr("[A-Z]{2}-[A-Za-z]{3}[0-9]?", no_ext)
+)
+  #add site column
+  df$site <- site
+  
+   # Convert TIMESTAMP to datetime and set as index
+  df <- df %>%
+    mutate(date = ymd(TIMESTAMP)) %>%
+    select(-TIMESTAMP) %>%
+    relocate(date)
+
+  df <- df %>%
+    mutate(
+      year = year(date),
+      doy = yday(date)
+    )
+  
+#renaming some variables
+  
+   df <- df %>%
+    rename(
+      GPP = GPP_NT_VUT_REF,
+      Qle = LE_F_MDS,
+      Tair = TA_F_MDS,
+      SW_rad = SW_IN_F_MDS,
+      Rn = NETRAD,
+      VPD = VPD_F_MDS
+    )
+
+  vars_to_keep <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "VPD")
+  df <- df %>% select(date, all_of(vars_to_keep), year, doy, site)
+  
+  return(df)
+  
+}
+```
+
+Read in flux sites:
+
+```{r}
+Tum_data <- read_daily_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUXDATAKIT/FLX_AU-Tum_FLUXDATAKIT_FULLSET_DD_2002_2017_2-3.csv")
+```
+
+```{r}
+Cum_data <- read_daily_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUXDATAKIT/FLX_AU-Cum_FLUXDATAKIT_FULLSET_DD_2013_2018_2-3.csv")
+```
+
+Now I am going to plot GPP across time
