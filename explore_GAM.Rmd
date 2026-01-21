@@ -1,0 +1,11 @@
+---
+title: "explore_GAM"
+output: html_document
+date: "2026-01-21"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Read in two flux csv sites, fit GAMs training and testing within and out of site
