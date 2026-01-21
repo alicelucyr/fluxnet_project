@@ -54,3 +54,7 @@ flux_data/
 raw/
 *.csv
 
+#MacOS DS store
+.DS_Store
+**/.DS-Store
+
