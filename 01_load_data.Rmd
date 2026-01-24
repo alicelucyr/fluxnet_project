@@ -56,6 +56,7 @@ read_flux <- function(fname) {
     rename(
       GPP = GPP_NT_VUT_REF,
       Qle = LE_F_MDS,
+      Precip = P_ERA,
       Tair = TA_F_MDS,
       SW_rad = SW_IN_F_MDS,
       Rn = NETRAD,
@@ -127,9 +128,6 @@ read_daily_flux <- function(fname) {
   
 }
 ```
-
-
-
 
 
 
