@@ -490,8 +490,49 @@ Today I have done:
 - Finished functions reading flux csv, extracting site names
 - Started drafting GAMs, trained two GAMS - one within site and one out of site using GPP ~ VPD, Shortwave radiation and Tair
 
-Thursday:
-- What met variables are most important for predicting GPP (GAM)?
-- What other variables are important for loading in the flux data? 
-- What are the units of the variables? 
-- Play around with plots and ggplot - get a firm grasp on ggplot + being able to plot and present results from GAMs etc
+Thursday 22nd Jan:
+- Leave-one-out experiment. Load in 3 different sites (forest, grassland, crop?) - run GAM, which variable is the most important for predicting GPP in each ecosystem?
+- Does variable importance differ across ecosystems? (Tair, VPD, Shortwave radiation)
+
+Au_Tum = Australian evergreen broadleaf forest
+
+IT_BCi = Italian croplands, Borgo Cioffi 
+
+```{r}
+
+it_data <- read_daily_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUXDATAKIT/FLX_IT-BCi_FLUXDATAKIT_FULLSET_DD_2004_2020_2-3.csv")
+
+```
+
+Filter out negative GPP and growing season:
+
+```{r}
+it_data <- define_gs(it_data)
+```
+
+```{r}
+it_final <- it_data %>% filter(growing_season)
+```
+
+Double check:
+
+```{r}
+ggplot(it_data, aes(date, GPP)) +
+  geom_line() +
+  geom_point(aes(color = growing_season)) +
+  scale_color_manual(values = c("grey70", "darkgreen")) +
+  theme_minimal()
+```
+
+```{r}
+summary(it_final$VPD)
+```
+
+Not sure about the range of VPD - really need to ask Martin about units of VPD. 
+
+Now, going to fit GAMs for the leave-one-out experiment
+
+
+
+
+
