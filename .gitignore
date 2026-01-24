@@ -52,6 +52,7 @@ rsconnect/
 data/
 flux_data/
 raw/
+flux/
 *.csv
 
 #MacOS DS store
