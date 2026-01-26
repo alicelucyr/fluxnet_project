@@ -200,7 +200,23 @@ convert_to_daily <- function(df) {
 ```
 
 
-
+Growing season:
+- Currently a bit too harsh
+- Assumes that photosynthesis responds rapidly instantly to radiation
+ - growing season is defined purely by light
+ 
+ 
+ Ideas:
+ - PFT-specific thresholds?
+ Would require having a column in each site specifying its PFT
+ - Soft GPP threshold instead of GPP > 0 - percentile or 0.5
+ - Add temperature, growing season often light and thermal limited
+ - Rolling window - sustained activity. When mean GPP over ~7 days is positive?
+ - Radiation percentile instead of absolute threshold which may be wrong for some sites/seasons, adapts across sites
+ - Soil moisture/precipitation
+ 
+ PFT specific thresholds too much work
+ 
 
 
 
