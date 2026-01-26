@@ -8,6 +8,10 @@ date: "2026-01-21"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+```{r}
+rm(list = ls())
+```
+
 Read in two flux csv sites, fit GAMs training and testing within and out of site
 
 Going to read in two sites (daily data) using the function I made
@@ -421,6 +425,7 @@ ggplot(results_gam, aes(x = observed, y = predicted)) +
 
 ```
 GAM 1 - predictors VPD, Tair, and Shortwave radiation
+
 Results:
 RMSE: 2.075 (square of the residual, same as GPP, the lower RMSE the better)
 R-squared: 0.6877 (proportion of the variation in the dependent variable that is predictable from the independent variables, model explains 68% of the variability in the dependent variable)
@@ -537,6 +542,8 @@ Saturday:
 
 ```{r}
 
+library(tidyverse)
+
 read_flux <- function(fname) {
   
   #Ensure it reads one file at a time
@@ -606,35 +613,19 @@ AU_Das - Daly River Savanna. Tropical savanna
 US_Me3 - Evergreen needleleaf forest, mediterranean mild with dry, warm summers, Oregon
 
 ```{r}
-
 sav_data <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUX/halfhourly/FLX_AU-DaS_FLUXNET2015_FULLSET_HH_2008-2014_2-4.csv")
 
 enf_data <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUX/halfhourly/FLX_US-Me3_FLUXNET2015_FULLSET_HH_2004-2009_1-4.csv")
 
-
 ```
 
-Debugging:
+Now I am going to convert to daily and filter growing season. 
+Note: I wonder if there is a quicker way of doing this?
 
-```{r}
-test <- read.csv("/Users/alicerolfe/year_4_project/fluxnet_project/FLUX/halfhourly/FLX_US-Me3_FLUXNET2015_FULLSET_HH_2004-2009_1-4.csv")
-```
+Improve this growing season filter? 
+Should i have different growing season thresholds for different climates? Could I combine shortwave radiation with time of year/season/different for northern and southern hemisphere?
 
-```{r}
-dim(test)
-
-head(names(test))
-```
-
-```{r}
-"site" %in% names(test)
-```
-
-Now I am going to convert to daily and filter growing season. I wonder if there is a quicker way of doing this?
-
-Also, maybe I want to improve this growing season filter. Should i have different growing season thresholds for different climates? Could I combine shortwave radiation with time of year/season/different for northern and southern hemisphere?
-
-Going to make the growing season filter quicker by taking out the middle bit
+Going to make the growing season filter quicker by taking out the middle bit:
 
 ```{r}
 
@@ -642,7 +633,6 @@ filter_gs <- function(df, rad_thresh = 100) {
   df %>%
     filter(SW_rad > rad_thresh, GPP > 0)
 }
-
 
 ```
 
@@ -716,17 +706,6 @@ sav_final <- sav_final %>% drop_na()
 ```
 
 Load in libraries
-
-```{r}
-install.packages("caret")
-```
-```{r}
-install.packages("randomForest")
-```
-```{r}
-install.packages("zoo")
-```
-
 
 ```{r}
 library(tidyverse)
@@ -941,4 +920,71 @@ par(mfrow = c(2, 3))
 plot(enf_model, shade = TRUE, main = "ENF")
 plot(savanna_model, shade = TRUE, main = "SAV")
 ```
+
+Monday 26th Jan:
+- Which variables explain the variation in GPP the most?
+
+Got the final dataframes, daily measurements, no missing values, growing season...
+
+Savanna:
+
+```{r}
+str(sav_final$date)
+```
+
+```{r}
+train_data <- sav_final %>% filter(date <= as.POSIXct("2012-01-01"))
+test_data <- sav_final %>% filter(date > as.POSIXct("2012-01-01"))
+```
+
+Vapour pressure deficit & SW radiation:
+
+```{r}
+gam_vpd <- gam(GPP ~ s(VPD), data = train_data, method = "REML")
+gam_rad <- gam(GPP ~ s(SW_rad), data = train_data, method = "REML")
+
+pred_vpd <- predict(gam_vpd, newdata = test_data)
+pred_swr <- predict(gam_rad, newdata = test_data)
+
+```
+
+results:
+
+```{r}
+
+results_vpd <- data.frame(observed=test_data$GPP, Predicted=pred_vpd)
+
+```
+
+Stats:
+
+```{r}
+rmse_vpd <- sqrt(mean((results_vpd$observed - results_vpd$Predicted)^2))
+rsq_vpd <- cor(results_vpd$observed, results_vpd$Predicted)^2
+nse_vpd  <- 1 - sum((results_vpd$observed - results_vpd$Predicted)^2) /
+                 sum((results_vpd$observed - mean(results_vpd$observed))^2)
+
+cat("RMSE:", rmse_vpd, "\n")
+cat("R-squared:", rsq_vpd, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_vpd, "\n")
+```
+
+Shortwave radiation:
+
+```{r}
+results_swr <- data.frame(observed=test_data$GPP, predicted=pred_swr)
+```
+
+```{r}
+rmse_swr <- sqrt(mean((results_swr$observed - results_swr$predicted)^2))
+rsq_swr <- cor(results_swr$observed, results_swr$predicted)^2
+nse_swr  <- 1 - sum((results_swr$observed - results_swr$predicted)^2) /
+                 sum((results_swr$observed - mean(results_swr$observed))^2)
+
+cat("RMSE:", rmse_swr, "\n")
+cat("R-squared:", rsq_swr, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_swr, "\n")
+```
+
+
 
