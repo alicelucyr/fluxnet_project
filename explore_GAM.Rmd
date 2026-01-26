@@ -98,7 +98,7 @@ Tum_data <- read_daily_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FL
 ```
 
 ```{r}
-Cum_data <- read_daily_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUXDATAKIT/FLX_AU-Cum_FLUXDATAKIT_FULLSET_DD_2013_2018_2-3.csv")
+Cumb_data <- read_daily_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUXDATAKIT/FLX_AU-Cum_FLUXDATAKIT_FULLSET_DD_2013_2018_2-3.csv")
 ```
 
 I want to filter out growing season using short-wave radiation:
@@ -119,7 +119,7 @@ Apply to datasets:
 ```{r}
 Tum_data <- define_gs(Tum_data)
 
-Cum_data <- define_gs(Cum_data)
+Cumb_data <- define_gs(Cumb_data)
 ```
 
 Filter out to final subset of the data:
@@ -128,7 +128,7 @@ Filter out to final subset of the data:
 
 Tum_final <- Tum_data %>% filter(growing_season)
 
-Cum_final <- Cum_data %>% filter(growing_season)
+Cumb_final <- Cumb_data %>% filter(growing_season)
 
 
 ```
@@ -136,7 +136,7 @@ Cum_final <- Cum_data %>% filter(growing_season)
 Confirm:
 
 ```{r}
-ggplot(Cum_data, aes(date, GPP)) +
+ggplot(Cumb_data, aes(date, GPP)) +
   geom_line() +
   geom_point(aes(color = growing_season)) +
   scale_color_manual(values = c("grey70", "darkgreen")) +
@@ -149,14 +149,14 @@ summary(Tum_final$GPP)
 
 Filtered by growing season, by shortwave radiation threshold and made sure GPP > 0 
 
-Now we can start to plot GPP per year.
+Looking at some GPP plots for each site:
 
 ```{r}
 library(ggplot2)
 
-ggplot(Cum_final, aes(year, GPP)) +
+ggplot(Cumb_final, aes(year, GPP)) +
   geom_point(alpha = 0.6, color = "green") +
-  labs(title = "Aus Cum GPP by year") +
+  labs(title = "Aus Cumb GPP by year") +
   theme_minimal()
 
 
@@ -169,7 +169,7 @@ library(dplyr)
 
 #Combine the datasets
 
-dataframe_aus <- bind_rows(Tum_final, Cum_final)
+dataframe_aus <- bind_rows(Tum_final, Cumb_final)
 
 ```
 
@@ -186,7 +186,6 @@ df_summary <- dataframe_aus %>%
   
   ungroup()
 ```
-
 
 plot
 
@@ -224,129 +223,7 @@ summary(Tum_data$VPD)
 ```
 
 ```{r}
-summary(Cum_data$VPD)
-```
-
-Double check VPD
-1. Loaded in daily data, filtered to growing season
-now
-2. Load in half-hourly data, convert to daily, in theory the VPD range should be exactly the same
-
-```{r}
-read_flux <- function(fname) {
-  
-  #Ensure it reads one file at a time
-  if (length(fname) != 1) {
-    stop("read_flux() expects a single filename")
-  }
-  
-  df <- read.csv(fname)
-  
-  #extract site code from file name
-  base <- basename(fname)
-  no_ext <- gsub("\\.csv$", "", base)
-  
- site <- regmatches(
-  no_ext,
-  regexpr("[A-Z]{2}-[A-Za-z]{3}[0-9]?", no_ext)
-)
-  #add site column
-  df$site <- site
-  
-   # Convert TIMESTAMP_START to datetime and set as index
-  df <- df %>%
-    mutate(date = ymd_hm(TIMESTAMP_START)) %>%
-    select(-TIMESTAMP_START, -TIMESTAMP_END) %>%
-    relocate(date)
-
-  df <- df %>%
-    mutate(
-      year = year(date),
-      doy = yday(date),
-      hod = hour(date)
-    )
-  
-#renaming some variables
-  
-   df <- df %>%
-    rename(
-      GPP = GPP_NT_VUT_REF,
-      Qle = LE_F_MDS,
-      Tair = TA_F_MDS,
-      SW_rad = SW_IN_F_MDS,
-      Rn = NETRAD,
-      VPD = VPD_F_MDS
-    )
-
-  vars_to_keep <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "VPD")
-  df <- df %>% select(date, all_of(vars_to_keep), year, doy, hod, site)
-  
-  return(df)
-  
-}
-```
-
-```{r}
-Cum_data_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUXDATAKIT/FLX_AU-Cum_FLUXDATAKIT_FULLSET_HH_2013_2018_2-3.csv")
-```
-
-```{r}
-Tum_data_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUXDATAKIT/FLX_AU-Tum_FLUXDATAKIT_FULLSET_HH_2002_2017_2-3.csv")
-```
-
-Now convert these datasets to daily:
-
-```{r}
-convert_to_daily <- function(df) {
-  
-  #Conversion constants
-  
-  UMOL_TO_MOL <- 1E-6
-  MOL_C_TO_GRAMS_C <- 12.0
-  SEC_2_HALF_HOUR <- 1800.
-  WM2_TO_KG_M2_S <- 1.0 /  ( 2.45 * 1E6)
-  PA_2_KPA = 0.001
-  HPA_2_KPA = 0.1
-  
-  df <- df %>%
-    mutate(
-      GPP = GPP * UMOL_TO_MOL * MOL_C_TO_GRAMS_C * SEC_2_HALF_HOUR,
-      ET = Qle * WM2_TO_KG_M2_S * SEC_2_HALF_HOUR, 
-      VPD = VPD * HPA_2_KPA,
-    )
-  
-  df$date <- ymd_hms(df$date)
-  
-  #Resample to daily
-  
-  df <- df %>%
-    mutate(date = floor_date(date, "day")) %>%
-    group_by(date) %>%
-    summarise(
-      GPP = sum(GPP, na.rm = TRUE),
-      ET = sum(ET, na.rm = TRUE), 
-      Qle = mean(Qle, na.rm = TRUE), 
-      SW_rad = mean(SW_rad, na.rm = TRUE),
-      Tair = mean(Tair, na.rm = TRUE), 
-      VPD = mean(VPD, na.rm = TRUE)
-    )
-  
-  return(df)
-  
-}
-```
-
-```{r}
-daily_Tum <- convert_to_daily(Tum_data_HH)
-
-daily_cum <- convert_to_daily(Cum_data_HH)
-```
-```{r}
-summary(daily_Tum$VPD)
-```
-
-```{r}
-summary(daily_cum$VPD)
+summary(Cumb_data$VPD)
 ```
 
 Now, I am going to try fit GAMs. Using Cum_final and Tum_final. 
@@ -359,11 +236,11 @@ Met variables - Tair, VPD, SW_rad
 
 Tum_final <- Tum_final %>% drop_na()
 
-Cum_final <- Cum_final %>% drop_na()
+Cumb_final <- Cumb_final %>% drop_na()
 
 ```
 
-Create training/testing split:
+GAM: Tumbawumba site - training and testing within site
 
 Temporal split - first 13 years train, last 2 years test
 
@@ -414,6 +291,8 @@ cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
 
 ```
 
+Plot observed vs predicted:
+
 ```{r}
 library(ggplot2)
 
@@ -431,11 +310,11 @@ RMSE: 2.075 (square of the residual, same as GPP, the lower RMSE the better)
 R-squared: 0.6877 (proportion of the variation in the dependent variable that is predictable from the independent variables, model explains 68% of the variability in the dependent variable)
 NSE: 0.626
 
-Now lets try train the model on Au-Tum site and then test on the Au-Cum site
+Now lets try train the model on Au-Tum site and then test on the Au-Cum site (out-of-site testing)
 
 ```{r}
 train_data_2 <- Tum_final
-test_data_2 <- Cum_final
+test_data_2 <- Cumb_final
 ```
 
 ```{r}
@@ -491,51 +370,16 @@ summary(test_data_2[, c("Tair", "VPD", "SW_rad")])
 ```
 Trained out of site - not very good at predicting another site.
 
+Why is this?
+- Two sites, both evergreen broadleaf forests
+- Both not very far from one another?
+- Different dominant species?
+- Different precipitation?
+- Is one managed and one is not?
+ 
 Today I have done:
 - Finished functions reading flux csv, extracting site names
 - Started drafting GAMs, trained two GAMS - one within site and one out of site using GPP ~ VPD, Shortwave radiation and Tair
-
-Thursday 22nd Jan:
-- Leave-one-out experiment. Load in 3 different sites (forest, grassland, crop?) - run GAM, which variable is the most important for predicting GPP in each ecosystem?
-- Does variable importance differ across ecosystems? (Tair, VPD, Shortwave radiation)
-
-Au_Tum = Australian evergreen broadleaf forest
-
-IT_BCi = Italian croplands, Borgo Cioffi 
-
-```{r}
-
-it_data <- read_daily_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUXDATAKIT/FLX_IT-BCi_FLUXDATAKIT_FULLSET_DD_2004_2020_2-3.csv")
-
-```
-
-Filter out negative GPP and growing season:
-
-```{r}
-it_data <- define_gs(it_data)
-```
-
-```{r}
-it_final <- it_data %>% filter(growing_season)
-```
-
-Double check:
-
-```{r}
-ggplot(it_data, aes(date, GPP)) +
-  geom_line() +
-  geom_point(aes(color = growing_season)) +
-  scale_color_manual(values = c("grey70", "darkgreen")) +
-  theme_minimal()
-```
-
-```{r}
-summary(it_final$VPD)
-```
-
-```{r}
-rm(list = ls() )
-```
 
 Saturday:
 - New flux data, load that in and fit some GAMs on that data
@@ -713,8 +557,6 @@ library(caret)
 library(randomForest)
 library(zoo)
 library(mgcv)
-
-
 ```
 
 Remove missing value flags (-999)
@@ -760,10 +602,8 @@ priestley_taylor_pet <- function(Rn, Tair, P) {
 
 
 ```{r}
-
 sav_final$pet <- priestley_taylor_pet(sav_final$Rn, sav_final$Tair, sav_final$Pa)
 sav_final$cwd <- sav_final$pet - sav_final$ET
-
 
 ```
 
@@ -850,6 +690,18 @@ cat("R-squared:", rsq_gam, "\n")
 cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
 ```
 
+plot:
+
+```{r}
+library(ggplot2)
+
+ggplot(results_sav, aes(x = observed, y = Predicted)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  theme_minimal() +
+  labs(x = "Observed GPP", y = "Predicted GPP")
+```
+
 fit the GAM model for the evergreen needleleaf forest:
 
 ```{r}
@@ -920,6 +772,18 @@ par(mfrow = c(2, 3))
 plot(enf_model, shade = TRUE, main = "ENF")
 plot(savanna_model, shade = TRUE, main = "SAV")
 ```
+enf plot:
+
+```{r}
+library(ggplot2)
+
+ggplot(results_enf, aes(x = observed, y = Predicted)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  theme_minimal() +
+  labs(x = "Observed GPP", y = "Predicted GPP")
+```
+
 
 Monday 26th Jan:
 - Which variables explain the variation in GPP the most?
