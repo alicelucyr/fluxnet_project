@@ -12,12 +12,12 @@ Tue 27th Jan:
 
 Going to look at the North Australian Tropical Transect flux sites.
 
-1. Howard Springs = AU-How (2001-2014)
-2. Daly River Pasture = AU-DaP (2007-2013)
-3. Daly River Savanna = AU-DaS (2008-2014)
-4. Dry River = AU-Dry (2008-2014)
-5. Sturt Plains = AU-Stp (2008-2014)
-6. Alice Springs = AU-ASM (2010-2014)
+1. Howard Springs = AU-How (2001-2014) 13 years
+2. Daly River Pasture = AU-DaP (2007-2013) 6 years
+3. Daly River Savanna = AU-DaS (2008-2014) 6 years
+4. Dry River = AU-Dry (2008-2014) 6 years
+5. Sturt Plains = AU-Stp (2008-2014) 6 years
+6. Alice Springs = AU-ASM (2010-2014) 4 years
 
 These flux sites are located along a precipitation gradient. This rainfall gradient is a 'natural laboratory' with Howard Springs as the wettest and Alice Springs the driest. 
 
@@ -195,29 +195,8 @@ ggplot(df_summary, aes(x = year, group = site)) +
   labs(y = "GPP", x = "Year")
 ```
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+Question: Which site along the NATT is the most/least predictable?
+"Along a precipitation gradient (wet -> dry), how well can atmospheric drivers predict GPP?
 
 5. Fit GAM firstly with Tair ~ GPP
 
@@ -230,41 +209,50 @@ library(randomForest)
 library(zoo)
 library(mgcv)
 ```
+
 - Train/Test within site
 
 ```{r}
-idx <- createDataPartition(How_final$GPP, p=0.8, list=FALSE)
-train_data <- How_final[idx, ]
-test_data <- How_final[-idx, ]
+idx <- createDataPartition(Asm_final$GPP, p=0.8, list=FALSE)
+train_data <- Asm_final[idx, ]
+test_data <- Asm_final[-idx, ]
 ```
 
 - Fit GAM
 
 ```{r}
-tair_model <- gam(GPP ~ s(VPD) + s(SW_rad) + s(Precip), data=train_data, 
+How_model <- gam(GPP ~ s(VPD) + s(SW_rad) + s(Precip) + s(Tair), data=train_data, 
                  method = "REML")
 ```
 
 - Get some stats:
 
 ```{r}
-summary(tair_model)
+summary(How_model)
 ```
 ```{r}
 
-predictions_tair <- predict(tair_model, newdata=test_data)
-results_tair <- data.frame(observed=test_data$GPP, predicted=predictions_tair)
+predictions_how <- predict(How_model, newdata=test_data)
+results_how <- data.frame(observed=test_data$GPP, predicted=predictions_how)
 ```
 
 ```{r}
-rmse_gam <- sqrt(mean((results_tair$observed - results_tair$predicted)^2))
-rsq_gam <- cor(results_tair$observed, results_tair$predicted)^2
-mean_observed_gam <- mean(results_tair$observed)
-nse_gam <- (1 - sum((results_tair$observed - results_tair$predicted)^2) / 
-              sum((results_tair$observed - mean_observed_gam)^2))
+rmse_gam <- sqrt(mean((results_how$observed - results_how$predicted)^2))
+rsq_gam <- cor(results_how$observed, results_how$predicted)^2
+mean_observed_gam <- mean(results_how$observed)
+nse_gam <- (1 - sum((results_how$observed - results_how$predicted)^2) / 
+              sum((results_how$observed - mean_observed_gam)^2))
 cat("RMSE:", rmse_gam, "\n")
 cat("R-squared:", rsq_gam, "\n")
 cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
 ```
+
+Comparing the R-squared from each of the models, AU-DaP is the most predictable site and AU-Stp is the least predictable site.
+
+When comparing RMSE, AU-Asm has the lowest RMSE and AU-Dap has the highest RMSE. 
+
+
+
+
 
 
