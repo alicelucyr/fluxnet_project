@@ -10,8 +10,9 @@ knitr::opts_chunk$set(echo = TRUE)
 
 Read in an eddy covariance flux file:
 
-This function (read_flux):
+**read_flux function:**
 - Reads in one flux csv file 
+- Adds column specifying site from the filename
 - Works for HH data, see below for daily data
 - Outputs half-hourly data
 
@@ -32,8 +33,13 @@ read_flux <- function(fname) {
   
  site <- regmatches(
   no_ext,
-  regexpr("[A-Z]{2}-[A-Za-z]{3}[0-9]?", no_ext)
+  regexpr("[A-Z]{2}-[A-Za-z]{2,3}[0-9]?", no_ext)
 )
+ 
+ if(length(site) == 0) {
+   stop(paste("Could not extract site code from filename:", base))
+ }
+ 
   #add site column
   df$site <- site
   
@@ -60,10 +66,12 @@ read_flux <- function(fname) {
       Tair = TA_F_MDS,
       SW_rad = SW_IN_F_MDS,
       Rn = NETRAD,
-      VPD = VPD_F_MDS
+      Pa = PA_F,
+      VPD = VPD_F_MDS,
+      Rn = NETRAD
     )
 
-  vars_to_keep <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "VPD")
+  vars_to_keep <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "VPD", "Precip", "Pa", "Rn")
   df <- df %>% select(date, all_of(vars_to_keep), year, doy, hod, site)
   
   return(df)
@@ -72,7 +80,7 @@ read_flux <- function(fname) {
 
 ```
 
-This function (read_daily_flux):
+**This function (read_daily_flux):**
 - Same as read_flux
 - Reads in daily data and gives daily data
 
@@ -129,10 +137,84 @@ read_daily_flux <- function(fname) {
 }
 ```
 
+**Growing season filter function:**
+- Shortwave radiation threshold
+- GPP > 0 threshold
+
+```{r}
+filter_gs <- function(df, rad_thresh = 100) {
+  df %>%
+    filter(SW_rad > rad_thresh, GPP > 0)
+}
+```
+
+Apply to datasets like this:
+
+growing_season_data <- filter_gs(data)
+
+**Convert to daily function:**
+
+```{r}
+convert_to_daily <- function(df) {
+  
+  #Conversion constants
+  
+  UMOL_TO_MOL <- 1E-6
+  MOL_C_TO_GRAMS_C <- 12.0
+  SEC_2_HALF_HOUR <- 1800.
+  WM2_TO_KG_M2_S <- 1.0 /  ( 2.45 * 1E6)
+  PA_2_KPA = 0.001
+  HPA_2_KPA = 0.1
+  
+  df <- df %>%
+    mutate(
+      GPP = GPP * UMOL_TO_MOL * MOL_C_TO_GRAMS_C * SEC_2_HALF_HOUR,
+      ET = Qle * WM2_TO_KG_M2_S * SEC_2_HALF_HOUR, 
+      VPD = VPD * HPA_2_KPA,
+      Precip = Precip * SEC_2_HALF_HOUR
+    )
+  
+  df$date <- ymd_hms(df$date)
+  
+  #Resample to daily
+  
+  df <- df %>%
+    mutate(date = floor_date(date, "day")) %>%
+    group_by(site, date) %>%
+    summarise(
+      GPP = sum(GPP, na.rm = TRUE),
+      ET = sum(ET, na.rm = TRUE), 
+      Qle = mean(Qle, na.rm = TRUE), 
+      SW_rad = mean(SW_rad, na.rm = TRUE),
+      Tair = mean(Tair, na.rm = TRUE), 
+      VPD = mean(VPD, na.rm = TRUE),
+      Precip = sum(Precip, na.rm = TRUE),
+      Pa = mean(Pa, na.rm = TRUE),
+      Rn = mean(Rn, na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+  return(df)
+  
+}
+```
 
 
-
-
+Growing season:
+- Currently a bit too harsh
+- Assumes that photosynthesis responds rapidly instantly to radiation
+ - growing season is defined purely by light
+ 
+ Ideas:
+ - PFT-specific thresholds?
+ Would require having a column in each site specifying its PFT
+ - Soft GPP threshold instead of GPP > 0 - percentile or 0.5
+ - Add temperature, growing season often light and thermal limited
+ - Rolling window - sustained activity. When mean GPP over ~7 days is positive?
+ - Radiation percentile instead of absolute threshold which may be wrong for some sites/seasons, adapts across sites
+ - Soil moisture/precipitation?
+ - **Top 3 months of highest GPP during the year**
+ 
 
 
 

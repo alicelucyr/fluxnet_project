@@ -8,4 +8,847 @@ date: "2026-01-21"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+```{r}
+rm(list = ls())
+```
+
 Read in two flux csv sites, fit GAMs training and testing within and out of site
+
+Going to read in two sites (daily data) using the function I made
+AU-Tum - evergreen broadleaf forest, mild with no dry season, warm summer
+AU-Cum - evergreen broadleaf forest
+
+Aims:
+1. Plot average, max and min GPP per year per site
+
+2. Look at VPD across both sites, is there any issues?
+
+3. Fit GAMs
+- Which met variables explain the most variation in GPP? VPD, temp, shortwave radiation...Which GAM is the best? One with only VPD, one with only shortwave radiation, one with both? R^2 and RMSE
+
+- Training and testing within site - can a GAM trained on 80% of the data from AU-Tum (e.g., years 1-18) predict GPP on the final 20% (e.g., last 2 years?)
+
+- Training and testing out of site - can a GAM trained on 100% of data from AU-Tum predict GPP of AU-Cum?
+
+
+```{r}
+rm(list = ls())
+```
+
+
+```{r}
+library(tidyverse)
+
+read_daily_flux <- function(fname) {
+  
+   #Ensure it reads one file at a time
+  if (length(fname) != 1) {
+    stop("read_flux() expects a single filename")
+  }
+  
+  df <- read.csv(fname)
+  
+  #extract site code from file name
+  base <- basename(fname)
+  no_ext <- gsub("\\.csv$", "", base)
+  
+ site <- regmatches(
+  no_ext,
+  regexpr("[A-Z]{2}-[A-Za-z]{3}[0-9]?", no_ext)
+)
+  #add site column
+  df$site <- site
+  
+   # Convert TIMESTAMP to datetime and set as index
+  df <- df %>%
+    mutate(date = ymd(TIMESTAMP)) %>%
+    select(-TIMESTAMP) %>%
+    relocate(date)
+
+  df <- df %>%
+    mutate(
+      year = year(date),
+      doy = yday(date)
+    )
+  
+#renaming some variables
+  
+   df <- df %>%
+    rename(
+      GPP = GPP_NT_VUT_REF,
+      Qle = LE_F_MDS,
+      Tair = TA_F_MDS,
+      SW_rad = SW_IN_F_MDS,
+      Rn = NETRAD,
+      VPD = VPD_F_MDS
+    )
+
+  vars_to_keep <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "VPD")
+  df <- df %>% select(date, all_of(vars_to_keep), year, doy, site)
+  
+  return(df)
+  
+}
+```
+
+Read in flux sites:
+
+```{r}
+Tum_data <- read_daily_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUXDATAKIT/FLX_AU-Tum_FLUXDATAKIT_FULLSET_DD_2002_2017_2-3.csv")
+```
+
+```{r}
+Cumb_data <- read_daily_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUXDATAKIT/FLX_AU-Cum_FLUXDATAKIT_FULLSET_DD_2013_2018_2-3.csv")
+```
+
+I want to filter out growing season using short-wave radiation:
+
+```{r}
+define_gs <- function(df, rad_thresh = 100) {
+  df <- df %>%
+    mutate(
+      growing_season = SW_rad > rad_thresh & GPP > 0
+    )
+  
+  return(df)
+}
+```
+
+Apply to datasets:
+
+```{r}
+Tum_data <- define_gs(Tum_data)
+
+Cumb_data <- define_gs(Cumb_data)
+```
+
+Filter out to final subset of the data:
+
+```{r}
+
+Tum_final <- Tum_data %>% filter(growing_season)
+
+Cumb_final <- Cumb_data %>% filter(growing_season)
+
+
+```
+
+Confirm:
+
+```{r}
+ggplot(Cumb_data, aes(date, GPP)) +
+  geom_line() +
+  geom_point(aes(color = growing_season)) +
+  scale_color_manual(values = c("grey70", "darkgreen")) +
+  theme_minimal()
+
+```
+```{r}
+summary(Tum_final$GPP)
+```
+
+Filtered by growing season, by shortwave radiation threshold and made sure GPP > 0 
+
+Looking at some GPP plots for each site:
+
+```{r}
+library(ggplot2)
+
+ggplot(Cumb_final, aes(year, GPP)) +
+  geom_point(alpha = 0.6, color = "green") +
+  labs(title = "Aus Cumb GPP by year") +
+  theme_minimal()
+
+
+
+```
+So now, I want to plot average, max and minimum GPP per year for each site
+
+```{r}
+library(dplyr)
+
+#Combine the datasets
+
+dataframe_aus <- bind_rows(Tum_final, Cumb_final)
+
+```
+
+Summarise per site per year
+
+```{r}
+df_summary <- dataframe_aus %>%
+  group_by(site, year) %>%
+  summarise(
+    GPP_mean = mean(GPP, na.rm = TRUE),
+    GPP_max = max(GPP, na.rm = TRUE),
+    GPP_min = min(GPP, na.rm = TRUE)
+  ) %>%
+  
+  ungroup()
+```
+
+plot
+
+```{r}
+library(tidyr)
+library(ggplot2)
+
+df_long <- df_summary %>%
+  pivot_longer(
+    cols = c(GPP_mean, GPP_max, GPP_min),
+    names_to = "stat",
+    values_to = "GPP"
+  )
+
+ggplot(df_long, aes(x = year, y = GPP, color = stat)) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~site) +
+  theme_minimal() +
+  labs(y = "GPP", x = "Year", color = "Statistic")
+
+```
+```{r}
+ggplot(df_summary, aes(x = year, group = site)) +
+  geom_ribbon(aes(ymin = GPP_min, ymax = GPP_max, fill = site), alpha = 0.2) +
+  geom_line(aes(y = GPP_mean, color = site), size = 1) +
+  theme_minimal() +
+  labs(y = "GPP", x = "Year")
+
+```
+Now let's have a look at the VPD
+
+```{r}
+summary(Tum_data$VPD)
+```
+
+```{r}
+summary(Cumb_data$VPD)
+```
+
+Now, I am going to try fit GAMs. Using Cum_final and Tum_final. 
+
+Data - daily, growing-season GPP data for each site - Cum_final and Tum_final
+Met variables - Tair, VPD, SW_rad
+
+```{r}
+#Just gonna drop missing variables if there are any 
+
+Tum_final <- Tum_final %>% drop_na()
+
+Cumb_final <- Cumb_final %>% drop_na()
+
+```
+
+GAM: Tumbawumba site - training and testing within site
+
+Temporal split - first 13 years train, last 2 years test
+
+```{r}
+
+train_data <- Tum_final %>% filter(year <= 2013)
+test_data <- Tum_final %>% filter(year > 2013)
+
+```
+
+Fit a GAM:
+
+```{r}
+library(mgcv)
+library(nlme)
+```
+
+```{r}
+gam_model1 <- gam(GPP ~ s(Tair) + s(VPD) + s(SW_rad), 
+                  data = train_data,
+                  method = "REML")
+```
+
+Predict on test data:
+
+```{r}
+
+predictions_gam1 <- predict(gam_model1, newdata = test_data)
+
+results_gam <- data.frame(
+  observed = test_data$GPP,
+  predicted = predictions_gam1
+)
+
+```
+
+Evaluate performance:
+
+```{r}
+rmse_gam <- sqrt(mean((results_gam$observed - results_gam$predicted)^2))
+rsq_gam  <- cor(results_gam$observed, results_gam$predicted)^2
+nse_gam  <- 1 - sum((results_gam$observed - results_gam$predicted)^2) /
+                 sum((results_gam$observed - mean(results_gam$observed))^2)
+
+cat("RMSE:", rmse_gam, "\n")
+cat("R-squared:", rsq_gam, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
+
+```
+
+Plot observed vs predicted:
+
+```{r}
+library(ggplot2)
+
+ggplot(results_gam, aes(x = observed, y = predicted)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  theme_minimal() +
+  labs(x = "Observed GPP", y = "Predicted GPP")
+
+```
+GAM 1 - predictors VPD, Tair, and Shortwave radiation
+
+Results:
+RMSE: 2.075 (square of the residual, same as GPP, the lower RMSE the better)
+R-squared: 0.6877 (proportion of the variation in the dependent variable that is predictable from the independent variables, model explains 68% of the variability in the dependent variable)
+NSE: 0.626
+
+Now lets try train the model on Au-Tum site and then test on the Au-Cum site (out-of-site testing)
+
+```{r}
+train_data_2 <- Tum_final
+test_data_2 <- Cumb_final
+```
+
+```{r}
+library(mgcv)
+library(nlme)
+
+gam_model2 <- gam(GPP ~ s(Tair) + s(VPD) + s(SW_rad), 
+                  data = train_data_2,
+                  method = "REML")
+
+
+```
+
+Predict on the test data:
+
+```{r}
+predictions_gam2 <- predict(gam_model2, newdata = test_data_2)
+
+results_gam_2 <- data.frame(
+  observed = test_data_2$GPP,
+  predicted = predictions_gam2
+)
+
+```
+
+Evaluate performance
+
+```{r}
+rmse_gam2 <- sqrt(mean((results_gam_2$observed - results_gam_2$predicted)^2))
+rsq_gam2  <- cor(results_gam_2$observed, results_gam_2$predicted)^2
+nse_gam2  <- 1 - sum((results_gam_2$observed - results_gam_2$predicted)^2) /
+                 sum((results_gam_2$observed - mean(results_gam_2$observed))^2)
+
+cat("RMSE:", rmse_gam2, "\n")
+cat("R-squared:", rsq_gam2, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam2, "\n")
+
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(results_gam_2, aes(x = observed, y = predicted)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  theme_minimal() +
+  labs(x = "Observed GPP", y = "Predicted GPP")
+
+```
+```{r}
+summary(train_data_2[, c("Tair", "VPD", "SW_rad")])
+summary(test_data_2[, c("Tair", "VPD", "SW_rad")])
+```
+Trained out of site - not very good at predicting another site.
+
+Why is this?
+- Two sites, both evergreen broadleaf forests
+- Both not very far from one another?
+- Different dominant species?
+- Different precipitation?
+- Is one managed and one is not?
+ 
+Today I have done:
+- Finished functions reading flux csv, extracting site names
+- Started drafting GAMs, trained two GAMS - one within site and one out of site using GPP ~ VPD, Shortwave radiation and Tair
+
+Saturday:
+- New flux data, load that in and fit some GAMs on that data
+
+```{r}
+
+library(tidyverse)
+
+read_flux <- function(fname) {
+  
+  #Ensure it reads one file at a time
+  if (length(fname) != 1) {
+    stop("read_flux() expects a single filename")
+  }
+  
+  df <- read.csv(fname)
+  
+  #extract site code from file name
+  base <- basename(fname)
+  no_ext <- gsub("\\.csv$", "", base)
+  
+ site <- regmatches(
+  no_ext,
+  regexpr("[A-Z]{2}-[A-Za-z]{2,3}[0-9]?", no_ext)
+)
+ 
+ if(length(site) == 0) {
+   stop(paste("Could not extract site code from filename:", base))
+ }
+ 
+  #add site column
+  df$site <- site
+  
+   # Convert TIMESTAMP_START to datetime and set as index
+  df <- df %>%
+    mutate(date = ymd_hm(TIMESTAMP_START)) %>%
+    select(-TIMESTAMP_START, -TIMESTAMP_END) %>%
+    relocate(date)
+
+  df <- df %>%
+    mutate(
+      year = year(date),
+      doy = yday(date),
+      hod = hour(date)
+    )
+  
+#renaming some variables
+  
+   df <- df %>%
+    rename(
+      GPP = GPP_NT_VUT_REF,
+      Qle = LE_F_MDS,
+      Precip = P_ERA,
+      Tair = TA_F_MDS,
+      SW_rad = SW_IN_F_MDS,
+      Rn = NETRAD,
+      Pa = PA_F,
+      VPD = VPD_F_MDS,
+      Rn = NETRAD
+    )
+
+  vars_to_keep <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "VPD", "Precip", "Pa", "Rn")
+  df <- df %>% select(date, all_of(vars_to_keep), year, doy, hod, site)
+  
+  return(df)
+  
+}
+
+```
+
+Load in two sites:
+
+AU_Das - Daly River Savanna. Tropical savanna
+
+US_Me3 - Evergreen needleleaf forest, mediterranean mild with dry, warm summers, Oregon
+
+```{r}
+sav_data <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUX/halfhourly/FLX_AU-DaS_FLUXNET2015_FULLSET_HH_2008-2014_2-4.csv")
+
+enf_data <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUX/halfhourly/FLX_US-Me3_FLUXNET2015_FULLSET_HH_2004-2009_1-4.csv")
+
+```
+
+Now I am going to convert to daily and filter growing season. 
+Note: I wonder if there is a quicker way of doing this?
+
+Improve this growing season filter? 
+Should i have different growing season thresholds for different climates? Could I combine shortwave radiation with time of year/season/different for northern and southern hemisphere?
+
+Going to make the growing season filter quicker by taking out the middle bit:
+
+```{r}
+
+filter_gs <- function(df, rad_thresh = 100) {
+  df %>%
+    filter(SW_rad > rad_thresh, GPP > 0)
+}
+
+```
+
+```{r}
+enf_gs <- filter_gs(enf_data)
+
+sav_gs <- filter_gs(sav_data)
+```
+
+Convert to daily:
+
+```{r}
+convert_to_daily <- function(df) {
+  
+  #Conversion constants
+  
+  UMOL_TO_MOL <- 1E-6
+  MOL_C_TO_GRAMS_C <- 12.0
+  SEC_2_HALF_HOUR <- 1800.
+  WM2_TO_KG_M2_S <- 1.0 /  ( 2.45 * 1E6)
+  PA_2_KPA = 0.001
+  HPA_2_KPA = 0.1
+  
+  df <- df %>%
+    mutate(
+      GPP = GPP * UMOL_TO_MOL * MOL_C_TO_GRAMS_C * SEC_2_HALF_HOUR,
+      ET = Qle * WM2_TO_KG_M2_S * SEC_2_HALF_HOUR, 
+      VPD = VPD * HPA_2_KPA,
+      Precip = Precip * SEC_2_HALF_HOUR
+    )
+  
+  df$date <- ymd_hms(df$date)
+  
+  #Resample to daily
+  
+  df <- df %>%
+    mutate(date = floor_date(date, "day")) %>%
+    group_by(site, date) %>%
+    summarise(
+      GPP = sum(GPP, na.rm = TRUE),
+      ET = sum(ET, na.rm = TRUE), 
+      Qle = mean(Qle, na.rm = TRUE), 
+      SW_rad = mean(SW_rad, na.rm = TRUE),
+      Tair = mean(Tair, na.rm = TRUE), 
+      VPD = mean(VPD, na.rm = TRUE),
+      Precip = sum(Precip, na.rm = TRUE),
+      Pa = mean(Pa, na.rm = TRUE),
+      Rn = mean(Rn, na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+  return(df)
+  
+}
+```
+
+```{r}
+enf_final <- convert_to_daily(enf_gs)
+sav_final <- convert_to_daily(sav_gs)
+```
+
+now we have our final dataframes yippee. 
+
+Drop missing values if there are any:
+
+```{r}
+enf_final <- enf_final %>% drop_na()
+
+sav_final <- sav_final %>% drop_na()
+
+```
+
+Load in libraries
+
+```{r}
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(zoo)
+library(mgcv)
+```
+
+Remove missing value flags (-999)
+
+```{r}
+enf_final <- enf_final %>% filter_all(all_vars(. >= -9000) )
+```
+
+```{r}
+sav_final <- sav_final %>% filter_all(all_vars(. >= -9000))
+```
+
+Water stress metric:
+- PET = atmospheric demand
+- CWD = cumulative water deficit, how much atmospheric demand for water exceeds the available water supply
+
+PET:
+
+```{r}
+priestley_taylor_pet <- function(Rn, Tair, P) {
+  
+  alpha = 1.26      # PT constant
+  cp <- 1.013e-3    # Specific heat of air (MJ/kg°C)
+  epsilon <- 0.622  # Ratio of molecular weights of water vapor to dry air
+  lambda <- 2.45    # Latent heat of vaporization (MJ/kg)
+  G = 0             # Going to assume no ground heat flux on daily timescales
+  
+  # Psychrometric constant (kPa/°C)
+  gamma <- (cp * P) / (epsilon * lambda)
+  
+  # Saturation vapor pressure (kPa)
+  es <- 0.6108 * exp((17.27 * Tair) / (Tair + 237.3))
+  
+  # Slope of saturation vapor pressure curve (kPa/°C)
+  delta <- (4098 * es) / ((Tair+ 237.3)^2)
+  
+  # Priestley-Taylor PET calculation (mm/day)
+  pet <- alpha * (delta / (delta + gamma)) * ((Rn - G) / (lambda * 1e6)) * 86400
+
+  return(pet)
+}
+```
+
+
+```{r}
+sav_final$pet <- priestley_taylor_pet(sav_final$Rn, sav_final$Tair, sav_final$Pa)
+sav_final$cwd <- sav_final$pet - sav_final$ET
+
+```
+
+```{r}
+enf_final$pet <- priestley_taylor_pet(enf_final$Rn, enf_final$Tair, enf_final$Pa)
+enf_final$cwd <- enf_final$pet - enf_final$ET
+```
+
+Train/test split within site
+```{r}
+idx <- createDataPartition(sav_final$GPP, p=0.8, list=FALSE)
+train_data <- sav_final[idx, ]
+test_data <- sav_final[-idx, ]
+
+```
+
+Drop any NAs in test_data
+
+```{r}
+test_data <- test_data %>% drop_na()
+```
+
+7-day moving cumulative sum for cwd
+- Accumulated drought, not only the day's stress
+
+```{r}
+train_data$cumulative_cwd_7day <- rollapply(train_data$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+test_data$cumulative_cwd_7day <-  rollapply(test_data$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+```
+
+Drop any rows with NA values after rolling sum for CWD
+
+```{r}
+train_data <- train_data %>% drop_na()
+test_data <- test_data %>% drop_na()
+```
+
+Lag the climate variables to add time-lag effects
+
+```{r}
+train_data <- train_data %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+test_data <- test_data %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+```
+
+fit the GAM model for the savanna:
+
+```{r}
+savanna_model <- gam(GPP ~ s(Tair) + s(VPD) + s(cumulative_cwd_7day) + 
+                   s(Tair_lag3) + s(VPD_lag3), data=train_data, 
+                 method = "REML")
+```
+
+```{r}
+summary(savanna_model)
+```
+```{r}
+predictions_sav <- predict(savanna_model, newdata=test_data)
+results_sav <- data.frame(observed=test_data$GPP, Predicted=predictions_sav)
+```
+
+Dump some stats:
+
+```{r}
+rmse_gam <- sqrt(mean((results_sav$observed - results_sav$Predicted)^2))
+rsq_gam <- cor(results_sav$observed, results_sav$Predicted)^2
+mean_observed_gam <- mean(results_sav$observed)
+nse_gam <- (1 - sum((results_sav$observed - results_sav$Predicted)^2) / 
+              sum((results_sav$observed - mean_observed_gam)^2))
+cat("RMSE:", rmse_gam, "\n")
+cat("R-squared:", rsq_gam, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
+```
+
+plot:
+
+```{r}
+library(ggplot2)
+
+ggplot(results_sav, aes(x = observed, y = Predicted)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  theme_minimal() +
+  labs(x = "Observed GPP", y = "Predicted GPP")
+```
+
+fit the GAM model for the evergreen needleleaf forest:
+
+```{r}
+idx2 <- createDataPartition(enf_final$GPP, p=0.8, list=FALSE)
+train_data2 <- enf_final[idx, ]
+test_data2 <- enf_final[-idx, ]
+```
+
+```{r}
+test_data2 <- test_data2 %>% drop_na()
+```
+
+```{r}
+train_data2$cumulative_cwd_7day <- rollapply(train_data2$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+test_data2$cumulative_cwd_7day <-  rollapply(test_data2$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+```
+
+```{r}
+train_data2 <- train_data2 %>% drop_na()
+test_data2 <- test_data2 %>% drop_na()
+```
+
+```{r}
+train_data2 <- train_data2 %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+test_data2 <- test_data2 %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+```
+
+```{r}
+enf_model <- gam(GPP ~ s(Tair) + s(VPD) + s(cumulative_cwd_7day) + 
+                   s(Tair_lag3) + s(VPD_lag3), data=train_data2, 
+                 method = "REML")
+```
+
+```{r}
+summary(enf_model)
+```
+```{r}
+predictions_enf <- predict(enf_model, newdata=test_data2)
+results_enf <- data.frame(observed=test_data2$GPP, Predicted=predictions_enf)
+```
+
+```{r}
+rmse_gam2 <- sqrt(mean((results_enf$observed - results_enf$Predicted)^2))
+rsq_gam2 <- cor(results_enf$observed, results_enf$Predicted)^2
+mean_observed_gam2 <- mean(results_enf$observed)
+nse_gam2 <- (1 - sum((results_enf$observed - results_enf$Predicted)^2) / 
+              sum((results_enf$observed - mean_observed_gam)^2))
+cat("RMSE:", rmse_gam2, "\n")
+cat("R-squared:", rsq_gam2, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam2, "\n")
+```
+
+```{r}
+par(mfrow = c(2, 3))
+plot(enf_model, shade = TRUE, main = "ENF")
+plot(savanna_model, shade = TRUE, main = "SAV")
+```
+enf plot:
+
+```{r}
+library(ggplot2)
+
+ggplot(results_enf, aes(x = observed, y = Predicted)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  theme_minimal() +
+  labs(x = "Observed GPP", y = "Predicted GPP")
+```
+
+
+Monday 26th Jan:
+- Which variables explain the variation in GPP the most?
+
+Got the final dataframes, daily measurements, no missing values, growing season...
+
+Savanna:
+
+```{r}
+str(sav_final$date)
+```
+
+```{r}
+train_data <- sav_final %>% filter(date <= as.POSIXct("2012-01-01"))
+test_data <- sav_final %>% filter(date > as.POSIXct("2012-01-01"))
+```
+
+Vapour pressure deficit & SW radiation:
+
+```{r}
+gam_vpd <- gam(GPP ~ s(VPD), data = train_data, method = "REML")
+gam_rad <- gam(GPP ~ s(SW_rad), data = train_data, method = "REML")
+
+pred_vpd <- predict(gam_vpd, newdata = test_data)
+pred_swr <- predict(gam_rad, newdata = test_data)
+
+```
+
+results:
+
+```{r}
+
+results_vpd <- data.frame(observed=test_data$GPP, Predicted=pred_vpd)
+
+```
+
+Stats:
+
+```{r}
+rmse_vpd <- sqrt(mean((results_vpd$observed - results_vpd$Predicted)^2))
+rsq_vpd <- cor(results_vpd$observed, results_vpd$Predicted)^2
+nse_vpd  <- 1 - sum((results_vpd$observed - results_vpd$Predicted)^2) /
+                 sum((results_vpd$observed - mean(results_vpd$observed))^2)
+
+cat("RMSE:", rmse_vpd, "\n")
+cat("R-squared:", rsq_vpd, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_vpd, "\n")
+```
+
+Shortwave radiation:
+
+```{r}
+results_swr <- data.frame(observed=test_data$GPP, predicted=pred_swr)
+```
+
+```{r}
+rmse_swr <- sqrt(mean((results_swr$observed - results_swr$predicted)^2))
+rsq_swr <- cor(results_swr$observed, results_swr$predicted)^2
+nse_swr  <- 1 - sum((results_swr$observed - results_swr$predicted)^2) /
+                 sum((results_swr$observed - mean(results_swr$observed))^2)
+
+cat("RMSE:", rmse_swr, "\n")
+cat("R-squared:", rsq_swr, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_swr, "\n")
+```
+
+
+
