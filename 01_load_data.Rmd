@@ -205,7 +205,6 @@ Growing season:
 - Assumes that photosynthesis responds rapidly instantly to radiation
  - growing season is defined purely by light
  
- 
  Ideas:
  - PFT-specific thresholds?
  Would require having a column in each site specifying its PFT
@@ -213,9 +212,8 @@ Growing season:
  - Add temperature, growing season often light and thermal limited
  - Rolling window - sustained activity. When mean GPP over ~7 days is positive?
  - Radiation percentile instead of absolute threshold which may be wrong for some sites/seasons, adapts across sites
- - Soil moisture/precipitation
- 
- PFT specific thresholds too much work
+ - Soil moisture/precipitation?
+ - **Top 3 months of highest GPP during the year**
  
 
 
