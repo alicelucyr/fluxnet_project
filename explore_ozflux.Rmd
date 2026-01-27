@@ -8,4 +8,18 @@ date: "2026-01-27"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+Tue 27th Jan:
+
+Going to look at the North Australian Tropical Transect flux sites.
+
+1. Howard Springs = AU-How
+2. Adelaide Rivers = AU-Ade
+3. Daly River Pasture = AU-DaP
+4. Daly River Savanna = AU-DaS
+5. Dry River = AU-Dry
+6. Sturt Plains = AU-Stp
+7. Alice Springs = AU-ASM
+
+These flux sites are located along a precipitation gradient. This rainfall gradient is a 'natural laboratory'
+
 
