@@ -113,19 +113,111 @@ filter_gs <- function(df, rad_thresh = 100) {
 
 ```{r}
 AU_How_gs <- filter_gs(AU_How)
+AU_Dap_gs <- filter_gs(AU_Dap)
+AU_Das_gs <- filter_gs(AU_Das)
+AU_Dry_gs <- filter_gs(AU_Dry)
+AU_Stp_gs <- filter_gs(AU_Stp)
+AU_Asm_gs <- filter_gs(AU_Asm)
+
 ```
 
 3. Drop missing variables
 
 ```{r}
 How_final <- AU_How_gs %>% drop_na()
+Dap_final <- AU_Dap_gs %>% drop_na()
+Das_final <- AU_Das_gs %>% drop_na()
+Dry_final <- AU_Dry_gs %>% drop_na()
+Stp_final <- AU_Stp_gs %>% drop_na()
+Asm_final <- AU_Asm_gs %>% drop_na()
 ```
 
 4. Remove missing flags (-999)
 
 ```{r}
 How_final <- How_final %>% filter_all(all_vars(. >= -9000) )
+Dap_final <- Dap_final %>% filter_all(all_vars(. >= -9000) )
+Das_final <- Das_final %>% filter_all(all_vars(. >= -9000) )
+Dry_final <- Dry_final %>% filter_all(all_vars(. >= -9000) )
+Stp_final <- Stp_final %>% filter_all(all_vars(. >= -9000) )
+Asm_final <- Asm_final %>% filter_all(all_vars(. >= -9000) )
 ```
+
+5. Visualise 
+
+```{r}
+#Combine the datasets
+
+library(dplyr)
+
+dataframe_oz <- bind_rows(How_final, Dap_final, Das_final, Dry_final, Stp_final, Asm_final)
+```
+
+```{r}
+#Summarise by site, by year
+
+df_summary <- dataframe_oz %>%
+  group_by(site, year) %>%
+  summarise(
+    GPP_mean = mean(GPP, na.rm = TRUE),
+    GPP_max = max(GPP, na.rm = TRUE),
+    GPP_min = min(GPP, na.rm = TRUE)
+  ) %>%
+  
+  ungroup()
+```
+
+```{r}
+library(tidyr)
+library(ggplot2)
+
+df_long <- df_summary %>%
+  pivot_longer(
+    cols = c(GPP_mean, GPP_max, GPP_min),
+    names_to = "stat",
+    values_to = "GPP"
+  )
+
+ggplot(df_long, aes(x = year, y = GPP, color = stat)) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~site) +
+  theme_minimal() +
+  labs(y = "GPP", x = "Year", color = "Statistic")
+```
+
+
+```{r}
+ggplot(df_summary, aes(x = year, group = site)) +
+  geom_ribbon(aes(ymin = GPP_min, ymax = GPP_max, fill = site), alpha = 0.2) +
+  geom_line(aes(y = GPP_mean, color = site), size = 1) +
+  theme_minimal() +
+  labs(y = "GPP", x = "Year")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 5. Fit GAM firstly with Tair ~ GPP
 
