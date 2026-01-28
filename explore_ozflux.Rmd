@@ -690,11 +690,11 @@ ggplot(Precip_df, aes(x = year, y = Precip, color = stat)) +
 ```
 Identifying a drought event:
 
-
-
-
-
-
+Indicators of drought
+- High VPD
+- High Tair
+- Low Precip
+- Low GPP
 
 
 
