@@ -598,6 +598,99 @@ So what happens now if we look at drought/VPD events?
 2. What are the legacy effects of drought across these sites?
 3. Can a GAM trained on non-drought years be able to predict GPP during a drought year or a dry period?
 
+```{r}
+library(tidyr)
+library(ggplot2)
+
+df_long <- df_summary %>%
+  pivot_longer(
+    cols = c(GPP_mean, GPP_max, GPP_min),
+    names_to = "stat",
+    values_to = "GPP"
+  )
+
+ggplot(df_long, aes(x = year, y = GPP, color = stat)) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~site) +
+  theme_minimal() +
+  labs(y = "GPP", x = "Year", color = "Statistic") +
+  theme(legend.position = "none")
+```
+
+Let's see if this matches VPD, Precip, temp
+
+```{r}
+climate_summary <- dataframe_oz %>%
+  group_by(site, year) %>%
+  summarise(
+    VPD_mean = mean(VPD, na.rm = TRUE),
+    VPD_max = max(VPD, na.rm = TRUE),
+    VPD_min = min(VPD, na.rm = TRUE),
+    Precip_mean = mean(Precip, na.rm = TRUE),
+    Precip_max = max(Precip, na.rm = TRUE),
+    Precip_min = min(Precip, na.rm = TRUE),
+    Tair_mean = mean(Tair, na.rm = TRUE),
+    Tair_max = max(Tair, na.rm = TRUE),
+    Tair_min = min(Tair, na.rm = TRUE)
+  ) %>%
+  
+  ungroup()
+```
+
+```{r}
+
+VPD_df <- climate_summary %>%
+  pivot_longer(
+    cols = c(VPD_mean, VPD_max, VPD_min),
+    names_to = "stat",
+    values_to = "VPD"
+  )
+
+Tair_df <- climate_summary %>%
+  pivot_longer(
+    cols = c(Tair_mean, Tair_max, Tair_min),
+    names_to = "stat",
+    values_to = "Tair"
+  )
+
+Precip_df <- climate_summary %>%
+  pivot_longer(
+    cols = c(Precip_mean, Precip_max, Precip_min),
+    names_to = "stat",
+    values_to = "Precip"
+  )
+
+ggplot(VPD_df, aes(x = year, y = VPD, color = stat)) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~site) +
+  theme_minimal() +
+  labs(y = "VPD", x = "Year", color = "Statistic") +
+  theme(legend.position = "none")
+
+ggplot(Tair_df, aes(x = year, y = Tair, color = stat)) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~site) +
+  theme_minimal() +
+  labs(y = "Air temp °C", x = "Year", color = "Statistic") +
+  theme(legend.position = "none")
+
+ggplot(Precip_df, aes(x = year, y = Precip, color = stat)) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~site) +
+  theme_minimal() +
+  labs(y = "Precipitation (mm)", x = "Year", color = "Statistic") +
+  theme(legend.position = "none")
+
+
+
+```
+Identifying a drought event:
+
+
 
 
 
