@@ -641,3 +641,210 @@ sapply(train_data[, c("VPD", "Tair", "Precip", "SW_rad")],
 
 ```
 
+Now, what if i trained the GAM on a drought event in one site and then tested in on another site?
+- Do sites with similar precipitation regimes/ecosystems/PFTs show similar drought responses?
+
+Train data:
+Howard Springs - Seasonally wet, Dominant Species = Eucalyptus minaita and Eucalyptus tetrodonta woody savanna
+
+Test data:
+Daly Uncleared - Seasonally wet, Dominant Species = Eucalyptus tetrodonta and Corymbia terminalis, Savanna, open forest
+
+Alice Springs - Very dry, Dominant species = Acacia aneura, Acacia shrublands
+
+Cumulative running precipitation for AU_DaS and AU_Asm
+
+```{r}
+AU_Asm_ordered <- Asm_final %>%
+  arrange(site, year, month)
+```
+
+```{r}
+AU_Asm_cum <- AU_Asm_ordered %>%
+  group_by(site, year) %>%
+  mutate(
+    precip_cumsum = cumsum(Precip)
+  ) %>%
+  ungroup()
+```
+
+
+```{r}
+ggplot(AU_Asm_cum,
+       aes(x = month,
+           y = precip_cumsum,
+           group = year,
+           colour = factor(year))) +
+  geom_line() +
+  labs(
+    title = "Cumulative precipitation by year – AU-How",
+    y = "Cumulative precipitation (mm)",
+    colour = "Year"
+  ) +
+  theme_minimal()
+```
+```{r}
+annual_precip_2 <- AU_Asm_cum %>%
+  group_by(site, year) %>%
+  summarise(
+    annual_precip_2 = max(precip_cumsum, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+```
+
+```{r}
+threshold <- quantile(annual_precip_2$annual_precip_2, 0.20, na.rm = TRUE)
+
+drought_years <- annual_precip_2 %>%
+  mutate(
+    drought_year = annual_precip_2 < threshold
+  )
+
+```
+
+```{r}
+AU_Asm_labeled <- AU_Asm_cum %>%
+  left_join(drought_years, by = c("site", "year"))
+```
+
+```{r}
+ggplot(AU_Asm_labeled,
+       aes(year + month/12, GPP)) +
+  geom_line() +
+  geom_point(aes(colour = drought_year)) +
+  scale_colour_manual(values = c("black", "red")) +
+  labs(title = "GPP response during low-precipitation years")
+```
+
+```{r}
+Asm_drought <- AU_Asm_labeled %>%
+  filter(drought_year == TRUE)
+```
+
+Let's train on How_drought and test on Asm_drought
+
+```{r}
+train_data <- Asm_drought 
+test_data <- How_drought
+```
+
+```{r}
+
+model <- gam(GPP ~ s(Tair, k = 4) + s(VPD, k = 4) + s(SW_rad, k = 4), data=train_data, 
+                 method = "REML")
+
+predictions <- predict(model, newdata=test_data)
+results <- data.frame(observed=test_data$GPP, predicted=predictions)
+
+rmse_gam <- sqrt(mean((results$observed - results$predicted)^2))
+rsq_gam <- cor(results$observed, results$predicted)^2
+mean_observed_gam <- mean(results$observed)
+nse_gam <- (1 - sum((results$observed - results$predicted)^2) / 
+              sum((results$observed - mean_observed_gam)^2))
+cat("RMSE:", rmse_gam, "\n")
+cat("R-squared:", rsq_gam, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
+```
+
+Not great at predicting drought responses in different ecosystem types. 
+
+Let's try two different sites that are similar climate/PFT
+
+- Create running precipitation for AU_DaS
+
+```{r}
+AU_Das_ordered <- Das_final %>%
+  arrange(site, year, month)
+```
+
+```{r}
+AU_Das_cum <- AU_Das_ordered %>%
+  group_by(site, year) %>%
+  mutate(
+    precip_cumsum = cumsum(Precip)
+  ) %>%
+  ungroup()
+```
+
+
+```{r}
+ggplot(AU_Das_cum,
+       aes(x = month,
+           y = precip_cumsum,
+           group = year,
+           colour = factor(year))) +
+  geom_line() +
+  labs(
+    title = "Cumulative precipitation by year – AU-Das",
+    y = "Cumulative precipitation (mm)",
+    colour = "Year"
+  ) +
+  theme_minimal()
+```
+
+
+```{r}
+annual_precip_3 <- AU_Das_cum %>%
+  group_by(site, year) %>%
+  summarise(
+    annual_precip_3 = max(precip_cumsum, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+```
+
+```{r}
+threshold <- quantile(annual_precip_3$annual_precip_3, 0.20, na.rm = TRUE)
+
+drought_years <- annual_precip_3 %>%
+  mutate(
+    drought_year = annual_precip_3 < threshold
+  )
+
+```
+
+```{r}
+AU_Das_labeled <- AU_Das_cum %>%
+  left_join(drought_years, by = c("site", "year"))
+```
+
+```{r}
+ggplot(AU_Das_labeled,
+       aes(year + month/12, GPP)) +
+  geom_line() +
+  geom_point(aes(colour = drought_year)) +
+  scale_colour_manual(values = c("black", "red")) +
+  labs(title = "GPP response during low-precipitation years")
+```
+```{r}
+
+Das_drought <- AU_Das_labeled %>%
+  filter(drought_year == TRUE)
+
+```
+
+```{r}
+train_data <- Das_drought
+test_data <- How_drought
+```
+
+```{r}
+
+model <- gam(GPP ~ s(Tair, k = 4) + s(VPD, k = 4) + s(SW_rad, k = 4), data=train_data, 
+                 method = "REML")
+
+predictions <- predict(model, newdata=test_data)
+results <- data.frame(observed=test_data$GPP, predicted=predictions)
+
+rmse_gam <- sqrt(mean((results$observed - results$predicted)^2))
+rsq_gam <- cor(results$observed, results$predicted)^2
+mean_observed_gam <- mean(results$observed)
+nse_gam <- (1 - sum((results$observed - results$predicted)^2) / 
+              sum((results$observed - mean_observed_gam)^2))
+cat("RMSE:", rmse_gam, "\n")
+cat("R-squared:", rsq_gam, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
+```
+
+The model is a lot better at predicting two similar sites rather than different sites.
