@@ -7,7 +7,6 @@ date: "2026-01-27"
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
-
 Tue 27th Jan:
 
 Going to look at the North Australian Tropical Transect flux sites.
@@ -142,7 +141,6 @@ Dry_final <- Dry_final %>% filter_all(all_vars(. >= -9000) )
 Stp_final <- Stp_final %>% filter_all(all_vars(. >= -9000) )
 Asm_final <- Asm_final %>% filter_all(all_vars(. >= -9000) )
 ```
-
 5. Visualise 
 
 ```{r}
