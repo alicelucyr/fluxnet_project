@@ -10,7 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 Thu 29th Jan:
 
-Going to look at the North Australian Tropical Transect flux sites.
+Going to look at the North Australian Tropical Transect flux sites and identifying a drought/VPD event. 
 
 1. Howard Springs = AU-How (2001-2014) 13 years
 2. Daly River Pasture = AU-DaP (2007-2013) 6 years
@@ -116,6 +116,57 @@ AU_How_1 <- AU_How %>%
     all_of(flux_vars),
     ~na_if(., -9999.9)
   ))
+
+AU_Dap_1 <- AU_Dap %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+AU_Das_1 <- AU_Das %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+AU_Dry_1 <- AU_Dry %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+
+AU_Stp_1 <- AU_Stp %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+AU_Asm_1 <- AU_Asm %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
 ```
 
 
@@ -172,12 +223,32 @@ convert_to_daily <- function(df) {
 
 ```{r}
 AU_How_daily <- convert_to_daily(AU_How_1)
+AU_Dap_daily <- convert_to_daily(AU_Dap_1)
+AU_Das_daily <- convert_to_daily(AU_Das_1)
+AU_Dry_daily <- convert_to_daily(AU_Dry_1)
+AU_Stp_daily <- convert_to_daily(AU_Stp_1)
+AU_Asm_daily <- convert_to_daily(AU_Asm_1)
 ```
 Convert NaN back to NA
 
 ```{r}
 AU_How_daily2 <- AU_How_daily %>%
   mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+
+AU_Dap_daily2 <- AU_Dap_daily %>%
+  mutate(across(where(is.numeric), ~ifelse(is.nan(.), NA, .)))
+
+AU_Das_daily2 <- AU_Das_daily %>%
+  mutate(across(where(is.numeric), ~ifelse(is.nan(.), NA, .)))
+
+AU_Dry_daily2 <- AU_Dry_daily %>%
+  mutate(across(where(is.numeric), ~ifelse(is.nan(.), NA, .)))
+
+AU_Stp_daily2 <- AU_Stp_daily %>%
+  mutate(across(where(is.numeric), ~ifelse(is.nan(.), NA, .)))
+
+AU_Asm_daily2 <- AU_Asm_daily %>%
+  mutate(across(where(is.numeric), ~ifelse(is.nan(.), NA, .)))
 
 ```
 
@@ -265,6 +336,11 @@ monthly_flux <- function(df,
 
 ```{r}
 How_monthly <- monthly_flux(AU_How_daily2)
+Dap_monthly <- monthly_flux(AU_Dap_daily2)
+Das_monthly <- monthly_flux(AU_Das_daily2)
+Dry_monthly <- monthly_flux(AU_Dry_daily2)
+Stp_monthly <- monthly_flux(AU_Stp_daily2)
+Asm_monthly <- monthly_flux(AU_Asm_daily2)
 ```
 
 
@@ -273,7 +349,22 @@ How_monthly <- monthly_flux(AU_How_daily2)
 Drop NAs
 
 ```{r}
-How_monthly2 <- How_monthly %>%
+How_monthly <- How_monthly %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, Qle, SW_rad)
+
+Dap_monthly <- Dap_monthly %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, Qle, SW_rad)
+
+Das_monthly <- Das_monthly %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, Qle, SW_rad)
+
+Dry_monthly <- Dry_monthly %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, Qle, SW_rad)
+
+Stp_monthly <- Stp_monthly %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, Qle, SW_rad)
+
+Asm_monthly <- Asm_monthly %>%
   drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, Qle, SW_rad)
 ```
 
@@ -301,4 +392,134 @@ filter_gs <- function(df, rad_thresh = 100) {
 ```
 
 ```{r}
-AU_How_final <- filter_gs(How_monthly2)
+How_final <- filter_gs(How_monthly)
+Dap_final <- filter_gs(Dap_monthly)
+Das_final <- filter_gs(Das_monthly)
+Dry_final <- filter_gs(Dry_monthly)
+Stp_final <- filter_gs(Stp_monthly)
+Asm_final <- filter_gs(Asm_monthly)
+
+```
+
+Now, we have monthly, growing season, cleaned flux data. 
+- last time, I used half-hourly data that was not cleaned in this way, let's see if this improves/decreases the predictability of GPP...
+- Last time, I found that for drier/arid sites, lagged climate variables and the addition of cwd/pet improved R-squared
+- However, for wetter sites, this lag effect and soil water estimation actually decreased the fit of the model
+
+What if I included SW_rad, as well as lagged climate effects and water estimation?
+
+1. Adding water stress component:
+
+```{r}
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(zoo)
+library(mgcv)
+```
+
+```{r}
+priestley_taylor_pet <- function(Rn, Tair, P) {
+  
+  alpha = 1.26      # PT constant
+  cp <- 1.013e-3    # Specific heat of air (MJ/kg°C)
+  epsilon <- 0.622  # Ratio of molecular weights of water vapor to dry air
+  lambda <- 2.45    # Latent heat of vaporization (MJ/kg)
+  G = 0             # Going to assume no ground heat flux on daily timescales
+  
+  # Psychrometric constant (kPa/°C)
+  gamma <- (cp * P) / (epsilon * lambda)
+  
+  # Saturation vapor pressure (kPa)
+  es <- 0.6108 * exp((17.27 * Tair) / (Tair + 237.3))
+  
+  # Slope of saturation vapor pressure curve (kPa/°C)
+  delta <- (4098 * es) / ((Tair+ 237.3)^2)
+  
+  # Priestley-Taylor PET calculation (mm/day)
+  pet <- alpha * (delta / (delta + gamma)) * ((Rn - G) / (lambda * 1e6)) * 86400
+
+  return(pet)
+}
+```
+
+Alice Springs: ASM
+
+```{r}
+Asm_final$pet <- priestley_taylor_pet(Asm_final$Rn, Asm_final$Tair, Asm_final$Pa)
+Asm_final$cwd <- Asm_final$pet - Asm_final$Qle
+```
+
+Sturt Plains: Stp
+
+```{r}
+Stp_final$pet <- priestley_taylor_pet(Stp_final$Rn, Stp_final$Tair, Stp_final$Pa)
+Stp_final$cwd <- Stp_final$pet - Stp_final$Qle
+```
+
+Dry River: Dry
+
+```{r}
+Dry_final$pet <- priestley_taylor_pet(Dry_final$Rn, Dry_final$Tair, Dry_final$Pa)
+Dry_final$cwd <- Dry_final$pet - Dry_final$Qle
+```
+
+Daly River Savanna: DaS
+
+```{r}
+Das_final$pet <- priestley_taylor_pet(Das_final$Rn, Das_final$Tair, Das_final$Pa)
+Das_final$cwd <- Das_final$pet - Das_final$Qle
+```
+
+Daly River Pasture: DaP
+
+```{r}
+Dap_final$pet <- priestley_taylor_pet(Dap_final$Rn, Dap_final$Tair, Dap_final$Pa)
+Dap_final$cwd <- Dap_final$pet - Dap_final$Qle
+```
+
+Howard Springs: How
+
+```{r}
+How_final$pet <- priestley_taylor_pet(How_final$Rn, How_final$Tair, How_final$Pa)
+How_final$cwd <- How_final$pet - How_final$Qle
+```
+
+Split by training and testing:
+
+```{r}
+idx <- createDataPartition(How_final$GPP, p=0.8, list=FALSE)
+train_data <- How_final[idx, ]
+test_data <- How_final[-idx, ]
+```
+
+
+```{r}
+
+#Drop any NAs after this
+
+train_data <- train_data %>% drop_na()
+test_data <- test_data %>% drop_na()
+```
+
+Fit model
+
+```{r}
+model <- gam(GPP ~ s(Tair) + s(VPD) + s(SW_rad) + s(cwd), data=train_data, 
+                 method = "REML")
+
+predictions <- predict(model, newdata=test_data)
+results <- data.frame(observed=test_data$GPP, predicted=predictions)
+
+rmse_gam <- sqrt(mean((results$observed - results$predicted)^2))
+rsq_gam <- cor(results$observed, results$predicted)^2
+mean_observed_gam <- mean(results$observed)
+nse_gam <- (1 - sum((results$observed - results$predicted)^2) / 
+              sum((results$observed - mean_observed_gam)^2))
+cat("RMSE:", rmse_gam, "\n")
+cat("R-squared:", rsq_gam, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
+
+
+```
+
