@@ -488,9 +488,9 @@ How_final$cwd <- How_final$pet - How_final$Qle
 Split by training and testing:
 
 ```{r}
-idx <- createDataPartition(How_final$GPP, p=0.8, list=FALSE)
-train_data <- How_final[idx, ]
-test_data <- How_final[-idx, ]
+idx <- createDataPartition(Asm_final$GPP, p=0.8, list=FALSE)
+train_data <- Asm_final[idx, ]
+test_data <- Asm_final[-idx, ]
 ```
 
 
@@ -520,6 +520,124 @@ cat("RMSE:", rmse_gam, "\n")
 cat("R-squared:", rsq_gam, "\n")
 cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
 
+
+```
+
+```{r}
+summary(model)
+```
+
+Predictability of GPP increases with monthly data, and variables Tair, VPD, SW_rad and cwd. 
+
+Cumulative precipitation running total
+- Compare each year to this and diagnose the drought by the lower anomaly period
+
+```{r}
+AU_How_ordered <- AU_How_final %>%
+  arrange(site, year, month)
+```
+
+```{r}
+AU_How_cum <- AU_How_ordered %>%
+  group_by(site, year) %>%
+  mutate(
+    precip_cumsum = cumsum(Precip)
+  ) %>%
+  ungroup()
+
+```
+
+```{r}
+ggplot(AU_How_cum,
+       aes(x = month,
+           y = precip_cumsum,
+           group = year,
+           colour = factor(year))) +
+  geom_line() +
+  labs(
+    title = "Cumulative precipitation by year – AU-How",
+    y = "Cumulative precipitation (mm)",
+    colour = "Year"
+  ) +
+  theme_minimal()
+
+```
+
+```{r}
+annual_precip <- AU_How_cum %>%
+  group_by(site, year) %>%
+  summarise(
+    annual_precip = max(precip_cumsum, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+```
+
+```{r}
+threshold <- quantile(annual_precip$annual_precip, 0.20, na.rm = TRUE)
+
+drought_years <- annual_precip %>%
+  mutate(
+    drought_year = annual_precip < threshold
+  )
+
+```
+
+```{r}
+AU_How_labeled <- AU_How_cum %>%
+  left_join(drought_years, by = c("site", "year"))
+
+```
+
+```{r}
+ggplot(AU_How_labeled,
+       aes(year + month/12, GPP)) +
+  geom_line() +
+  geom_point(aes(colour = drought_year)) +
+  scale_colour_manual(values = c("black", "red")) +
+  labs(title = "GPP response during low-precipitation years")
+
+```
+Drought period in 2002 and 2007. 
+
+What if we trained the model on the drought in 2002 and tested it on the drought in 2007?
+
+Filter out FALSE drought years
+
+```{r}
+How_drought <- AU_How_labeled %>%
+  filter(drought_year == TRUE)
+```
+
+
+```{r}
+train_data <- How_drought %>% filter(year == 2002)
+test_data <- How_drought %>% filter(year == 2007)
+```
+
+```{r}
+
+model <- gam(GPP ~ s(Tair, k = 4) + s(VPD, k = 4) + s(SW_rad, k = 4), data=train_data, 
+                 method = "REML")
+
+predictions <- predict(model, newdata=test_data)
+results <- data.frame(observed=test_data$GPP, predicted=predictions)
+
+rmse_gam <- sqrt(mean((results$observed - results$predicted)^2))
+rsq_gam <- cor(results$observed, results$predicted)^2
+mean_observed_gam <- mean(results$observed)
+nse_gam <- (1 - sum((results$observed - results$predicted)^2) / 
+              sum((results$observed - mean_observed_gam)^2))
+cat("RMSE:", rmse_gam, "\n")
+cat("R-squared:", rsq_gam, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
+
+
+```
+
+```{r}
+sapply(train_data[, c("VPD", "Tair", "Precip", "SW_rad")],
+       function(x) length(unique(x)))
 
 ```
 
