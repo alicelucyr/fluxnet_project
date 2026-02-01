@@ -69,7 +69,7 @@ read_flux <- function(fname) {
    df <- df %>%
     rename(
       GPP = GPP_NT_VUT_REF,
-      Qle = LE_F_MDS,
+      LE = LE_F_MDS,
       Precip = P_ERA,
       Tair = TA_F_MDS,
       SW_rad = SW_IN_F_MDS,
@@ -79,7 +79,7 @@ read_flux <- function(fname) {
       Rn = NETRAD
     )
 
-  vars_to_keep <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "VPD", "Precip", "Pa", "Rn")
+  vars_to_keep <- c("GPP", "Tair", "SW_rad", "Rn", "VPD", "Precip", "Pa", "Rn", "LE")
   df <- df %>% select(date, all_of(vars_to_keep), year, doy, hod, site)
   
   return(df)
@@ -105,7 +105,7 @@ AU_Asm <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUX/halfh
 2. -9999 -> NA
 
 ```{r}
-flux_vars <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "Precip", "Pa")
+flux_vars <- c("GPP", "LE", "Tair", "SW_rad", "Rn", "Precip", "Pa")
 
 AU_How_1 <- AU_How %>%
   mutate(across(
@@ -187,7 +187,7 @@ convert_to_daily <- function(df) {
   df <- df %>%
     mutate(
       GPP = GPP * UMOL_TO_MOL * MOL_C_TO_GRAMS_C * SEC_2_HALF_HOUR,
-      ET = Qle * WM2_TO_KG_M2_S * SEC_2_HALF_HOUR, 
+      ET = LE * WM2_TO_KG_M2_S * SEC_2_HALF_HOUR, 
       VPD = VPD * HPA_2_KPA,
       Precip = Precip * SEC_2_HALF_HOUR
     )
@@ -207,7 +207,7 @@ convert_to_daily <- function(df) {
       ),
       GPP = sum(GPP, na.rm = TRUE),
       ET = sum(ET, na.rm = TRUE), 
-      Qle = mean(Qle, na.rm = TRUE), 
+      LE = mean(LE, na.rm = TRUE), 
       SW_rad = mean(SW_rad, na.rm = TRUE),
       Tair = mean(Tair, na.rm = TRUE), 
       VPD = mean(VPD, na.rm = TRUE),
@@ -848,3 +848,81 @@ cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
 ```
 
 The model is a lot better at predicting two similar sites rather than different sites.
+
+Sunday 1st Feb:
+- Daily, growing-season flux data from NATT
+- ET:PET ratio - find droughts
+- get_vc_max and get_LCC_data to add to the GAM
+
+
+```{r}
+rm(list = ls())
+```
+
+Drop NA from dataframes
+
+```{r}
+AU_How_daily2 <- AU_How_daily2 %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, LE, SW_rad)
+
+AU_Dap_daily2 <- AU_Dap_daily2 %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, LE, SW_rad)
+
+AU_Das_daily2 <- AU_Das_daily2 %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, LE, SW_rad)
+
+AU_Dry_daily2 <- AU_Dry_daily2 %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, LE, SW_rad)
+
+AU_Stp_daily2 <- AU_Stp_daily2 %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, LE, SW_rad)
+
+AU_Asm_daily2 <- AU_Asm_daily2 %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, LE, SW_rad)
+```
+
+1. LE to ET
+
+```{r}
+lambda <- 2.45e6
+secs_day <- 86400
+
+```
+
+```{r}
+AU_How_daily2 <- AU_How_daily2 %>%
+  mutate(
+    ET_mm_day = LE / lambda * secs_day * 1000
+  )
+
+```
+
+Make into a function:
+
+```{r}
+add_ET <- function(df, LE_col = LE) {
+  lambda <- 2.45e6
+  secs_day <- 86400
+  
+  df %>%
+    mutate(
+      ET_mm_day = {{LE_col}} / lambda * secs_day * 1000
+    )
+}
+```
+
+Apply to datasets
+
+```{r}
+AU_Dap_daily2 <- add_ET(AU_Dap_daily2)
+AU_Das_daily2 <- add_ET(AU_Das_daily2)
+AU_Dry_daily2 <- add_ET(AU_Dry_daily2)
+AU_Stp_daily2 <- add_ET(AU_Stp_daily2)
+AU_Asm_daily2 <- add_ET(AU_Asm_daily2)
+```
+
+ET/PET ratio is a proxy for water stress
+- PET = atmospheric demand
+- ET = what actually happens
+
+Low ET/PET ratio - plants want to transpire but cannot. A ratio near 1 indicates low stress, but a ratio near 0 indicates high stress when plants are closing stomata to limit water loss.
