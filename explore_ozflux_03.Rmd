@@ -265,6 +265,35 @@ How_daily <- How_daily %>%
     doy  = lubridate::yday(date)
   )
 
+Dap_daily <- Dap_daily %>%
+  mutate(
+    year = lubridate::year(date),
+    doy = lubridate::yday(date)
+  )
+
+Das_daily <- Das_daily %>%
+  mutate(
+    year = lubridate::year(date),
+    doy = lubridate::yday(date)
+    )
+
+Dry_daily <- Dry_daily %>%
+  mutate(
+    year = lubridate::year(date),
+    doy = lubridate::yday(date)
+  )
+
+Stp_daily <- Stp_daily %>%
+  mutate(
+    year = lubridate::year(date),
+    doy = lubridate::yday(date)
+  )
+
+Asm_daily <- Asm_daily %>%
+  mutate(
+    year = lubridate::year(date),
+    doy = lubridate::yday(date)
+  )
 ```
 
 
@@ -395,3 +424,221 @@ How_daily <- How_daily %>%
 
 GAMs:
 - Start simple
+- Does the addition of plant traits improve GPP predictability across Australian sites?
+
+Compare GAM within site AU_How
+
+1. GAM - SW_rad, VPD, Tair
+
+```{r}
+
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(zoo)
+library(mgcv)
+
+idx <- createDataPartition(How_daily$GPP, p=0.8, list=FALSE)
+train_data <- How_daily[idx, ]
+test_data <- How_daily[-idx, ]
+
+gam_basic <- gam(GPP ~ s(Tair) + s(VPD) + s(SW_rad), data=train_data, 
+                 method = "REML")
+
+predictions <- predict(gam_basic, newdata=test_data)
+results <- data.frame(observed=test_data$GPP, predicted=predictions)
+
+rmse_gam <- sqrt(mean((results$observed - results$predicted)^2))
+rsq_gam <- cor(results$observed, results$predicted)^2
+mean_observed_gam <- mean(results$observed)
+nse_gam <- (1 - sum((results$observed - results$predicted)^2) / 
+              sum((results$observed - mean_observed_gam)^2))
+cat("RMSE:", rmse_gam, "\n")
+cat("R-squared:", rsq_gam, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
+```
+RMSE: 1.753954
+R-squared: 0.5600302
+NSE: 0.5565368
+
+2. GAM - SW_rad, VPD, Tair, LCC
+
+```{r}
+How_daily <- How_daily %>%
+  drop_na(LCC)
+
+```
+
+
+```{r}
+idx <- createDataPartition(How_daily$GPP, p=0.8, list=FALSE)
+train_data2 <- How_daily[idx, ]
+test_data2 <- How_daily[-idx, ]
+
+gam_2 <- gam(GPP ~ s(Tair) + s(VPD) + s(SW_rad) + s(LCC), data=train_data2, 
+                 method = "REML")
+
+predictions <- predict(gam_2, newdata=test_data2)
+results <- data.frame(observed=test_data2$GPP, predicted=predictions)
+
+rmse_gam <- sqrt(mean((results$observed - results$predicted)^2))
+rsq_gam <- cor(results$observed, results$predicted)^2
+mean_observed_gam <- mean(results$observed)
+nse_gam <- (1 - sum((results$observed - results$predicted)^2) / 
+              sum((results$observed - mean_observed_gam)^2))
+cat("RMSE:", rmse_gam, "\n")
+cat("R-squared:", rsq_gam, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
+```
+
+Only slightly improved with the addition of LCC
+
+Now let's compare across sites and see if Vcmax or LCC can improve cross-site prediction:
+
+Let's compare AU_How to AU_Asm and AU_Das, Alice Springs is very dry whereas Daly Savanna is more similar to AU_How (seasonally wet)
+
+Vcmax and LCC data for Asm:
+
+```{r}
+library(terra)
+library(ncdf4)
+
+#AU Asm 
+latitude <- -22.2830
+longitude <- 133.2490
+
+#
+## Vcmax from GOME-2 SIF
+#
+gome_file <- "/Users/alicerolfe/year_4_project/fluxnet_project/GOME2_VcmaxTg_05deg.tif"
+
+vcmax_gome_raster <- rast(gome_file)
+coords <- data.frame(lon = longitude, lat = latitude)
+vcmax_gome <- terra::extract(vcmax_gome_raster, coords)
+vcmax_gome <- data.frame(lat = latitude, lon = longitude, 
+                           Vcmax = vcmax_gome)
+vcmax_gome <- vcmax_gome$Vcmax.GOME2_VcmaxTg_05deg
+
+print(vcmax_gome)
+
+```
+
+```{r}
+# Vcmax data -> https://zenodo.org/records/14848098
+
+library(terra)
+library(ncdf4)
+
+# AU Asm
+latitude <- -22.2830
+longitude <- 133.2490
+
+
+
+latlon_to_line_sample <- function(lat, lon, nlines = 1800, nsamples = 3600) {
+ 
+  lat_res <- 180. / nlines  
+  line <- round((90. - lat) / lat_res)
+  
+  lon_res <- 360. / nsamples
+  sample <- round((lon + 180.) / lon_res)
+  
+  line <- pmin(pmax(line, 1), nlines)
+  sample <- pmin(pmax(sample, 1), nsamples)
+  
+  return(list(line = line, sample = sample))
+}
+
+#
+## global leaf chlorophyll content
+#
+nc <- nc_open("/Users/alicerolfe/year_4_project/fluxnet_project/Chl_2003_2011_weeklyAll_01Deg_sf100.nc")
+
+# Pixel coordinates
+line_idx   <- 500   # 1..1800
+sample_idx <- 1000  # 1..3600
+
+coords <- latlon_to_line_sample(latitude, longitude)
+
+pixel_time_series <- ncvar_get(nc, "chl_all",
+                               start = c(coords$line, coords$sample, 1, 1),
+                               count = c(1, 1, -1, -1))
+fillvalue <- ncatt_get(nc, "chl_all", "_FillValue")$value
+pixel_time_series[pixel_time_series == fillvalue] <- NA
+
+dim(pixel_time_series)  # 52 x 9 (weeks x years)
+pixel_time_series
+
+LCC <- pixel_time_series / 100 # ug/cm²
+
+# LCC: 52 weeks × 9 years
+weekly_climatology <- rowMeans(LCC, na.rm = TRUE)
+weeks <- 1:52
+
+plot(1:52, weekly_climatology, type='l', xlab='Week', ylab='LCC (μg/cm²)')
+
+# Create a sequence days
+daily_weeks <- seq(1, 52, by = 1/7) 
+
+# Interpolate linearly
+daily_climatology <- approx(x = weeks, y = weekly_climatology, xout = daily_weeks)$y
+
+# Plot
+plot(daily_weeks, daily_climatology, type='l', xlab='Week', ylab='LCC (μg/cm²)')
+points(weeks, weekly_climatology, col='red')  # show original weekly points
+
+nc_close(nc)
+```
+
+Attach Vcmax to AU_Asm
+
+```{r}
+Asm_daily <- Asm_daily %>%
+  mutate(Vcmax = vcmax_gome)
+```
+
+```{r}
+lcc_day <- data.frame(
+  doy = round(seq(1, 365, length.out = length(daily_climatology))), 
+  LCC = daily_climatology
+)
+```
+
+```{r}
+Asm_daily <- Asm_daily %>%
+  mutate(doy = yday(date)) %>%
+  left_join(lcc_day, by = "doy")
+```
+
+Get rid of NAs
+
+```{r}
+Asm_daily <- Asm_daily %>%
+  drop_na(LCC)
+
+```
+
+
+Now, lets compare AU_How and AU_Asm
+
+```{r}
+train_data3 <- How_daily
+test_data3 <- Asm_daily
+
+gam_3 <- gam(GPP ~ s(Tair) + s(VPD) + s(SW_rad) + s(LCC), data=train_data3, 
+                 method = "REML")
+
+predictions <- predict(gam_3, newdata=test_data3)
+results <- data.frame(observed=test_data3$GPP, predicted=predictions)
+
+rmse_gam <- sqrt(mean((results$observed - results$predicted)^2))
+rsq_gam <- cor(results$observed, results$predicted)^2
+mean_observed_gam <- mean(results$observed)
+nse_gam <- (1 - sum((results$observed - results$predicted)^2) / 
+              sum((results$observed - mean_observed_gam)^2))
+cat("RMSE:", rmse_gam, "\n")
+cat("R-squared:", rsq_gam, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
+```
+```
+
