@@ -57,6 +57,7 @@ flux/
 *.csv
 *.RDataTmp1
 *.tif
+*.nc
 
 #MacOS DS store
 .DS_Store
