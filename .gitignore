@@ -55,6 +55,7 @@ raw/
 FLUX/
 flux/
 *.csv
+*.RDataTmp1
 
 #MacOS DS store
 .DS_Store
