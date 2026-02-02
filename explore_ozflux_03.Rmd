@@ -640,5 +640,72 @@ cat("RMSE:", rmse_gam, "\n")
 cat("R-squared:", rsq_gam, "\n")
 cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
 ```
+
+```{r}
+summary(gam_basic)
+
 ```
+
+```{r}
+summary(gam_2)
+```
+
+```{r}
+par(mfrow = c(2, 2))
+plot(gam_2, pages = 1, shade = TRUE)
+```
+
+3. GAM - VPD, Tair, SW_rad, LCC, Vcmax
+
+```{r}
+idx <- createDataPartition(How_daily$GPP, p=0.8, list=FALSE)
+train_data4 <- How_daily[idx, ]
+test_data4 <- How_daily[-idx, ]
+
+gam_4 <- gam(GPP ~ s(Tair) + s(VPD) + s(SW_rad) + s(LCC) + Vcmax, data=train_data4, 
+                 method = "REML")
+
+predictions <- predict(gam_4, newdata=test_data4)
+results <- data.frame(observed=test_data4$GPP, predicted=predictions)
+
+rmse_gam <- sqrt(mean((results$observed - results$predicted)^2))
+rsq_gam <- cor(results$observed, results$predicted)^2
+mean_observed_gam <- mean(results$observed)
+nse_gam <- (1 - sum((results$observed - results$predicted)^2) / 
+              sum((results$observed - mean_observed_gam)^2))
+cat("RMSE:", rmse_gam, "\n")
+cat("R-squared:", rsq_gam, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
+```
+
+VPD stress days:
+
+```{r}
+How_stress_days <- How_daily %>% filter(VPD > quantile(VPD, 0.9))
+
+Asm_stress_days <- Asm_daily %>% filter(VPD > quantile(VPD, 0.9))
+```
+
+Let's compare the predictability of AU_How high VPD days versus Asm high VPD days
+
+```{r}
+train_data5 <- How_stress_days
+test_data5 <- Asm_stress_days
+
+gam_5 <- gam(GPP ~ s(Tair) + s(VPD) + s(SW_rad) + s(LCC) + Vcmax, data=train_data5, 
+                 method = "REML")
+
+predictions <- predict(gam_5, newdata=test_data5)
+results <- data.frame(observed=test_data5$GPP, predicted=predictions)
+
+rmse_gam <- sqrt(mean((results$observed - results$predicted)^2))
+rsq_gam <- cor(results$observed, results$predicted)^2
+mean_observed_gam <- mean(results$observed)
+nse_gam <- (1 - sum((results$observed - results$predicted)^2) / 
+              sum((results$observed - mean_observed_gam)^2))
+cat("RMSE:", rmse_gam, "\n")
+cat("R-squared:", rsq_gam, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
+```
+
 
