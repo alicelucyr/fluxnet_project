@@ -708,4 +708,8 @@ cat("R-squared:", rsq_gam, "\n")
 cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
 ```
 
+```{r}
+plot(How_daily$VPD)
+```
+
 
