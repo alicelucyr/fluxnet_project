@@ -190,8 +190,11 @@ convert_to_daily <- function(df) {
       Precip = Precip * SEC_2_HALF_HOUR
     )
   
-  df$date <- ymd_hms(df$date)
+  #Had to change this, as many rows failing to parse
   
+df <- df %>%
+  mutate(date = as.POSIXct(date, tz = "UTC"))
+
   #Resample to daily, with additional Precip section
   
   df <- df %>%
@@ -216,6 +219,8 @@ convert_to_daily <- function(df) {
   
   return(df)
   
+}
+
 }
 
 #Apply to dataset
