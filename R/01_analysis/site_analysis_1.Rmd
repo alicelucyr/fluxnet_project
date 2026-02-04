@@ -107,11 +107,6 @@ Asm_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/
 
 ```
 
-Have a look at some variables now
-```{r}
-plot(Dry_HH$Precip)
-```
-
 Convert -9999 to NA:
 
 ```{r}
@@ -192,38 +187,77 @@ Stp_1 <- Stp_HH %>%
   ))
 ```
 
-
 ```{r}
-plot(Dry_1$Precip)
+plot(How_1$Precip)
 ```
 
 Before converting to daily, remove extreme outliers as they skew the data:
 
 99% percentile of rainfall data for half-hourly (kg m-2 s-1) mm2 s-1
 ```{r}
-quantile(Dry_daily$Precip, probs = c(0.90, 0.95, 0.99, 0.999), na.rm = TRUE)
-
-
+quantile(How_1$Precip, probs = c(0.90, 0.95, 0.99, 0.999), na.rm = TRUE)
 ```
 
-1.5mm s-1 half-hourly
 
 ```{r}
-threshold <- quantile(Dry_1$Precip, 0.999, na.rm = TRUE)
+How_thresh <- quantile(How_1$Precip, 0.95, na.rm = TRUE)
+Ade_thresh <- quantile(Ade_1$Precip, 0.95, na.rm = TRUE)
+Dap_thresh <- quantile(Dap_1$Precip, 0.95, na.rm = TRUE)
+Das_thresh <- quantile(Das_1$Precip, 0.95, na.rm = TRUE)
+Dry_thresh <- quantile(Dry_1$Precip, 0.95, na.rm = TRUE)
+Stp_thresh <- quantile(Stp_1$Precip, 0.95, na.rm = TRUE)
+Asm_thresh <- quantile(Asm_1$Precip, 0.95, na.rm = TRUE)
 ```
 
 ```{r}
+How_1 <- How_1 %>%
+  mutate(
+    Precip_flag = Precip > How_thresh,      # flag extreme spikes
+    Precip_clean = ifelse(Precip > How_thresh, NA, Precip)  # set outliers to NA
+  )
+
+Ade_1 <- Ade_1 %>%
+  mutate(
+    Precip_flag = Precip > Ade_thresh,      # flag extreme spikes
+    Precip_clean = ifelse(Precip > Ade_thresh, NA, Precip)  # set outliers to NA
+  )
+
+Dap_1 <- Dap_1 %>%
+  mutate(
+    Precip_flag = Precip > Dap_thresh,      # flag extreme spikes
+    Precip_clean = ifelse(Precip > Dap_thresh, NA, Precip)  # set outliers to NA
+  )
+
+Das_1 <- Das_1 %>%
+  mutate(
+    Precip_flag = Precip > Das_thresh,      # flag extreme spikes
+    Precip_clean = ifelse(Precip > Das_thresh, NA, Precip)  # set outliers to NA
+  )
+
 Dry_1 <- Dry_1 %>%
   mutate(
-    Precip_flag = Precip > threshold,      # flag extreme spikes
-    Precip_clean = ifelse(Precip > threshold, NA, Precip)  # set outliers to NA
+    Precip_flag = Precip > Dry_thresh,      # flag extreme spikes
+    Precip_clean = ifelse(Precip > Dry_thresh, NA, Precip)  # set outliers to NA
   )
+
+Stp_1 <- Stp_1 %>%
+  mutate(
+    Precip_flag = Precip > Stp_thresh,      # flag extreme spikes
+    Precip_clean = ifelse(Precip > Stp_thresh, NA, Precip)  # set outliers to NA
+  )
+
+Asm_1 <- Asm_1 %>%
+  mutate(
+    Precip_flag = Precip > Asm_thresh,      # flag extreme spikes
+    Precip_clean = ifelse(Precip > Asm_thresh, NA, Precip)  # set outliers to NA
+  )
+
 
 ```
 
 ```{r}
 # Number of flagged points
-sum(Dry_1$Precip_flag, na.rm = TRUE)
+sum(Ade_1$Precip_flag, na.rm = TRUE)
 
 # Plot cleaned vs original
 library(ggplot2)
@@ -237,23 +271,31 @@ ggplot(Dry_1, aes(x = date)) +
 
 ```{r}
 # Create a new dataframe with Precip below the threshold
+How_clean <- How_1 %>%
+  filter(Precip <= How_thresh | is.na(Precip))
+
+Ade_clean <- Ade_1 %>%
+  filter(Precip <= How_thresh | is.na(Precip))
+
+Dap_clean <- Dap_1 %>%
+  filter(Precip <= How_thresh | is.na(Precip))
+
+Das_clean <- Das_1 %>%
+  filter(Precip <= How_thresh | is.na(Precip))
+
 Dry_clean <- Dry_1 %>%
-  filter(Precip <= threshold | is.na(Precip))
+  filter(Precip <= How_thresh | is.na(Precip))
 
-# Optional: check how many rows were removed
-removed <- nrow(Dry_1) - nrow(Dry_clean)
-cat("Removed", removed, "rows above threshold.\n")
+Stp_clean <- Stp_1 %>%
+  filter(Precip <= How_thresh | is.na(Precip))
 
+Asm_clean <- Asm_1 %>%
+  filter(Precip <= How_thresh | is.na(Precip))
 ```
 
 ```{r}
-plot(Dry_clean$Precip)
+plot(How_clean$Precip)
 ```
-
-
-
-
-
 
 
 We can convert these sites to daily data
@@ -314,18 +356,13 @@ convert_to_daily <- function(df) {
 
 
 ```{r}
-How_daily <- convert_to_daily(How_1)
-Ade_daily <- convert_to_daily(Ade_1)
-Das_daily <- convert_to_daily(Das_1)
-Dap_daily <- convert_to_daily(Dap_1)
-Dry_daily <- convert_to_daily(Dry_1)
-Asm_daily <- convert_to_daily(Asm_1)
-Stp_daily <- convert_to_daily(Stp_1)
-```
-
-
-```{r}
-summary(Ade_daily$Precip)
+How_daily <- convert_to_daily(How_clean)
+Ade_daily <- convert_to_daily(Ade_clean)
+Das_daily <- convert_to_daily(Das_clean)
+Dap_daily <- convert_to_daily(Dap_clean)
+Dry_daily <- convert_to_daily(Dry_clean)
+Asm_daily <- convert_to_daily(Asm_clean)
+Stp_daily <- convert_to_daily(Stp_clean)
 ```
 
 Convert NAN back to NA:
@@ -354,30 +391,12 @@ Asm_daily <- Asm_daily %>%
 ```
 
 ```{r}
-plot(Dry_1$Precip)
-```
-
-Major outliers in precipitation:
-
-```{r}
-library(ggplot2)
-
-ggplot(How_1, aes(x = log(Precip))) +
-  geom_histogram(binwidth = 0.1) +
-  scale_x_log10() +  # optional for skewed data
-  theme_minimal()
-
-```
-
-```{r}
-ggplot(Asm_daily, aes(x = date, y = Precip)) +
-  geom_line() +
-  theme_minimal()
-
-```
-```{r}
 plot(Asm_daily$Precip)
 ```
+
+
+
+
 
 
 
