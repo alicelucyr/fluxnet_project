@@ -221,8 +221,6 @@ df <- df %>%
   
 }
 
-}
-
 #Apply to dataset
 
 df_daily <- convert_to_daily(df_clean)
