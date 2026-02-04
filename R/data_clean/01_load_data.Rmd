@@ -9,12 +9,11 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 Data loading, wrangling and cleaning workflow:
-1. Load in flux data (parse timestamps, rename variables, add site names)
+1. Load in flux data (parse time stamps, rename variables, add site names)
 2. Handle missing/-9999 values - convert to NA
 3. Convert half-hourly data to daily
-4. Convert to monthly (if needed)
-5. Drop NA values
-6. Growing season filter
+4. Growing season filter
+5. Drop NA once before fitting model
 
 
 1. Load in an eddy flux file
@@ -230,21 +229,7 @@ df_daily <- df_daily %>%
 
 ```
 
-4. Convert daily to monthly (if needed)
-*Need to do*
-
-
-
-
-5. Drop NA values
-
-```{r}
-df_monthly <- monthly %>%
-  drop_na(GPP, VPD, Tair, Precip, Pa, Qle)
-
-```
-
-6. Growing season filter
+5. Growing season filter
 Currently:
 - Shortwave radiation threshold
 - GPP > 0 threshold
@@ -258,6 +243,14 @@ filter_gs <- function(df, rad_thresh = 100) {
 #Apply to dataset
 
 growing_season_data <- filter_gs(df)
+```
+
+6. Drop NA values
+
+```{r}
+df_monthly <- monthly %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Qle)
+
 ```
 
 
