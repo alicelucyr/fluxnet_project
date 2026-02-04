@@ -1,0 +1,1132 @@
+---
+title: "explore_ozflux_02"
+output: html_document
+date: "2026-01-29"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Thu 29th Jan:
+
+Going to look at the North Australian Tropical Transect flux sites and identifying a drought/VPD event. 
+
+1. Howard Springs = AU-How (2001-2014) 13 years
+2. Daly River Pasture = AU-DaP (2007-2013) 6 years
+3. Daly River Savanna = AU-DaS (2008-2014) 6 years
+4. Dry River = AU-Dry (2008-2014) 6 years
+5. Sturt Plains = AU-Stp (2008-2014) 6 years
+6. Alice Springs = AU-ASM (2010-2014) 4 years
+
+These flux sites are located along a precipitation gradient. This rainfall gradient is a 'natural laboratory' with Howard Springs as the wettest and Alice Springs the driest. 
+
+1. Read in flux files:
+
+```{r}
+library(tidyverse)
+
+read_flux <- function(fname) {
+  
+  #Ensure it reads one file at a time
+  if (length(fname) != 1) {
+    stop("read_flux() expects a single filename")
+  }
+  
+  df <- read.csv(fname)
+  
+  #extract site code from file name
+  base <- basename(fname)
+  no_ext <- gsub("\\.csv$", "", base)
+  
+ site <- regmatches(
+  no_ext,
+  regexpr("[A-Z]{2}-[A-Za-z]{2,3}[0-9]?", no_ext)
+)
+ 
+ if(length(site) == 0) {
+   stop(paste("Could not extract site code from filename:", base))
+ }
+ 
+  #add site column
+  df$site <- site
+  
+   # Convert TIMESTAMP_START to datetime and set as index
+  df <- df %>%
+    mutate(date = ymd_hm(TIMESTAMP_START)) %>%
+    select(-TIMESTAMP_START, -TIMESTAMP_END) %>%
+    relocate(date)
+
+  df <- df %>%
+    mutate(
+      year = year(date),
+      doy = yday(date),
+      hod = hour(date)
+    )
+  
+#renaming some variables
+  
+   df <- df %>%
+    rename(
+      GPP = GPP_NT_VUT_REF,
+      LE = LE_F_MDS,
+      Precip = P_ERA,
+      Tair = TA_F_MDS,
+      SW_rad = SW_IN_F_MDS,
+      Rn = NETRAD,
+      Pa = PA_F,
+      VPD = VPD_F_MDS,
+      Rn = NETRAD
+    )
+
+  vars_to_keep <- c("GPP", "Tair", "SW_rad", "Rn", "VPD", "Precip", "Pa", "Rn", "LE")
+  df <- df %>% select(date, all_of(vars_to_keep), year, doy, hod, site)
+  
+  return(df)
+  
+}
+
+```
+
+```{r}
+AU_How <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUX/halfhourly/FLX_AU-How_FLUXNET2015_FULLSET_HH_2001-2014_1-4.csv") 
+
+AU_Dap <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUX/halfhourly/FLX_AU-DaP_FLUXNET2015_FULLSET_HH_2007-2013_2-4.csv")
+
+AU_Das <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUX/halfhourly/FLX_AU-DaS_FLUXNET2015_FULLSET_HH_2008-2014_2-4.csv")
+
+AU_Dry <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUX/halfhourly/FLX_AU-Dry_FLUXNET2015_FULLSET_HH_2008-2014_2-4.csv")
+
+AU_Stp <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUX/halfhourly/FLX_AU-Stp_FLUXNET2015_FULLSET_HH_2008-2014_1-4.csv")
+
+AU_Asm <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUX/halfhourly/FLX_AU-ASM_FLUXNET2015_FULLSET_HH_2010-2014_2-4.csv")
+```
+
+2. -9999 -> NA
+
+```{r}
+flux_vars <- c("GPP", "LE", "Tair", "SW_rad", "Rn", "Precip", "Pa")
+
+AU_How_1 <- AU_How %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+AU_Dap_1 <- AU_Dap %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+AU_Das_1 <- AU_Das %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+AU_Dry_1 <- AU_Dry %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+
+AU_Stp_1 <- AU_Stp %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+AU_Asm_1 <- AU_Asm %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+```
+
+
+3. Half-hourly to daily 
+
+```{r}
+convert_to_daily <- function(df) {
+  
+  #Conversion constants
+  
+  UMOL_TO_MOL <- 1E-6
+  MOL_C_TO_GRAMS_C <- 12.0
+  SEC_2_HALF_HOUR <- 1800.
+  WM2_TO_KG_M2_S <- 1.0 /  ( 2.45 * 1E6)
+  PA_2_KPA = 0.001
+  HPA_2_KPA = 0.1
+  
+  df <- df %>%
+    mutate(
+      GPP = GPP * UMOL_TO_MOL * MOL_C_TO_GRAMS_C * SEC_2_HALF_HOUR,
+      ET = LE * WM2_TO_KG_M2_S * SEC_2_HALF_HOUR, 
+      VPD = VPD * HPA_2_KPA,
+      Precip = Precip * SEC_2_HALF_HOUR
+    )
+  
+  df$date <- ymd_hms(df$date)
+  
+  #Resample to daily
+  
+  df <- df %>%
+    mutate(date = floor_date(date, "day")) %>%
+    group_by(site, date) %>%
+    summarise(
+      Precip = ifelse(
+        sum(!is.na(Precip)) > 0,
+        sum(Precip, na.rm = TRUE),
+        NA
+      ),
+      GPP = sum(GPP, na.rm = TRUE),
+      ET = sum(ET, na.rm = TRUE), 
+      LE = mean(LE, na.rm = TRUE), 
+      SW_rad = mean(SW_rad, na.rm = TRUE),
+      Tair = mean(Tair, na.rm = TRUE), 
+      VPD = mean(VPD, na.rm = TRUE),
+      Pa = mean(Pa, na.rm = TRUE),
+      Rn = mean(Rn, na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+  return(df)
+  
+}
+```
+
+```{r}
+AU_How_daily <- convert_to_daily(AU_How_1)
+AU_Dap_daily <- convert_to_daily(AU_Dap_1)
+AU_Das_daily <- convert_to_daily(AU_Das_1)
+AU_Dry_daily <- convert_to_daily(AU_Dry_1)
+AU_Stp_daily <- convert_to_daily(AU_Stp_1)
+AU_Asm_daily <- convert_to_daily(AU_Asm_1)
+```
+Convert NaN back to NA
+
+```{r}
+AU_How_daily2 <- AU_How_daily %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+
+AU_Dap_daily2 <- AU_Dap_daily %>%
+  mutate(across(where(is.numeric), ~ifelse(is.nan(.), NA, .)))
+
+AU_Das_daily2 <- AU_Das_daily %>%
+  mutate(across(where(is.numeric), ~ifelse(is.nan(.), NA, .)))
+
+AU_Dry_daily2 <- AU_Dry_daily %>%
+  mutate(across(where(is.numeric), ~ifelse(is.nan(.), NA, .)))
+
+AU_Stp_daily2 <- AU_Stp_daily %>%
+  mutate(across(where(is.numeric), ~ifelse(is.nan(.), NA, .)))
+
+AU_Asm_daily2 <- AU_Asm_daily %>%
+  mutate(across(where(is.numeric), ~ifelse(is.nan(.), NA, .)))
+
+```
+
+4. Daily to monthly
+
+
+```{r}
+#Avoid months built from 1-2 days of data
+
+monthly_flux <- function(df,
+                         min_days_flux = 15,
+                         min_days_precip = 1) {
+  df %>%
+    mutate(
+      year = lubridate::year(date),
+      month = lubridate::month(date),
+    ) %>%
+    
+    group_by(site, year, month) %>%
+    summarise(
+      n_days = n_distinct(date[!is.na(GPP)]),
+      
+      # ---- Fluxes / states (means) ----
+      GPP = ifelse(
+        sum(!is.na(GPP)) >= min_days_flux,
+        mean(GPP, na.rm = TRUE),
+        NA_real_
+      ),
+      
+      Tair = ifelse(
+        sum(!is.na(Tair)) >= min_days_flux,
+        mean(Tair, na.rm = TRUE),
+        NA_real_
+      ),
+      
+      ET = ifelse(
+        sum(!is.na(ET)) >=min_days_flux,
+        mean(ET, na.rm = TRUE),
+        NA_real_
+      ),
+      
+      VPD = ifelse(
+        sum(!is.na(VPD)) >= min_days_flux,
+        mean(VPD, na.rm = TRUE),
+        NA_real_
+      ),
+      
+      SW_rad = ifelse(
+        sum(!is.na(SW_rad)) >= min_days_flux,
+        mean(SW_rad, na.rm = TRUE),
+        NA_real_
+      ),
+      
+      Rn = ifelse(
+        sum(!is.na(Rn)) >= min_days_flux,
+        mean(Rn, na.rm = TRUE),
+        NA_real_
+      ),
+      
+      Qle = ifelse(
+        sum(!is.na(Qle)) >= min_days_flux,
+        mean(Qle, na.rm = TRUE),
+        NA_real_
+      ),
+      
+      Pa = ifelse(
+        sum(!is.na(Pa)) >= min_days_flux,
+        mean(Pa, na.rm = TRUE),
+        NA_real_
+      ),
+      
+      # ---- Precip (sum) ----
+      Precip = ifelse(
+        sum(!is.na(Precip)) >= min_days_precip,
+        sum(Precip, na.rm = TRUE),
+        NA_real_
+      ),
+      
+      .groups = "drop"
+    )
+}
+  
+```
+
+
+```{r}
+How_monthly <- monthly_flux(AU_How_daily2)
+Dap_monthly <- monthly_flux(AU_Dap_daily2)
+Das_monthly <- monthly_flux(AU_Das_daily2)
+Dry_monthly <- monthly_flux(AU_Dry_daily2)
+Stp_monthly <- monthly_flux(AU_Stp_daily2)
+Asm_monthly <- monthly_flux(AU_Asm_daily2)
+```
+
+
+5. Selective NA removal
+
+Drop NAs
+
+```{r}
+How_monthly <- How_monthly %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, Qle, SW_rad)
+
+Dap_monthly <- Dap_monthly %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, Qle, SW_rad)
+
+Das_monthly <- Das_monthly %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, Qle, SW_rad)
+
+Dry_monthly <- Dry_monthly %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, Qle, SW_rad)
+
+Stp_monthly <- Stp_monthly %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, Qle, SW_rad)
+
+Asm_monthly <- Asm_monthly %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, Qle, SW_rad)
+```
+
+Sanity check
+
+```{r}
+# Check missingness
+colSums(is.na(How_monthly))
+
+# Plot to eyeball drought signals
+ggplot(How_monthly, aes(year + month/12, GPP)) +
+  geom_line() +
+  labs(title = "Monthly GPP – AU-How")
+
+```
+
+
+6. Growing season
+
+```{r}
+filter_gs <- function(df, rad_thresh = 100) {
+  df %>%
+    filter(SW_rad > rad_thresh, GPP > 0)
+}
+```
+
+```{r}
+How_final <- filter_gs(How_monthly)
+Dap_final <- filter_gs(Dap_monthly)
+Das_final <- filter_gs(Das_monthly)
+Dry_final <- filter_gs(Dry_monthly)
+Stp_final <- filter_gs(Stp_monthly)
+Asm_final <- filter_gs(Asm_monthly)
+
+```
+
+Now, we have monthly, growing season, cleaned flux data. 
+- last time, I used half-hourly data that was not cleaned in this way, let's see if this improves/decreases the predictability of GPP...
+- Last time, I found that for drier/arid sites, lagged climate variables and the addition of cwd/pet improved R-squared
+- However, for wetter sites, this lag effect and soil water estimation actually decreased the fit of the model
+
+What if I included SW_rad, as well as lagged climate effects and water estimation?
+
+1. Adding water stress component:
+
+```{r}
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(zoo)
+library(mgcv)
+```
+
+```{r}
+priestley_taylor_pet <- function(Rn, Tair, P) {
+  
+  alpha = 1.26      # PT constant
+  cp <- 1.013e-3    # Specific heat of air (MJ/kg°C)
+  epsilon <- 0.622  # Ratio of molecular weights of water vapor to dry air
+  lambda <- 2.45    # Latent heat of vaporization (MJ/kg)
+  G = 0             # Going to assume no ground heat flux on daily timescales
+  
+  # Psychrometric constant (kPa/°C)
+  gamma <- (cp * P) / (epsilon * lambda)
+  
+  # Saturation vapor pressure (kPa)
+  es <- 0.6108 * exp((17.27 * Tair) / (Tair + 237.3))
+  
+  # Slope of saturation vapor pressure curve (kPa/°C)
+  delta <- (4098 * es) / ((Tair+ 237.3)^2)
+  
+  # Priestley-Taylor PET calculation (mm/day)
+  pet <- alpha * (delta / (delta + gamma)) * ((Rn - G) / (lambda * 1e6)) * 86400
+
+  return(pet)
+}
+```
+
+Alice Springs: ASM
+
+```{r}
+Asm_final$pet <- priestley_taylor_pet(Asm_final$Rn, Asm_final$Tair, Asm_final$Pa)
+Asm_final$cwd <- Asm_final$pet - Asm_final$Qle
+```
+
+Sturt Plains: Stp
+
+```{r}
+Stp_final$pet <- priestley_taylor_pet(Stp_final$Rn, Stp_final$Tair, Stp_final$Pa)
+Stp_final$cwd <- Stp_final$pet - Stp_final$Qle
+```
+
+Dry River: Dry
+
+```{r}
+Dry_final$pet <- priestley_taylor_pet(Dry_final$Rn, Dry_final$Tair, Dry_final$Pa)
+Dry_final$cwd <- Dry_final$pet - Dry_final$Qle
+```
+
+Daly River Savanna: DaS
+
+```{r}
+Das_final$pet <- priestley_taylor_pet(Das_final$Rn, Das_final$Tair, Das_final$Pa)
+Das_final$cwd <- Das_final$pet - Das_final$Qle
+```
+
+Daly River Pasture: DaP
+
+```{r}
+Dap_final$pet <- priestley_taylor_pet(Dap_final$Rn, Dap_final$Tair, Dap_final$Pa)
+Dap_final$cwd <- Dap_final$pet - Dap_final$Qle
+```
+
+Howard Springs: How
+
+```{r}
+How_final$pet <- priestley_taylor_pet(How_final$Rn, How_final$Tair, How_final$Pa)
+How_final$cwd <- How_final$pet - How_final$Qle
+```
+
+Split by training and testing:
+
+```{r}
+idx <- createDataPartition(Asm_final$GPP, p=0.8, list=FALSE)
+train_data <- Asm_final[idx, ]
+test_data <- Asm_final[-idx, ]
+```
+
+
+```{r}
+
+#Drop any NAs after this
+
+train_data <- train_data %>% drop_na()
+test_data <- test_data %>% drop_na()
+```
+
+Fit model
+
+```{r}
+model <- gam(GPP ~ s(Tair) + s(VPD) + s(SW_rad) + s(cwd), data=train_data, 
+                 method = "REML")
+
+predictions <- predict(model, newdata=test_data)
+results <- data.frame(observed=test_data$GPP, predicted=predictions)
+
+rmse_gam <- sqrt(mean((results$observed - results$predicted)^2))
+rsq_gam <- cor(results$observed, results$predicted)^2
+mean_observed_gam <- mean(results$observed)
+nse_gam <- (1 - sum((results$observed - results$predicted)^2) / 
+              sum((results$observed - mean_observed_gam)^2))
+cat("RMSE:", rmse_gam, "\n")
+cat("R-squared:", rsq_gam, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
+
+
+```
+
+```{r}
+summary(model)
+```
+
+Predictability of GPP increases with monthly data, and variables Tair, VPD, SW_rad and cwd. 
+
+Cumulative precipitation running total
+- Compare each year to this and diagnose the drought by the lower anomaly period
+
+```{r}
+AU_How_ordered <- AU_How_final %>%
+  arrange(site, year, month)
+```
+
+```{r}
+AU_How_cum <- AU_How_ordered %>%
+  group_by(site, year) %>%
+  mutate(
+    precip_cumsum = cumsum(Precip)
+  ) %>%
+  ungroup()
+
+```
+
+```{r}
+ggplot(AU_How_cum,
+       aes(x = month,
+           y = precip_cumsum,
+           group = year,
+           colour = factor(year))) +
+  geom_line() +
+  labs(
+    title = "Cumulative precipitation by year – AU-How",
+    y = "Cumulative precipitation (mm)",
+    colour = "Year"
+  ) +
+  theme_minimal()
+
+```
+
+```{r}
+annual_precip <- AU_How_cum %>%
+  group_by(site, year) %>%
+  summarise(
+    annual_precip = max(precip_cumsum, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+```
+
+```{r}
+threshold <- quantile(annual_precip$annual_precip, 0.20, na.rm = TRUE)
+
+drought_years <- annual_precip %>%
+  mutate(
+    drought_year = annual_precip < threshold
+  )
+
+```
+
+```{r}
+AU_How_labeled <- AU_How_cum %>%
+  left_join(drought_years, by = c("site", "year"))
+
+```
+
+```{r}
+ggplot(AU_How_labeled,
+       aes(year + month/12, GPP)) +
+  geom_line() +
+  geom_point(aes(colour = drought_year)) +
+  scale_colour_manual(values = c("black", "red")) +
+  labs(title = "GPP response during low-precipitation years")
+
+```
+Drought period in 2002 and 2007. 
+
+What if we trained the model on the drought in 2002 and tested it on the drought in 2007?
+
+Filter out FALSE drought years
+
+```{r}
+How_drought <- AU_How_labeled %>%
+  filter(drought_year == TRUE)
+```
+
+
+```{r}
+train_data <- How_drought %>% filter(year == 2002)
+test_data <- How_drought %>% filter(year == 2007)
+```
+
+```{r}
+
+model <- gam(GPP ~ s(Tair, k = 4) + s(VPD, k = 4) + s(SW_rad, k = 4), data=train_data, 
+                 method = "REML")
+
+predictions <- predict(model, newdata=test_data)
+results <- data.frame(observed=test_data$GPP, predicted=predictions)
+
+rmse_gam <- sqrt(mean((results$observed - results$predicted)^2))
+rsq_gam <- cor(results$observed, results$predicted)^2
+mean_observed_gam <- mean(results$observed)
+nse_gam <- (1 - sum((results$observed - results$predicted)^2) / 
+              sum((results$observed - mean_observed_gam)^2))
+cat("RMSE:", rmse_gam, "\n")
+cat("R-squared:", rsq_gam, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
+
+
+```
+
+```{r}
+sapply(train_data[, c("VPD", "Tair", "Precip", "SW_rad")],
+       function(x) length(unique(x)))
+
+```
+
+Now, what if i trained the GAM on a drought event in one site and then tested in on another site?
+- Do sites with similar precipitation regimes/ecosystems/PFTs show similar drought responses?
+
+Train data:
+Howard Springs - Seasonally wet, Dominant Species = Eucalyptus minaita and Eucalyptus tetrodonta woody savanna
+
+Test data:
+Daly Uncleared - Seasonally wet, Dominant Species = Eucalyptus tetrodonta and Corymbia terminalis, Savanna, open forest
+
+Alice Springs - Very dry, Dominant species = Acacia aneura, Acacia shrublands
+
+Cumulative running precipitation for AU_DaS and AU_Asm
+
+```{r}
+AU_Asm_ordered <- Asm_final %>%
+  arrange(site, year, month)
+```
+
+```{r}
+AU_Asm_cum <- AU_Asm_ordered %>%
+  group_by(site, year) %>%
+  mutate(
+    precip_cumsum = cumsum(Precip)
+  ) %>%
+  ungroup()
+```
+
+
+```{r}
+ggplot(AU_Asm_cum,
+       aes(x = month,
+           y = precip_cumsum,
+           group = year,
+           colour = factor(year))) +
+  geom_line() +
+  labs(
+    title = "Cumulative precipitation by year – AU-How",
+    y = "Cumulative precipitation (mm)",
+    colour = "Year"
+  ) +
+  theme_minimal()
+```
+```{r}
+annual_precip_2 <- AU_Asm_cum %>%
+  group_by(site, year) %>%
+  summarise(
+    annual_precip_2 = max(precip_cumsum, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+```
+
+```{r}
+threshold <- quantile(annual_precip_2$annual_precip_2, 0.20, na.rm = TRUE)
+
+drought_years <- annual_precip_2 %>%
+  mutate(
+    drought_year = annual_precip_2 < threshold
+  )
+
+```
+
+```{r}
+AU_Asm_labeled <- AU_Asm_cum %>%
+  left_join(drought_years, by = c("site", "year"))
+```
+
+```{r}
+ggplot(AU_Asm_labeled,
+       aes(year + month/12, GPP)) +
+  geom_line() +
+  geom_point(aes(colour = drought_year)) +
+  scale_colour_manual(values = c("black", "red")) +
+  labs(title = "GPP response during low-precipitation years")
+```
+
+```{r}
+Asm_drought <- AU_Asm_labeled %>%
+  filter(drought_year == TRUE)
+```
+
+Let's train on Asm_drought and test on How_drought
+
+```{r}
+train_data <- Asm_drought 
+test_data <- How_drought
+```
+
+```{r}
+
+model <- gam(GPP ~ s(Tair, k = 4) + s(VPD, k = 4) + s(SW_rad, k = 4), data=train_data, 
+                 method = "REML")
+
+predictions <- predict(model, newdata=test_data)
+results <- data.frame(observed=test_data$GPP, predicted=predictions)
+
+rmse_gam <- sqrt(mean((results$observed - results$predicted)^2))
+rsq_gam <- cor(results$observed, results$predicted)^2
+mean_observed_gam <- mean(results$observed)
+nse_gam <- (1 - sum((results$observed - results$predicted)^2) / 
+              sum((results$observed - mean_observed_gam)^2))
+cat("RMSE:", rmse_gam, "\n")
+cat("R-squared:", rsq_gam, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
+```
+
+Not great at predicting drought responses in different ecosystem types. 
+
+Let's try two different sites that are similar climate/PFT
+
+- Create running precipitation for AU_DaS
+
+```{r}
+AU_Das_ordered <- Das_final %>%
+  arrange(site, year, month)
+```
+
+```{r}
+AU_Das_cum <- AU_Das_ordered %>%
+  group_by(site, year) %>%
+  mutate(
+    precip_cumsum = cumsum(Precip)
+  ) %>%
+  ungroup()
+```
+
+
+```{r}
+ggplot(AU_Das_cum,
+       aes(x = month,
+           y = precip_cumsum,
+           group = year,
+           colour = factor(year))) +
+  geom_line() +
+  labs(
+    title = "Cumulative precipitation by year – AU-Das",
+    y = "Cumulative precipitation (mm)",
+    colour = "Year"
+  ) +
+  theme_minimal()
+```
+
+
+```{r}
+annual_precip_3 <- AU_Das_cum %>%
+  group_by(site, year) %>%
+  summarise(
+    annual_precip_3 = max(precip_cumsum, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+```
+
+```{r}
+threshold <- quantile(annual_precip_3$annual_precip_3, 0.20, na.rm = TRUE)
+
+drought_years <- annual_precip_3 %>%
+  mutate(
+    drought_year = annual_precip_3 < threshold
+  )
+
+```
+
+```{r}
+AU_Das_labeled <- AU_Das_cum %>%
+  left_join(drought_years, by = c("site", "year"))
+```
+
+```{r}
+ggplot(AU_Das_labeled,
+       aes(year + month/12, GPP)) +
+  geom_line() +
+  geom_point(aes(colour = drought_year)) +
+  scale_colour_manual(values = c("black", "red")) +
+  labs(title = "GPP response during low-precipitation years")
+```
+```{r}
+
+Das_drought <- AU_Das_labeled %>%
+  filter(drought_year == TRUE)
+
+```
+
+```{r}
+train_data <- Das_drought
+test_data <- How_drought
+```
+
+```{r}
+
+model <- gam(GPP ~ s(Tair, k = 4) + s(VPD, k = 4) + s(SW_rad, k = 4), data=train_data, 
+                 method = "REML")
+
+predictions <- predict(model, newdata=test_data)
+results <- data.frame(observed=test_data$GPP, predicted=predictions)
+
+rmse_gam <- sqrt(mean((results$observed - results$predicted)^2))
+rsq_gam <- cor(results$observed, results$predicted)^2
+mean_observed_gam <- mean(results$observed)
+nse_gam <- (1 - sum((results$observed - results$predicted)^2) / 
+              sum((results$observed - mean_observed_gam)^2))
+cat("RMSE:", rmse_gam, "\n")
+cat("R-squared:", rsq_gam, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
+```
+
+The model is a lot better at predicting two similar sites rather than different sites.
+
+Sunday 1st Feb:
+- Daily, growing-season flux data from NATT
+- ET:PET ratio - find droughts
+- get_vc_max and get_LCC_data to add to the GAM
+
+
+```{r}
+rm(list = ls())
+```
+
+Loaded in same sites, converted them to daily
+Drop NA from dataframes
+
+```{r}
+AU_How_daily2 <- AU_How_daily2 %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, LE, SW_rad)
+
+AU_Dap_daily2 <- AU_Dap_daily2 %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, LE, SW_rad)
+
+AU_Das_daily2 <- AU_Das_daily2 %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, LE, SW_rad)
+
+AU_Dry_daily2 <- AU_Dry_daily2 %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, LE, SW_rad)
+
+AU_Stp_daily2 <- AU_Stp_daily2 %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, LE, SW_rad)
+
+AU_Asm_daily2 <- AU_Asm_daily2 %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, LE, SW_rad)
+```
+
+1. LE to ET
+
+```{r}
+lambda <- 2.45e6
+secs_day <- 86400
+
+```
+
+```{r}
+AU_How_daily2 <- AU_How_daily2 %>%
+  mutate(
+    ET_mm_day = LE / lambda * secs_day * 1000
+  )
+
+```
+
+Make into a function:
+
+```{r}
+add_ET <- function(df, LE_col = LE) {
+  lambda <- 2.45e6
+  secs_day <- 86400
+  
+  df %>%
+    mutate(
+      ET_mm_day = {{LE_col}} / lambda * secs_day * 1000
+    )
+}
+```
+
+Apply to datasets
+
+```{r}
+AU_Dap_daily2 <- add_ET(AU_Dap_daily2)
+AU_Das_daily2 <- add_ET(AU_Das_daily2)
+AU_Dry_daily2 <- add_ET(AU_Dry_daily2)
+AU_Stp_daily2 <- add_ET(AU_Stp_daily2)
+AU_Asm_daily2 <- add_ET(AU_Asm_daily2)
+```
+
+ET/PET ratio is a proxy for water stress
+- PET = atmospheric demand
+- ET = what actually happens
+
+Low ET/PET ratio - plants want to transpire but cannot. A ratio near 1 indicates low stress, but a ratio near 0 indicates high stress when plants are closing stomata to limit water loss.
+
+2. Calculate PET for the sites
+
+```{r}
+priestley_taylor_pet <- function(Rn, Tair, P) {
+
+  alpha = 1.26      # PT constant
+  cp <- 1.013e-3    # Specific heat of air (MJ/kg°C)
+  epsilon <- 0.622  # Ratio of molecular weights of water vapor to dry air
+  lambda <- 2.45    # Latent heat of vaporization (MJ/kg)
+  G = 0             # Going to assume no ground heat flux on daily timescales
+
+  # Psychrometric constant (kPa/°C)
+  gamma <- (cp * P) / (epsilon * lambda)
+
+  # Saturation vapor pressure (kPa)
+  es <- 0.6108 * exp((17.27 * Tair) / (Tair + 237.3))
+
+  # Slope of saturation vapor pressure curve (kPa/°C)
+  delta <- (4098 * es) / ((Tair+ 237.3)^2)
+
+  # Priestley-Taylor PET calculation (mm/day)
+  pet <- alpha * (delta / (delta + gamma)) * ((Rn - G) / (lambda * 1e6)) * 86400
+
+  return(pet)
+}
+```
+
+```{r}
+AU_How_daily2$pet <- priestley_taylor_pet(AU_How_daily2$Rn, AU_How_daily2$Tair, AU_How_daily2$Pa)
+AU_Das_daily2$pet <- priestley_taylor_pet(AU_Das_daily2$Rn, AU_Das_daily2$Tair, AU_Das_daily2$Pa)
+AU_Dap_daily2$pet <- priestley_taylor_pet(AU_Dap_daily2$Rn, AU_Dap_daily2$Tair, AU_Dap_daily2$Pa)
+AU_Dry_daily2$pet <- priestley_taylor_pet(AU_Dry_daily2$Rn, AU_Dry_daily2$Tair, AU_Dry_daily2$Pa)
+AU_Stp_daily2$pet <- priestley_taylor_pet(AU_Stp_daily2$Rn, AU_Stp_daily2$Tair, AU_Stp_daily2$Pa)
+AU_Asm_daily2$pet <- priestley_taylor_pet(AU_Asm_daily2$Rn, AU_Asm_daily2$Tair, AU_Asm_daily2$Pa)
+```
+
+Now make a column with ET/PET ratio:
+
+
+```{r}
+
+AU_How_daily2 <- AU_How_daily2 %>%
+  mutate(
+    ET_PET = ET_mm_day / pet
+  )
+
+
+```
+
+```{r}
+summary(AU_How_daily2$LE)
+```
+
+Really large numbers in ET:PET?
+- Now going to use the half-hourly data for calculating ET
+
+Drop NA from half-hourly
+```{r}
+AU_How_1 <- AU_How_1 %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, LE, SW_rad)
+
+AU_Dap_1 <- AU_Dap_1 %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, LE, SW_rad)
+
+AU_Das_1 <- AU_Das_1 %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, LE, SW_rad)
+
+AU_Dry_1 <- AU_Dry_1 %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, LE, SW_rad)
+
+AU_Stp_1 <- AU_Stp_1 %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, LE, SW_rad)
+
+AU_Asm_1 <- AU_Asm_1 %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, LE, SW_rad)
+```
+
+now, calculate ET for the half-hourly data
+
+```{r}
+lambda <- 2.45e6
+secs_day <- 86400
+
+```
+
+```{r}
+AU_How_1 <- AU_How_1 %>%
+  mutate(
+    ET_mm_day = LE / lambda * secs_day * 1000
+  )
+
+```
+
+Make into a function:
+
+```{r}
+add_ET <- function(df, LE_col = LE) {
+  lambda <- 2.45e6
+  secs_day <- 86400
+  
+  df %>%
+    mutate(
+      ET_mm_day = {{LE_col}} / lambda * secs_day * 1000
+    )
+}
+```
+
+```{r}
+AU_Dap_1 <- add_ET(AU_Dap_1)
+AU_Das_1 <- add_ET(AU_Das_1)
+AU_Dry_1<- add_ET(AU_Dry_1)
+AU_Stp_1 <- add_ET(AU_Stp_1)
+AU_Asm_1<- add_ET(AU_Asm_1)
+```
+
+Now convert to daily?
+
+```{r}
+convert_to_daily <- function(df) {
+  
+  #Conversion constants
+  
+  UMOL_TO_MOL <- 1E-6
+  MOL_C_TO_GRAMS_C <- 12.0
+  SEC_2_HALF_HOUR <- 1800.
+  WM2_TO_KG_M2_S <- 1.0 /  ( 2.45 * 1E6)
+  PA_2_KPA = 0.001
+  HPA_2_KPA = 0.1
+  
+  df <- df %>%
+    mutate(
+      GPP = GPP * UMOL_TO_MOL * MOL_C_TO_GRAMS_C * SEC_2_HALF_HOUR,
+      ET = LE * WM2_TO_KG_M2_S * SEC_2_HALF_HOUR, 
+      VPD = VPD * HPA_2_KPA,
+      Precip = Precip * SEC_2_HALF_HOUR
+    )
+  
+  df$date <- ymd_hms(df$date)
+  
+  #Resample to daily
+  
+  df <- df %>%
+    mutate(date = floor_date(date, "day")) %>%
+    group_by(site, date) %>%
+    summarise(
+      Precip = ifelse(
+        sum(!is.na(Precip)) > 0,
+        sum(Precip, na.rm = TRUE),
+        NA
+      ),
+      GPP = sum(GPP, na.rm = TRUE),
+      ET = sum(ET, na.rm = TRUE), 
+      LE = mean(LE, na.rm = TRUE), 
+      SW_rad = mean(SW_rad, na.rm = TRUE),
+      Tair = mean(Tair, na.rm = TRUE), 
+      VPD = mean(VPD, na.rm = TRUE),
+      Pa = mean(Pa, na.rm = TRUE),
+      Rn = mean(Rn, na.rm = TRUE),
+      ET_mm_day = (ET_mm_day),
+      .groups = "drop"
+    )
+  
+  return(df)
+  
+}
+```
+
+```{r}
+
+AU_How_daily <- convert_to_daily(AU_How_1)
+AU_Dap_daily <- convert_to_daily(AU_Dap_1)
+AU_Das_daily <- convert_to_daily(AU_Das_1)
+AU_Dry_daily <- convert_to_daily(AU_Dry_1)
+AU_Stp_daily <- convert_to_daily(AU_Stp_1)
+AU_Asm_daily <- convert_to_daily(AU_Asm_1)
+
+```
+
+Pet
+```{r}
+AU_How_daily$pet <- priestley_taylor_pet(AU_How_daily$Rn, AU_How_daily$Tair, AU_How_daily$Pa)
+AU_Das_daily$pet <- priestley_taylor_pet(AU_Das_daily$Rn, AU_Das_daily$Tair, AU_Das_daily$Pa)
+AU_Dap_daily$pet <- priestley_taylor_pet(AU_Dap_daily$Rn, AU_Dap_daily$Tair, AU_Dap_daily$Pa)
+AU_Dry_daily$pet <- priestley_taylor_pet(AU_Dry_daily$Rn, AU_Dry_daily$Tair, AU_Dry_daily$Pa)
+AU_Stp_daily$pet <- priestley_taylor_pet(AU_Stp_daily$Rn, AU_Stp_daily$Tair, AU_Stp_daily$Pa)
+AU_Asm_daily$pet <- priestley_taylor_pet(AU_Asm_daily$Rn, AU_Asm_daily$Tair, AU_Asm_daily$Pa)
+```
+
+Column with ratio
+
+```{r}
+
+AU_How_daily <- AU_How_daily %>%
+  mutate(
+    ET_PET = ET_mm_day / pet
+  )
+
+```
+
+
+Slightly confused? Not sure what I have done wrong for the ET:PET ratio
+
