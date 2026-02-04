@@ -197,6 +197,65 @@ Stp_1 <- Stp_HH %>%
 plot(Dry_1$Precip)
 ```
 
+Before converting to daily, remove extreme outliers as they skew the data:
+
+99% percentile of rainfall data for half-hourly (kg m-2 s-1) mm2 s-1
+```{r}
+quantile(Dry_daily$Precip, probs = c(0.90, 0.95, 0.99, 0.999), na.rm = TRUE)
+
+
+```
+
+1.5mm s-1 half-hourly
+
+```{r}
+threshold <- quantile(Dry_1$Precip, 0.999, na.rm = TRUE)
+```
+
+```{r}
+Dry_1 <- Dry_1 %>%
+  mutate(
+    Precip_flag = Precip > threshold,      # flag extreme spikes
+    Precip_clean = ifelse(Precip > threshold, NA, Precip)  # set outliers to NA
+  )
+
+```
+
+```{r}
+# Number of flagged points
+sum(Dry_1$Precip_flag, na.rm = TRUE)
+
+# Plot cleaned vs original
+library(ggplot2)
+ggplot(Dry_1, aes(x = date)) +
+  geom_line(aes(y = Precip), color = "red") +
+  geom_line(aes(y = Precip_clean), color = "blue") +
+  theme_minimal()
+
+```
+
+
+```{r}
+# Create a new dataframe with Precip below the threshold
+Dry_clean <- Dry_1 %>%
+  filter(Precip <= threshold | is.na(Precip))
+
+# Optional: check how many rows were removed
+removed <- nrow(Dry_1) - nrow(Dry_clean)
+cat("Removed", removed, "rows above threshold.\n")
+
+```
+
+```{r}
+plot(Dry_clean$Precip)
+```
+
+
+
+
+
+
+
 We can convert these sites to daily data
 
 ```{r}
@@ -315,6 +374,9 @@ ggplot(Asm_daily, aes(x = date, y = Precip)) +
   geom_line() +
   theme_minimal()
 
+```
+```{r}
+plot(Asm_daily$Precip)
 ```
 
 
