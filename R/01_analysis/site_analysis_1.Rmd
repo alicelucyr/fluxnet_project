@@ -219,8 +219,9 @@ convert_to_daily <- function(df) {
       Precip = Precip * SEC_2_HALF_HOUR
     )
   
-  df$date <- ymd_hms(df$date)
-  
+df <- df %>%
+  mutate(date = as.POSIXct(date, tz = "UTC"))
+
   #Resample to daily, with additional Precip section
   
   df <- df %>%
@@ -258,8 +259,35 @@ Dry_daily <- convert_to_daily(Dry_1)
 Asm_daily <- convert_to_daily(Asm_1)
 Stp_daily <- convert_to_daily(Stp_1)
 ```
+
 ```{r}
-class(How_1$date)
+sum(is.nan(How_daily$VPD))
 
 ```
+
+Convert NAN back to NA:
+
+```{r}
+How_daily <- How_daily %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+
+Ade_daily <- Ade_daily %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+
+Das_daily <-Das_daily %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+
+Dap_daily <- Dap_daily %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+
+Dry_daily <- Dry_daily %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+
+Stp_daily <- Stp_daily %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+
+Asm_daily <- Asm_daily %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+```
+
 
