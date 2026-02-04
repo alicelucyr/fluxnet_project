@@ -13,10 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 rm(list = ls())
 ```
 
-How does predictability change across bioclimatic gradients? (OzFlux)
-- which sites are the most predictable?
-- which variables are the most/least important?
-
+1. Read in Flux data
 ```{r}
 
 read_flux <- function(fname) {
@@ -107,7 +104,21 @@ Asm_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/
 
 ```
 
-Convert -9999 to NA:
+3. Plotting raw data: Half-hourly (kg m-2 s-1?)
+
+```{r}
+plot(How_HH$Precip)
+plot(Ade_HH$Precip)
+plot(Das_HH$Precip)
+plot(Dap_HH$Precip)
+plot(Dry_HH$Precip)
+plot(Stp_HH$Precip)
+plot(Asm_HH$Precip)
+```
+So, these large values are extremely unlikely. 
+
+
+4. Convert -9999 values to NA:
 
 ```{r}
 #Specify which variables you want, otherwise it will read dates and show an error
@@ -187,27 +198,37 @@ Stp_1 <- Stp_HH %>%
   ))
 ```
 
+Plotting precipitation after removing -9999
+
 ```{r}
-plot(How_1$Precip)
+plot(Asm_1$Precip)
 ```
 
-Before converting to daily, remove extreme outliers as they skew the data:
+Now, I am going to remove extreme outliers before converting to daily data.
 
 99% percentile of rainfall data for half-hourly (kg m-2 s-1) mm2 s-1
 ```{r}
-quantile(How_1$Precip, probs = c(0.90, 0.95, 0.99, 0.999), na.rm = TRUE)
+quantile(Asm_1$Precip, probs = c(0.90, 0.95, 0.99, 0.999), na.rm = TRUE)
 ```
-
 
 ```{r}
-How_thresh <- quantile(How_1$Precip, 0.95, na.rm = TRUE)
-Ade_thresh <- quantile(Ade_1$Precip, 0.95, na.rm = TRUE)
-Dap_thresh <- quantile(Dap_1$Precip, 0.95, na.rm = TRUE)
-Das_thresh <- quantile(Das_1$Precip, 0.95, na.rm = TRUE)
-Dry_thresh <- quantile(Dry_1$Precip, 0.95, na.rm = TRUE)
-Stp_thresh <- quantile(Stp_1$Precip, 0.95, na.rm = TRUE)
-Asm_thresh <- quantile(Asm_1$Precip, 0.95, na.rm = TRUE)
+summary(How_HH$Precip)
+quantile(How_HH$Precip, probs = c(0.5, 0.9, 0.99), na.rm = TRUE)
+
 ```
+If in the 99th percentile, say outlier is TRUE
+
+```{r}
+How_thresh <- quantile(How_1$Precip, 0.99, na.rm = TRUE)
+Ade_thresh <- quantile(Ade_1$Precip, 0.99, na.rm = TRUE)
+Dap_thresh <- quantile(Dap_1$Precip, 0.99, na.rm = TRUE)
+Das_thresh <- quantile(Das_1$Precip, 0.99, na.rm = TRUE)
+Dry_thresh <- quantile(Dry_1$Precip, 0.99, na.rm = TRUE)
+Stp_thresh <- quantile(Stp_1$Precip, 0.99, na.rm = TRUE)
+Asm_thresh <- quantile(Asm_1$Precip, 0.99, na.rm = TRUE)
+```
+
+Apply to datasets
 
 ```{r}
 How_1 <- How_1 %>%
@@ -257,7 +278,7 @@ Asm_1 <- Asm_1 %>%
 
 ```{r}
 # Number of flagged points
-sum(Ade_1$Precip_flag, na.rm = TRUE)
+sum(How_1$Precip_flag, na.rm = TRUE)
 
 # Plot cleaned vs original
 library(ggplot2)
@@ -275,85 +296,90 @@ How_clean <- How_1 %>%
   filter(Precip <= How_thresh | is.na(Precip))
 
 Ade_clean <- Ade_1 %>%
-  filter(Precip <= How_thresh | is.na(Precip))
+  filter(Precip <= Ade_thresh | is.na(Precip))
 
 Dap_clean <- Dap_1 %>%
-  filter(Precip <= How_thresh | is.na(Precip))
+  filter(Precip <= Dap_thresh | is.na(Precip))
 
 Das_clean <- Das_1 %>%
-  filter(Precip <= How_thresh | is.na(Precip))
+  filter(Precip <= Das_thresh | is.na(Precip))
 
 Dry_clean <- Dry_1 %>%
-  filter(Precip <= How_thresh | is.na(Precip))
+  filter(Precip <= Dry_thresh | is.na(Precip))
 
 Stp_clean <- Stp_1 %>%
-  filter(Precip <= How_thresh | is.na(Precip))
+  filter(Precip <= Stp_thresh | is.na(Precip))
 
 Asm_clean <- Asm_1 %>%
-  filter(Precip <= How_thresh | is.na(Precip))
+  filter(Precip <= Asm_thresh | is.na(Precip))
 ```
 
+Plot the cleaned, half-hourly precipitation data
+
 ```{r}
+plot(Stp_clean$Precip)
 plot(How_clean$Precip)
+plot(Ade_clean$Precip)
+plot(Das_clean$Precip)
+plot(Dap_clean$Precip)
+plot(Asm_clean$Precip)
 ```
-
-
-We can convert these sites to daily data
+Now convert to daily with the cleaned data:
 
 ```{r}
-####
-##  Convert the 30 min to daily ... someone should add something to check 
-##. if the data is hourly ...
-##
-##
-##  author: Martin De Kauwe
-##  date: 27th February, 2025
-##  email: mdekauwe@gmail.com
-####
-library(tidyverse)
-
-convert_to_daily <- function(df) {
-
-  # Conversion constants
-  UMOL_TO_MOL <- 1E-6
-  MOL_C_TO_GRAMS_C <- 12.0
-  SEC_2_HLFHOUR <- 1800.
-  WM2_TO_KG_M2_S <- 1.0 / ( 2.45 * 1E6 )
-  PA_2_KPA = 0.001
-  HPA_2_KPA = 0.1
+  ####
+  ##  Convert the 30 min to daily ... someone should add something to check 
+  ##. if the data is hourly ...
+  ##
+  ##
+  ##  author: Martin De Kauwe
+  ##  date: 27th February, 2025
+  ##  email: mdekauwe@gmail.com
+  ####
+  library(tidyverse)
   
-  df <- df %>%
-    mutate(
-      GPP = GPP * UMOL_TO_MOL * MOL_C_TO_GRAMS_C * SEC_2_HLFHOUR,
-      Precip = Precip * SEC_2_HLFHOUR,
-      ET = Qle * WM2_TO_KG_M2_S * SEC_2_HLFHOUR,
-      VPD = VPD * HPA_2_KPA
-    )
+  convert_to_daily <- function(df) {
   
-  df$date <- ymd_hms(df$date)
-  
-  # Resample to daily 
-  df <- df %>%
-    mutate(date = floor_date(date, "day")) %>%  
-    group_by(date) %>%
-    summarise(
-      GPP = sum(GPP, na.rm=TRUE), 
-      ET = sum(ET, na.rm=TRUE),  
-      Precip = sum(Precip, na.rm=TRUE),
-      Qle = mean(Qle, na.rm=TRUE),
-      Tair = mean(Tair, na.rm=TRUE),
-      SW_rad = mean(SW_rad, na.rm=TRUE),
-      Rn = mean(Rn, na.rm=TRUE),
-      Pa = mean(Pa, na.rm=TRUE),
-      VPD = mean(VPD, na.rm=TRUE),
-      .groups = "drop"
-    )
-  
-  return(df)
-}
+    # Conversion constants
+    UMOL_TO_MOL <- 1E-6
+    MOL_C_TO_GRAMS_C <- 12.0
+    SEC_2_HLFHOUR <- 1800.
+    WM2_TO_KG_M2_S <- 1.0 / ( 2.45 * 1E6 )
+    PA_2_KPA = 0.001
+    HPA_2_KPA = 0.1
+    
+    df <- df %>%
+      mutate(
+        GPP = GPP * UMOL_TO_MOL * MOL_C_TO_GRAMS_C * SEC_2_HLFHOUR,
+        Precip = Precip * SEC_2_HLFHOUR,
+        ET = Qle * WM2_TO_KG_M2_S * SEC_2_HLFHOUR,
+        VPD = VPD * HPA_2_KPA
+      )
+    
+    df$date <- ymd_hms(df$date)
+    
+    # Resample to daily 
+    df <- df %>%
+      mutate(date = floor_date(date, "day")) %>%  
+      group_by(date) %>%
+      summarise(
+        GPP = sum(GPP, na.rm=TRUE), 
+        ET = sum(ET, na.rm=TRUE),  
+        Precip = sum(Precip, na.rm=TRUE),
+        Qle = mean(Qle, na.rm=TRUE),
+        Tair = mean(Tair, na.rm=TRUE),
+        SW_rad = mean(SW_rad, na.rm=TRUE),
+        Rn = mean(Rn, na.rm=TRUE),
+        Pa = mean(Pa, na.rm=TRUE),
+        VPD = mean(VPD, na.rm=TRUE),
+        .groups = "drop"
+      )
+    
+    return(df)
+  }
 ```
 
-
+Convert to daily with cleaned data:
 
 ```{r}
 How_daily <- convert_to_daily(How_clean)
@@ -364,6 +390,18 @@ Dry_daily <- convert_to_daily(Dry_clean)
 Asm_daily <- convert_to_daily(Asm_clean)
 Stp_daily <- convert_to_daily(Stp_clean)
 ```
+
+```{r}
+plot(How_daily$Precip)
+plot(Ade_daily$Precip)
+plot(Dap_daily$Precip)
+plot(Das_daily$Precip)
+plot(Stp_daily$Precip)
+plot(Dry_daily$Precip)
+plot(Asm_daily$Precip)
+```
+
+
 
 Convert NAN back to NA:
 
@@ -392,6 +430,11 @@ Asm_daily <- Asm_daily %>%
 
 ```{r}
 plot(Asm_daily$Precip)
+plot(How_daily$Precip)
+plot(Asm_daily$Precip)
+plot(Dap_daily$Precip)
+plot(Das_daily$Precip)
+plot(Ade_daily$Precip)
 ```
 
 
