@@ -9,3 +9,257 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 
+```{r}
+rm(list = ls())
+```
+
+How does predictability change across bioclimatic gradients? (OzFlux)
+- which sites are the most predictable?
+- which variables are the most/least important?
+
+```{r}
+
+read_flux <- function(fname) {
+  
+  #Ensure it reads one file at a time
+  if (length(fname) != 1) {
+    stop("read_flux() expects a single filename")
+  }
+  
+  df <- read.csv(fname)
+  
+  #extract site code from file name
+  base <- basename(fname)
+  no_ext <- gsub("\\.csv$", "", base)
+  
+ site <- regmatches(
+  no_ext,
+  regexpr("[A-Z]{2}-[A-Za-z]{2,3}[0-9]?", no_ext)
+)
+ 
+ if(length(site) == 0) {
+   stop(paste("Could not extract site code from filename:", base))
+ }
+ 
+  #add site column
+  df$site <- site
+  
+   # Convert TIMESTAMP_START to datetime and set as index
+  df <- df %>%
+    mutate(date = ymd_hm(TIMESTAMP_START)) %>%
+    select(-TIMESTAMP_START, -TIMESTAMP_END) %>%
+    relocate(date)
+
+  df <- df %>%
+    mutate(
+      year = year(date),
+      doy = yday(date),
+      hod = hour(date)
+    )
+  
+#renaming some variables
+  
+   df <- df %>%
+    rename(
+      GPP = GPP_NT_VUT_REF,
+      Qle = LE_F_MDS,
+      Precip = P_ERA,
+      Tair = TA_F_MDS,
+      SW_rad = SW_IN_F_MDS,
+      Rn = NETRAD,
+      Pa = PA_F,
+      VPD = VPD_F_MDS,
+      Rn = NETRAD
+    )
+
+  vars_to_keep <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "VPD", "Precip", "Pa", "Rn")
+  df <- df %>% select(date, all_of(vars_to_keep), year, doy, hod, site)
+  
+  return(df)
+  
+}
+
+```
+
+Read in sites:
+- Howard springs
+- Adelaide river
+- Daly River
+- Daly Savanna
+- Dry river
+- Sturt plains
+- Alice springs
+
+```{r}
+How_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-How_FLUXNET2015_FULLSET_HH_2001-2014_1-4.csv")
+
+Ade_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Ade_FLUXNET2015_FULLSET_HH_2007-2009_1-4.csv")
+
+Dap_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-DaP_FLUXNET2015_FULLSET_HH_2007-2013_2-4.csv")
+
+Das_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-DaS_FLUXNET2015_FULLSET_HH_2008-2014_2-4.csv")
+
+Dry_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Dry_FLUXNET2015_FULLSET_HH_2008-2014_2-4.csv")
+
+Stp_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Stp_FLUXNET2015_FULLSET_HH_2008-2014_1-4.csv")
+
+Asm_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-ASM_FLUXNET2015_FULLSET_HH_2010-2014_2-4.csv")
+
+```
+
+Have a look at some variables now
+```{r}
+plot(Asm_HH$Pa)
+```
+
+Convert -9999 to NA:
+
+```{r}
+#Specify which variables you want, otherwise it will read dates and show an error
+
+flux_vars <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "Precip", "Pa", "VPD")
+
+#Clean dataframe, convert to 'na' if '-9999'
+
+How_1 <- How_HH %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+Ade_1 <- Ade_HH %>%
+   mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+Asm_1 <- Asm_HH %>%
+   mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+Dap_1 <- Dap_HH %>%
+   mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+Das_1 <- Das_HH %>%
+   mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+Dry_1 <- Dry_HH %>%
+   mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+Stp_1 <- Stp_HH %>%
+   mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+```
+
+Double check the data is halfhourly
+```{r}
+print(Dry_HH$date)
+```
+
+We can convert these sites to daily data
+
+```{r}
+convert_to_daily <- function(df) {
+  
+  #Conversion constants
+  
+  UMOL_TO_MOL <- 1E-6
+  MOL_C_TO_GRAMS_C <- 12.0
+  SEC_2_HALF_HOUR <- 1800.
+  WM2_TO_KG_M2_S <- 1.0 /  ( 2.45 * 1E6)
+  PA_2_KPA = 0.001
+  HPA_2_KPA = 0.1
+  
+  df <- df %>%
+    mutate(
+      GPP = GPP * UMOL_TO_MOL * MOL_C_TO_GRAMS_C * SEC_2_HALF_HOUR,
+      ET = Qle * WM2_TO_KG_M2_S * SEC_2_HALF_HOUR, 
+      VPD = VPD * HPA_2_KPA,
+      Precip = Precip * SEC_2_HALF_HOUR
+    )
+  
+  df$date <- ymd_hms(df$date)
+  
+  #Resample to daily, with additional Precip section
+  
+  df <- df %>%
+    mutate(date = floor_date(date, "day")) %>%
+    group_by(site, date) %>%
+    summarise(
+      Precip = ifelse(
+        sum(!is.na(Precip)) > 0,
+        sum(Precip, na.rm = TRUE),
+        NA
+      ),
+      GPP = sum(GPP, na.rm = TRUE),
+      ET = sum(ET, na.rm = TRUE), 
+      Qle = mean(Qle, na.rm = TRUE), 
+      SW_rad = mean(SW_rad, na.rm = TRUE),
+      Tair = mean(Tair, na.rm = TRUE), 
+      VPD = mean(VPD, na.rm = TRUE),
+      Pa = mean(Pa, na.rm = TRUE),
+      Rn = mean(Rn, na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+  return(df)
+  
+}
+
+```
+
+```{r}
+How_daily <- convert_to_daily(How_1)
+Ade_daily <- convert_to_daily(Ade_1)
+Das_daily <- convert_to_daily(Das_1)
+Dap_daily <- convert_to_daily(Dap_1)
+Dry_daily <- convert_to_daily(Dry_1)
+Asm_daily <- convert_to_daily(Asm_1)
+Stp_daily <- convert_to_daily(Stp_1)
+```
+```{r}
+class(How_1$date)
+
+```
+
