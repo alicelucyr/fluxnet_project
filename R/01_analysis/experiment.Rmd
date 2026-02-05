@@ -8,6 +8,9 @@ date: "2026-02-05"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+Highlighting issue with precipitation in Howard Springs. 
+Note: VPD looks fine at the end but precipitation still shows really high values
+
 Load in half-hourly flux site:
 
 ```{r}
@@ -172,7 +175,7 @@ summary_table <- summary_table[, c("Variable", setdiff(names(summary_table), "Va
 summary_table
 
 ```
-Assuming there is instrument failure for precipitation, remove 99th percentile values
+Assuming there is instrument failure for precipitation, remove 99th percentile values. Controlling for obvious outliers before converting to daily. 
 
 ```{r}
 library(dplyr)
@@ -269,7 +272,7 @@ How_daily_clean <- How_daily %>%
 ```
 
 ```{r}
-plot(How_daily_clean$Precip)
+plot(How_daily_clean$Precip, ylab = "precipitation mm/day")
 ```
 Still looks really large for mm/day?
 
