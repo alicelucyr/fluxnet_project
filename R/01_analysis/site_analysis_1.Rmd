@@ -104,16 +104,16 @@ Asm_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/
 
 ```
 
-3. Plotting raw data: Half-hourly (kg m-2 s-1?)
+3. Plotting raw data: Half-hourly (kg m-2 s-1)
 
 ```{r}
-plot(How_HH$Precip)
-plot(Ade_HH$Precip)
-plot(Das_HH$Precip)
-plot(Dap_HH$Precip)
-plot(Dry_HH$Precip)
-plot(Stp_HH$Precip)
-plot(Asm_HH$Precip)
+plot(How_HH$Precip, ylab = "precipitation kg m-2 s-1", main = "Howard springs")
+plot(Ade_HH$Precip, ylab = "precipitation kg m-2 s-1", main = "Adelaide river")
+plot(Das_HH$Precip, ylab = "precipitation kg m-2 s-1", main = "Daly savanna")
+plot(Dap_HH$Precip, ylab = "precipitation kg m-2 s-1", main = "Daly pasture")
+plot(Dry_HH$Precip, ylab = "precipitation kg m-2 s-1", main = "Dry river")
+plot(Stp_HH$Preci, ylab = "precipitation kg m-2 s-1", main = "Sturt plains")
+plot(Asm_HH$Precip, ylab = "precipitation kg m-2 s-1", main = "Alice springs")
 ```
 So, these large values are extremely unlikely. 
 
@@ -201,8 +201,14 @@ Stp_1 <- Stp_HH %>%
 Plotting precipitation after removing -9999
 
 ```{r}
-plot(Asm_1$Precip)
+plot(Asm_1$Precip, ylab = "Precipitation kg m-2 s-1")
 ```
+12 kg m-2 s-1 would be 43,200 mm/hour - which is impossible?
+
+```{r}
+plot(How_1$VPD)
+```
+
 
 Now, I am going to remove extreme outliers before converting to daily data.
 
@@ -284,45 +290,94 @@ sum(How_1$Precip_flag, na.rm = TRUE)
 library(ggplot2)
 ggplot(Dry_1, aes(x = date)) +
   geom_line(aes(y = Precip), color = "red") +
+  labs(y = "Precipitation kg m-2 s-1", x = "Date") +
   geom_line(aes(y = Precip_clean), color = "blue") +
+  ggtitle("Dry River")
+  theme_minimal()
+  
+  library(ggplot2)
+ggplot(How_1, aes(x = date)) +
+  geom_line(aes(y = Precip), color = "red") +
+  labs(y = "Precipitation kg m-2 s-1", x = "Date") +
+  geom_line(aes(y = Precip_clean), color = "blue") +
+  ggtitle("Howard Springs")
   theme_minimal()
 
+  library(ggplot2)
+ggplot(Das_1, aes(x = date)) +
+  geom_line(aes(y = Precip), color = "red") +
+  labs(y = "Precipitation kg m-2 s-1", x = "Date") +
+  geom_line(aes(y = Precip_clean), color = "blue") +
+  ggtitle("Daly Savanna")
+  theme_minimal()
+  
+  library(ggplot2)
+ggplot(Dap_1, aes(x = date)) +
+  geom_line(aes(y = Precip), color = "red") +
+  labs(y = "Precipitation kg m-2 s-1", x = "Date") +
+  geom_line(aes(y = Precip_clean), color = "blue") +
+  ggtitle("Dsly Pasture")
+  theme_minimal()
+  
+  library(ggplot2)
+ggplot(Ade_1, aes(x = date)) +
+  geom_line(aes(y = Precip), color = "red") +
+  labs(y = "Precipitation kg m-2 s-1", x = "Date") +
+  geom_line(aes(y = Precip_clean), color = "blue") +
+  ggtitle("Adelaide River")
+  theme_minimal()
+  
+  library(ggplot2)
+ggplot(Asm_1, aes(x = date)) +
+  geom_line(aes(y = Precip), color = "red") +
+  labs(y = "Precipitation kg m-2 s-1", x = "Date") +
+  geom_line(aes(y = Precip_clean), color = "blue") +
+  ggtitle("Alice springs")
+  theme_minimal()
+  
+  library(ggplot2)
+ggplot(Stp_1, aes(x = date)) +
+  geom_line(aes(y = Precip), color = "red") +
+  labs(y = "Precipitation kg m-2 s-1", x = "Date") +
+  geom_line(aes(y = Precip_clean), color = "blue") +
+  ggtitle("Sturt plains")
+  theme_minimal()
 ```
 
 
 ```{r}
 # Create a new dataframe with Precip below the threshold
 How_clean <- How_1 %>%
-  filter(Precip <= How_thresh | is.na(Precip))
+  filter(Precip <= How_thresh | is.na(Precip_clean))
 
 Ade_clean <- Ade_1 %>%
-  filter(Precip <= Ade_thresh | is.na(Precip))
+  filter(Precip <= Ade_thresh | is.na(Precip_clean))
 
 Dap_clean <- Dap_1 %>%
-  filter(Precip <= Dap_thresh | is.na(Precip))
+  filter(Precip <= Dap_thresh | is.na(Precip_clean))
 
 Das_clean <- Das_1 %>%
-  filter(Precip <= Das_thresh | is.na(Precip))
+  filter(Precip <= Das_thresh | is.na(Precip_clean))
 
 Dry_clean <- Dry_1 %>%
-  filter(Precip <= Dry_thresh | is.na(Precip))
+  filter(Precip <= Dry_thresh | is.na(Precip_clean))
 
 Stp_clean <- Stp_1 %>%
-  filter(Precip <= Stp_thresh | is.na(Precip))
+  filter(Precip <= Stp_thresh | is.na(Precip_clean))
 
 Asm_clean <- Asm_1 %>%
-  filter(Precip <= Asm_thresh | is.na(Precip))
+  filter(Precip <= Asm_thresh | is.na(Precip_clean))
 ```
 
 Plot the cleaned, half-hourly precipitation data
 
 ```{r}
-plot(Stp_clean$Precip)
-plot(How_clean$Precip)
-plot(Ade_clean$Precip)
-plot(Das_clean$Precip)
-plot(Dap_clean$Precip)
-plot(Asm_clean$Precip)
+plot(Stp_clean$Precip, ylab = "Precipitation kg m-2 s-1", main = "Sturt plains")
+plot(How_clean$Precip,  ylab = "Precipitation kg m-2 s-1", main = "Howard springs")
+plot(Ade_clean$Precip,  ylab = "Precipitation kg m-2 s-1", main = "Adelaide river")
+plot(Das_clean$Precip,  ylab = "Precipitation kg m-2 s-1", main = "Daly savanna")
+plot(Dap_clean$Precip,  ylab = "Precipitation kg m-2 s-1", main = "daly pasture")
+plot(Asm_clean$Precip,  ylab = "Precipitation kg m-2 s-1", main = "Alice springs")
 ```
 Now convert to daily with the cleaned data:
 
@@ -392,13 +447,13 @@ Stp_daily <- convert_to_daily(Stp_clean)
 ```
 
 ```{r}
-plot(How_daily$Precip)
-plot(Ade_daily$Precip)
-plot(Dap_daily$Precip)
-plot(Das_daily$Precip)
-plot(Stp_daily$Precip)
-plot(Dry_daily$Precip)
-plot(Asm_daily$Precip)
+plot(How_daily$Precip, ylab = "Precipitation kg m-2 d-1 / mm day", main = "Howard springs")
+plot(Ade_daily$Precip, ylab = "Precipitation kg m-2 d-1 / mm day", main = "Adelaide river")
+plot(Dap_daily$Precip, ylab = "Precipitation kg m-2 d-1 / mm day", main = "Daly pasture")
+plot(Das_daily$Precip, ylab = "Precipitation kg m-2 d-1 / mm day", main = "Daly savanna")
+plot(Stp_daily$Precip, ylab = "Precipitation kg m-2 d-1 / mm day", main = "Sturt plains")
+plot(Dry_daily$Precip, ylab = "Precipitation kg m-2 d-1 / mm day", main = "Dry River")
+plot(Asm_daily$Precip, ylab = "Precipitation kg m-2 d-1 / mm day", main = "Alice springs")
 ```
 
 
@@ -492,16 +547,20 @@ Stp_daily2 <- convert_to_daily_2(Stp_clean)
 
 ```
 ```{r}
-plot(How_daily2$Precip)
-plot(Ade_daily2$Precip)
-plot(Das_daily2$Precip)
-plot(Dap_daily2$Precip)
-plot(Dry_daily2$Precip)
-plot(Stp_daily2$Precip)
-plot(Asm_daily2$Precip)
+plot(How_daily2$Precip, ylab = "precipitation (mm/day)", main = "Howard springs")
+plot(Ade_daily2$Precip, ylab = "precipitation (mm/day)", main = "Adelaide river")
+plot(Das_daily2$Precip, ylab = "precipitation (mm/day", main = "Daly savanna")
+plot(Dap_daily2$Precip, ylab = "precipitation (mm/day)", main = "Daly pasture")
+plot(Dry_daily2$Precip, ylab = "Precipitation (mm/day)", main = "Dry River")
+plot(Stp_daily2$Precip, ylab = "precipitation (mm/day", main = "Sturt plains")
+plot(Asm_daily2$Precip, ylab = "precipitation (mm/day", main = "Alice springs")
 
 ```
 
+```{r}
+any(duplicated(Das_clean$date))
+
+```
 
 
 

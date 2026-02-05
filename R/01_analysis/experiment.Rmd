@@ -1,0 +1,127 @@
+---
+title: "experiment"
+output: html_document
+date: "2026-02-05"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load in completely different site:
+
+```{r}
+read_flux <- function(fname) {
+  
+  #Ensure it reads one file at a time
+  if (length(fname) != 1) {
+    stop("read_flux() expects a single filename")
+  }
+  
+  df <- read.csv(fname)
+  
+  #extract site code from file name
+  base <- basename(fname)
+  no_ext <- gsub("\\.csv$", "", base)
+  
+ site <- regmatches(
+  no_ext,
+  regexpr("[A-Z]{2}-[A-Za-z]{2,3}[0-9]?", no_ext)
+)
+ 
+ if(length(site) == 0) {
+   stop(paste("Could not extract site code from filename:", base))
+ }
+ 
+  #add site column
+  df$site <- site
+  
+   # Convert TIMESTAMP_START to datetime and set as index
+  df <- df %>%
+    mutate(date = ymd_hm(TIMESTAMP_START)) %>%
+    select(-TIMESTAMP_START, -TIMESTAMP_END) %>%
+    relocate(date)
+
+  df <- df %>%
+    mutate(
+      year = year(date),
+      doy = yday(date),
+      hod = hour(date)
+    )
+  
+#renaming some variables
+  
+   df <- df %>%
+    rename(
+      GPP = GPP_NT_VUT_REF,
+      Qle = LE_F_MDS,
+      Precip = P_ERA,
+      Tair = TA_F_MDS,
+      SW_rad = SW_IN_F_MDS,
+      Rn = NETRAD,
+      Pa = PA_F,
+      VPD = VPD_F_MDS,
+      Rn = NETRAD
+    )
+
+  vars_to_keep <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "VPD", "Precip", "Pa", "Rn")
+  df <- df %>% select(date, all_of(vars_to_keep), year, doy, hod, site)
+  
+  return(df)
+  
+}
+
+```
+
+Hourly AU_Tum
+```{r}
+AU_Tum <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/Flux/hourly_2/FLX_AU-Tum_FLUXNET2015_FULLSET_HR_2001-2014_2-4.csv")
+```
+
+```{r}
+plot(AU_Tum$Precip, ylab = "precipitation kg m-2 s-1", main = "AU Tum")
+```
+
+Load in random half-hourly flux file:
+```{r}
+AU_Cpr_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Cpr_FLUXNET2015_FULLSET_HH_2010-2014_2-4.csv")
+```
+
+```{r}
+plot(AU_Cpr_HH$Precip, ylab = "precip kg m-2 s-1", main = "AU Cpr")
+```
+
+```{r}
+plot(AU_Tum$VPD)
+plot(AU_Cpr_HH$VPD)
+```
+```{r}
+flux_vars <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "Precip", "Pa", "VPD")
+```
+```{r}
+Tum_1 <- AU_Tum %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+Cpr_1 <- AU_Cpr_HH %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+```
+
+```{r}
+plot(Tum_1$VPD)
+plot(Cpr_1$VPD)
+```
+
