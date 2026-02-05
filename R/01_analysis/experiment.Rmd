@@ -8,9 +8,10 @@ date: "2026-02-05"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-Load in completely different site:
+Load in half-hourly flux site:
 
 ```{r}
+library(tidyverse)
 read_flux <- function(fname) {
   
   #Ensure it reads one file at a time
@@ -70,46 +71,43 @@ read_flux <- function(fname) {
   return(df)
   
 }
-
 ```
 
-Hourly AU_Tum
-```{r}
-AU_Tum <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/Flux/hourly_2/FLX_AU-Tum_FLUXNET2015_FULLSET_HR_2001-2014_2-4.csv")
-```
+Half-hourly Howard Springs
 
 ```{r}
-plot(AU_Tum$Precip, ylab = "precipitation kg m-2 s-1", main = "AU Tum")
+How_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-How_FLUXNET2015_FULLSET_HH_2001-2014_1-4.csv")
 ```
 
-Load in random half-hourly flux file:
-```{r}
-AU_Cpr_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Cpr_FLUXNET2015_FULLSET_HH_2010-2014_2-4.csv")
-```
+Summarise raw half-hourly data:
 
 ```{r}
-plot(AU_Cpr_HH$Precip, ylab = "precip kg m-2 s-1", main = "AU Cpr")
+summary(How_HH$Precip)
+plot(How_HH$Precip)
 ```
 
 ```{r}
-plot(AU_Tum$VPD)
-plot(AU_Cpr_HH$VPD)
+summary(How_HH$VPD)
+plot(How_HH$VPD)
 ```
+
 ```{r}
+summary(How_HH$Tair)
+```
+
+```{r}
+summary(How_HH$Rn)
+```
+
+Remove -9999 values
+
+```{r}
+
 flux_vars <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "Precip", "Pa", "VPD")
-```
-```{r}
-Tum_1 <- AU_Tum %>%
-  mutate(across(
-    all_of(flux_vars),
-    ~na_if(., -9999)
-  )) %>%
-  mutate(across(
-    all_of(flux_vars),
-    ~na_if(., -9999.9)
-  ))
 
-Cpr_1 <- AU_Cpr_HH %>%
+#Clean dataframe, convert to 'na' if '-9999'
+
+How_1 <- How_HH %>%
   mutate(across(
     all_of(flux_vars),
     ~na_if(., -9999)
@@ -120,8 +118,162 @@ Cpr_1 <- AU_Cpr_HH %>%
   ))
 ```
 
+
 ```{r}
-plot(Tum_1$VPD)
-plot(Cpr_1$VPD)
+summary(How_1$Precip)
+quantile(How_1$Precip, probs = c(0.5, 0.9, 0.99), na.rm = TRUE)
+
+summary(How_1$VPD)
+quantile(How_1$VPD, probs = c(0.5, 0.9, 0.99), na.rm = TRUE)
+
+summary(How_1$Tair)
+quantile(How_1$Tair, probs = c(0.5, 0.9, 0.99), na.rm = TRUE)
+
+summary(How_1$Qle)
+quantile(How_1$Qle, probs = c(0.5, 0.9, 0.99), na.rm = TRUE)
+
+summary(How_1$GPP)
+quantile(How_1$GPP, probs = c(0.5, 0.9, 0.99), na.rm = TRUE)
+
+summary(How_1$SW_rad)
+quantile(How_1$SW_rad, probs = c(0.5, 0.9, 0.99), na.rm = TRUE)
+
+summary(How_1$Rn)
+quantile(How_1$Rn, probs = c(0.5, 0.9, 0.99), na.rm = TRUE)
+
+summary(How_1$Pa)
+quantile(How_1$Pa, probs = c(0.5, 0.9, 0.99), na.rm = TRUE)
+```
+Table so easier to see:
+```{r}
+vars <- c("Precip", "VPD", "Tair", "Qle", "GPP", "SW_rad", "Rn", "Pa")
+
+summary_table <- do.call(rbind, lapply(vars, function(v) {
+  
+  x <- How_1[[v]]
+  
+  c(
+    Min    = min(x, na.rm = TRUE),
+    Q25    = quantile(x, 0.25, na.rm = TRUE),
+    Median = median(x, na.rm = TRUE),
+    Mean   = mean(x, na.rm = TRUE),
+    Q75    = quantile(x, 0.75, na.rm = TRUE),
+    Max    = max(x, na.rm = TRUE),
+    Q90    = quantile(x, 0.90, na.rm = TRUE),
+    Q99    = quantile(x, 0.99, na.rm = TRUE)
+  )
+}))
+
+summary_table <- as.data.frame(summary_table)
+summary_table$Variable <- vars
+
+summary_table <- summary_table[, c("Variable", setdiff(names(summary_table), "Variable"))]
+
+summary_table
+
+```
+Assuming there is instrument failure for precipitation, remove 99th percentile values
+
+```{r}
+library(dplyr)
+
+precip_thresh <- quantile(How_1$Precip, 0.99, na.rm = TRUE)
+
+How_clean <- How_1 %>%
+  filter(Precip <= precip_thresh)
+
 ```
 
+```{r}
+plot(How_clean$Precip)
+```
+Now, it looks a lot more reasonable?
+
+Convert cleaned data to daily:
+
+```{r}
+ ####
+  ##  Convert the 30 min to daily ... someone should add something to check 
+  ##. if the data is hourly ...
+  ##
+  ##
+  ##  author: Martin De Kauwe
+  ##  date: 27th February, 2025
+  ##  email: mdekauwe@gmail.com
+  ####
+  library(tidyverse)
+  
+  convert_to_daily <- function(df) {
+  
+    # Conversion constants
+    UMOL_TO_MOL <- 1E-6
+    MOL_C_TO_GRAMS_C <- 12.0
+    SEC_2_HLFHOUR <- 1800.
+    WM2_TO_KG_M2_S <- 1.0 / ( 2.45 * 1E6 )
+    PA_2_KPA = 0.001
+    HPA_2_KPA = 0.1
+    
+    df <- df %>%
+      mutate(
+        GPP = GPP * UMOL_TO_MOL * MOL_C_TO_GRAMS_C * SEC_2_HLFHOUR,
+        Precip = Precip * SEC_2_HLFHOUR,
+        ET = Qle * WM2_TO_KG_M2_S * SEC_2_HLFHOUR,
+        VPD = VPD * HPA_2_KPA
+      )
+    
+    df$date <- ymd_hms(df$date)
+    
+    # Resample to daily 
+    df <- df %>%
+      mutate(date = floor_date(date, "day")) %>%  
+      group_by(date) %>%
+      summarise(
+        GPP = sum(GPP, na.rm=TRUE), 
+        ET = sum(ET, na.rm=TRUE),  
+        Precip = sum(Precip, na.rm=TRUE),
+        Qle = mean(Qle, na.rm=TRUE),
+        Tair = mean(Tair, na.rm=TRUE),
+        SW_rad = mean(SW_rad, na.rm=TRUE),
+        Rn = mean(Rn, na.rm=TRUE),
+        Pa = mean(Pa, na.rm=TRUE),
+        VPD = mean(VPD, na.rm=TRUE),
+        .groups = "drop"
+      )
+    
+    return(df)
+  }
+```
+
+```{r}
+How_daily <- convert_to_daily(How_clean)
+```
+```{r}
+plot(How_daily$Precip, ylab = "Precipitation kg m-2 d-1 / mm/day", main = "Howard springs")
+```
+One outlier
+
+```{r}
+# 99th percentile threshold
+daily_thresh <- quantile(How_daily$Precip, 0.99, na.rm = TRUE)
+daily_thresh
+
+```
+
+Remove 99th percentile, see what happens:
+
+```{r}
+How_daily_clean <- How_daily %>%
+  mutate(
+    Precip = ifelse(Precip > daily_thresh, NA, Precip)
+  )
+```
+
+```{r}
+plot(How_daily_clean$Precip)
+```
+Still looks really large for mm/day?
+
+```{r}
+plot(How_daily$VPD)
+```
+VPD looks normal
