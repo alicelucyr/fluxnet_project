@@ -1830,4 +1830,138 @@ varImpPlot(Asm_model, main = "")
 print(simpler_model$mse[length(simpler_model$mse)])  
 print(Asm_model$mse[length(Asm_model$mse)])  
 ```
+1. AU-How
+R-squared = 0.71
+Model explains 71% of GPP variance
+Water availability dominates variable importance, then precipitation, then VPD
+Full model significantly improves predictive performance over simpler Tair + SW_rad model
+
+2. AU-Ade
+R-squared = 0.78
+Model explains 79.7% variation
+Cumulative water deficit most important predictor, lower than Howard springs
+Moderate VPD importance, lower than VPD
+
+Note: Even though both How and Ade are wet woody savannas, the sensitivity of GPP to water stress differs. In Adelaide river, water stress contributes less (canopy structure?)
+
+3. AU-Das
+R-squared = 0.58
+Lower variance explained than both How and Ade - more unpredictable
+Cumulative water deficit strongly influences GPP (less extreme than How and Ade)
+VPD important, similar magnitude to How
+Full model dramatically improves prediction, water variables are significant at Daly Savanna
+
+4. AU-Dap
+R-squared = 0.79
+GPP is highly predictable at Daly Pasture compared to Daly savanna
+cwd by far dominant driver
+VPD also important but secondary to cwd
+Full model performs much better than simpler model
+
+5. AU-Dry
+R-squared = 0.71
+cwd most important predictor, consistent with other sites
+VPD moderately important
+GPP at Dry river is water-limited, like other savannas, but the magnitude of water stress importance is smaller than Daly pasture
+
+6. AU-Stp
+R-squared = 0.61
+Lower than How, Ade and Dap, slightly better than DaS
+cwd dominant predictor
+VPD moderate predictor - importance is reduced compared to wetter sites
+
+7. AU-Asm
+R-squared = 0.82
+Highest predictability of all sites
+cwd dominant predictor with VPD, Tair and SW_rad showing minor contributions
+
+Overall:
+- Cumulative water stress dominates as the main driver of GPP across all sites
+- VPD is more important in intermediate sites (Das, Dap) than either very wet or very dry sites
+- Temperature and light contribute less, particularly in arid sites
+- R-squared varies across sites, the most predictable site is Asm, the least predictable site is Das (intermediate sites looking like they are harder to predict compared to very wet or dry sites)
+
+```{r}
+library(tidyverse)
+library(randomForest)
+
+#summary table of results
+# Manually enter your random forest outputs for each site
+rf_summary <- tibble(
+  site = c("How", "Ade", "DaS", "Dap", "Dry", "Stp", "Asm"),
+  R2 = c(0.7068, 0.7838, 0.5822, 0.7923, 0.7067, 0.6096, 0.8193),
+  RMSE = c(1.3882, 1.3032, 1.3391, 1.7917, 0.9496, 0.9913, 0.4550),
+  NSE = c(0.7060, 0.7819, 0.5793, 0.7917, 0.6933, 0.6000, 0.7815)
+)
+
+# table of variable importance
+rf_importance <- tibble(
+  site = rep(c("How", "Ade", "DaS", "Dap", "Dry", "Stp", "Asm"), each = 5),
+  predictor = rep(c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day", "Precip"), times = 7),
+  IncNodePurity = c(
+    # How
+    766.7118, 891.2272, 1486.7957, 8761.5299, 2167.8357,
+    # Ade
+    192.8977, 260.1241, 684.5107, 1967.3974, 234.1872,
+    # DaS
+    734.6431, 1049.5602, 1445.8075, 4981.5791, 388.8658,
+    # Dap
+    1534.9140, 1641.1928, 3856.6355, 13037.0018, 540.9062,
+    # Dry
+    422.1659, 369.4501, 819.6674, 3270.0821, 164.9847,
+    # Stp
+    205.3568, 148.4749, 221.5760, 1872.6370, 55.1311,
+    # Asm
+    80.6751, 62.3052, 93.0421, 997.6977, 54.3148
+  )
+)
+
+# plot r-squared across sites
+rf_summary %>%
+  mutate(site = factor(site, levels = c("How", "Ade", "DaS", "Dap", "Dry", "Stp", "Asm"))) %>%
+  ggplot(aes(x = site, y = R2)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  theme_minimal(base_size = 14) +
+  labs(
+    x = "Site (Wet -> Dry)",
+    y = expression(R^2),
+    title = "Random Forest Predictability of GPP Across OzFlux Sites"
+  )
+
+# plot variable importance
+wet_mid_sites <- c("How", "Ade", "DaS", "Dap")
+dry_sites <- c("Dry", "Stp", "Asm")
+
+# Plot 1: Wet to intermediate sites
+rf_importance %>%
+  filter(site %in% wet_mid_sites) %>%
+  mutate(site = factor(site, levels = wet_mid_sites),
+         predictor = factor(predictor, levels = c("Tair","SW_rad","VPD","cumulative_cwd_7day","Precip"))) %>%
+  ggplot(aes(x = predictor, y = IncNodePurity, fill = predictor)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~site, ncol = 1, scales = "free_y") +
+  theme_minimal(base_size = 12) +
+  labs(
+    x = "Predictor",
+    y = "IncNodePurity",
+    title = "Random Forest Variable Importance – Wet/Intermediate Sites"
+  )
+
+# Plot 2: Dry sites
+rf_importance %>%
+  filter(site %in% dry_sites) %>%
+  mutate(site = factor(site, levels = dry_sites),
+         predictor = factor(predictor, levels = c("Tair","SW_rad","VPD","cumulative_cwd_7day","Precip"))) %>%
+  ggplot(aes(x = predictor, y = IncNodePurity, fill = predictor)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~site, ncol = 1, scales = "free_y") +
+  theme_minimal(base_size = 12) +
+  labs(
+    x = "Predictor",
+    y = "IncNodePurity",
+    title = "Random Forest Variable Importance – Dry Sites"
+  )
+
+```
 
