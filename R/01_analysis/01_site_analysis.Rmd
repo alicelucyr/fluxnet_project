@@ -810,4 +810,244 @@ ggplot() +
 
 
 ```
+Hierarchical GAM framework:
+- Climate only models (Tair, VPD, precip, cwd, SW_rad, + lags)
+- Physiology only models (LCC)
+- Full model (climate + physiology)
 
+```{r}
+
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(zoo)
+library(mgcv)
+
+set.seed(123)  # for reproducibility
+
+# Split data in test and training 
+idx <- createDataPartition(How_gs$GPP, p=0.8, list=FALSE)
+How_train <- How_gs[idx, ]
+How_test <- How_gs[-idx, ]
+
+idx <- createDataPartition(Ade_gs$GPP, p=0.8, list=FALSE)
+Ade_train <- Ade_gs[idx, ]
+Ade_test <- Ade_gs[-idx, ]
+
+idx <- createDataPartition(Das_gs$GPP, p=0.8, list=FALSE)
+Das_train <- Das_gs[idx, ]
+Das_test <- Das_gs[-idx, ]
+
+idx <- createDataPartition(Dap_gs$GPP, p=0.8, list=FALSE)
+Dap_train <- Dap_gs[idx, ]
+Dap_test <- Dap_gs[-idx, ]
+
+idx <- createDataPartition(Dry_gs$GPP, p=0.8, list=FALSE)
+Dry_train <- Dry_gs[idx, ]
+Dry_test <- Dry_gs[-idx, ]
+
+idx <- createDataPartition(Stp_gs$GPP, p=0.8, list=FALSE)
+Stp_train <- Stp_gs[idx, ]
+Stp_test <- Stp_gs[-idx, ]
+
+idx <- createDataPartition(Asm_gs$GPP, p=0.8, list=FALSE)
+Asm_train <- Asm_gs[idx, ]
+Asm_test <- Asm_gs[-idx, ]
+
+
+# Drop any rows with NA values in test data
+How_test <- How_test %>% drop_na()
+Ade_test <- Ade_test %>% drop_na()
+Das_test <- Das_test %>% drop_na()
+Dap_test <- Dap_test %>% drop_na()
+Dry_test <- Dry_test %>% drop_na()
+Stp_test <- Stp_test %>% drop_na()
+Asm_test <- Asm_test %>% drop_na()
+
+# Create a 7-day moving cumulative sum for CWD
+How_train$cumulative_cwd_7day <- rollapply(How_train$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+How_test$cumulative_cwd_7day <-  rollapply(How_test$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+
+
+Ade_train$cumulative_cwd_7day <- rollapply(Ade_train$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+Ade_test$cumulative_cwd_7day <-  rollapply(Ade_test$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+
+Das_train$cumulative_cwd_7day <- rollapply(Das_train$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+Das_test$cumulative_cwd_7day <-  rollapply(Das_test$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+
+Dap_train$cumulative_cwd_7day <- rollapply(Dap_train$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+Dap_test$cumulative_cwd_7day <-  rollapply(Dap_test$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+
+Dry_train$cumulative_cwd_7day <- rollapply(Dry_train$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+Dry_test$cumulative_cwd_7day <-  rollapply(Dry_test$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+
+Stp_train$cumulative_cwd_7day <- rollapply(Stp_train$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+Stp_test$cumulative_cwd_7day <-  rollapply(Stp_test$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+
+Asm_train$cumulative_cwd_7day <- rollapply(Asm_train$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+Asm_test$cumulative_cwd_7day <-  rollapply(Asm_test$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+
+# Drop any rows with NA values after the rolling sum calculations
+How_train <- How_train%>% drop_na()
+How_test <- How_test %>% drop_na()
+
+Ade_train <- Ade_train%>% drop_na()
+Ade_test <- Ade_test %>% drop_na()
+
+Das_train <- Das_train%>% drop_na()
+Das_test <- Das_test %>% drop_na()
+
+Dap_train <- Dap_train%>% drop_na()
+Dap_test <- Dap_test %>% drop_na()
+
+Dry_train <- Dry_train%>% drop_na()
+Dry_test <- Dry_test %>% drop_na()
+
+Stp_train <- Stp_train%>% drop_na()
+Stp_test <- Stp_test %>% drop_na()
+
+Asm_train <- Asm_train%>% drop_na()
+Asm_test <- Asm_test %>% drop_na()
+
+# Lag the variables to add time-lag effects
+How_train <- How_train %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+How_test <- How_test %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+
+
+Ade_train <- Ade_train %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+Ade_test <- Ade_test %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+Das_train <- Das_train %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+Das_test <- Das_test %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+Dap_train <- Dap_train %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+Dap_test <- Dap_test %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+Dry_train <- Dry_train %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+Dry_test <- Dry_test %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+Stp_train <- Stp_train %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+Stp_test <- Stp_test %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+Asm_train <- Asm_train %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+Asm_test <- Asm_test %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+```
+
+1. Full climate model for each site:
+
+```{r}
+climate_How <- gam(GPP ~ s(Tair) + s(VPD) + s(Precip) +s(SW_rad) + s(cumulative_cwd_7day) + 
+                   s(Tair_lag3) + s(VPD_lag3), data=How_train, 
+                 method = "REML")
+
+summary(climate_How)
+
+
+predictions_gam <- predict(climate_How, newdata=How_test)
+results_gam <- data.frame(Observed=How_test$GPP, Predicted=predictions_gam)
+
+
+# Dumps some stats
+rmse_gam <- sqrt(mean((results_gam$Observed - results_gam$Predicted)^2))
+rsq_gam <- cor(results_gam$Observed, results_gam$Predicted)^2
+mean_observed_gam <- mean(results_gam$Observed)
+nse_gam <- (1 - sum((results_gam$Observed - results_gam$Predicted)^2) / 
+              sum((results_gam$Observed - mean_observed_gam)^2))
+cat("RMSE:", rmse_gam, "\n")
+cat("R-squared:", rsq_gam, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
+
+```
