@@ -8,14 +8,16 @@ date: "2026-01-20"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+01 - load in flux data:
+
 Data loading, wrangling and cleaning workflow:
 1. Load in flux data (parse time stamps, rename variables, add site names)
-2. Filter missing data
-3. Convert -9999 to NA
-3. Convert half-hourly data to daily
-4. Convert NaN back to NA
-5. Growing season filter
-6. Drop NA once before fitting model
+2. Convert -9999 to NA
+3. Filter missing days
+4. Convert half-hourly data to daily
+5. Convert NaN back to NA
+6. Growing season filter
+7. Drop NA once before fitting model
 
 
 1. Load in an eddy flux file
@@ -147,21 +149,6 @@ read_daily_flux <- function(fname) {
 }
 ```
 
-2. Filter missing data
-
-```{r}
-filter_low_coverage_days <- function(df, min_frac = 0.9, steps_per_day = 48) {
-
-  min_steps <- ceiling(min_frac * steps_per_day)
-
-  df %>%
-    group_by(date = floor_date(date, "day")) %>%
-    mutate(n_steps = n()) %>%
-    ungroup() %>%
-    filter(n_steps >= min_steps) %>%
-    select(-n_steps)
-}
-```
 
 3. Handle the -9999 values
 
@@ -183,6 +170,22 @@ df_clean <- df %>%
     ~na_if(., -9999.9)
   ))
 ```
+
+Filter missing days
+```{r}
+filter_low_coverage_days <- function(df, min_frac = 0.9, steps_per_day = 48) {
+
+  min_steps <- ceiling(min_frac * steps_per_day)
+
+  df %>%
+    group_by(date = floor_date(date, "day")) %>%
+    mutate(n_steps = n()) %>%
+    ungroup() %>%
+    filter(n_steps >= min_steps) %>%
+    select(-n_steps)
+}
+```
+
 
 4. Convert half-hourly data to daily
 
