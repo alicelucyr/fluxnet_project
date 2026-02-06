@@ -9,8 +9,8 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 Highlighting issue with precipitation in Howard Springs. 
-Note: VPD looks fine at the end but precipitation still shows really high values for mm/day
-
+Note: VPD looks fine at the end but precipitation still shows really high values for mm/day 
+ 
 Load in half-hourly flux site:
 
 ```{r}

@@ -8,6 +8,7 @@ date: "2026-02-04"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+Script: found out the precipitation conversion was not correct. Now fixed. 
 
 ```{r}
 rm(list = ls())
@@ -15,7 +16,7 @@ rm(list = ls())
 
 1. Read in Flux data
 ```{r}
-
+library(tidyverse)
 read_flux <- function(fname) {
   
   #Ensure it reads one file at a time
@@ -103,6 +104,40 @@ Stp_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/
 Asm_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-ASM_FLUXNET2015_FULLSET_HH_2010-2014_2-4.csv")
 
 ```
+
+```{r}
+How_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-How_FLUXNET2015_FULLSET_HH_2001-2014_1-4.csv")
+```
+
+```{r}
+summary(How_HH$Precip)
+```
+
+```{r}
+max(How_HH$Precip, na.rm=TRUE)
+max(How_HH$VPD, na.rm=TRUE)
+
+```
+
+```{r}
+flux_vars <- c("GPP","Qle","Tair","SW_rad","Rn","Precip","Pa","VPD")
+
+How_1 <- How_HH %>%
+  mutate(across(all_of(flux_vars),
+                ~ ifelse(abs(.) > 1000, NA, .)))
+
+```
+
+```{r}
+summary(How_1$VPD)
+summary(How_1$Precip)
+
+```
+```{r}
+plot(How_1$Precip)
+```
+
+
 
 3. Plotting raw data: Half-hourly (kg m-2 s-1)
 
