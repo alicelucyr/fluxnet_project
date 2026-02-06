@@ -1499,4 +1499,335 @@ ggplot(gam_comparison, aes(x = site, y = delta_R2_VPD)) +
 
 
 ```
+Now, I want to fit a random forest to determine which variables are most important across sites:
+
+```{r}
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(zoo)
+library(mgcv)
+
+standardise <- function(df, vars_to_scale) {
+  df_scaled <- df
+  df_scaled[vars_to_scale] <- scale(df[vars_to_scale])
+  
+  return(df_scaled)
+}
+
+###
+# Random forest
+###
+
+# Rescale the training and test data predictors
+predictors <- c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day", "Precip", "LCC_daily" )  
+How_train <- standardise(How_train, predictors)
+How_test <- standardise(How_test, predictors)
+
+Ade_train <- standardise(Ade_train, predictors)
+Ade_test <- standardise(Ade_test, predictors)
+
+Das_train <- standardise(Das_train, predictors)
+Das_test <- standardise(Das_test, predictors)
+
+Dap_train <- standardise(Dap_train, predictors)
+Dap_test <- standardise(Dap_test, predictors)
+
+Dry_train <- standardise(Dry_train, predictors)
+Dry_test <- standardise(Dry_test, predictors)
+
+Stp_train <- standardise(Stp_train, predictors)
+Stp_test <- standardise(Stp_test, predictors)
+
+Asm_train <- standardise(Asm_train, predictors)
+Asm_test <- standardise(Asm_test, predictors)
+
+
+
+# Train the random forest model
+simpler_model <- randomForest(GPP ~ Tair + SW_rad, data=How_train, ntree=500, 
+                              mtry=2)
+How_model <- randomForest(GPP ~ Tair + SW_rad + VPD + cumulative_cwd_7day + Precip, 
+                      data=How_train, 
+                      ntree=500, mtry=3)
+print(How_model)
+
+# Predict on the testing data
+predictions <- predict(How_model, How_test)
+results <- data.frame(Observed=How_test$GPP, Predicted=predictions)
+
+# Dumps some stats
+rmse <- sqrt(mean((results$Observed - results$Predicted)^2))
+rsq <- cor(results$Observed, results$Predicted)^2
+mean_observed <- mean(results$Observed)
+nse <- (1 - sum((results$Observed - results$Predicted)^2) / 
+          sum((results$Observed - mean_observed)^2))
+
+cat("RMSE:", rmse, "\n")
+cat("R-squared:", rsq, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse, "\n")
+
+ggplot(results, aes(x=Observed, y=Predicted)) +
+  geom_point() +
+  geom_abline(intercept=0, slope=1, color="red") +
+  theme_minimal() +
+  labs(x="Observed GPP", y="Predicted GPP")
+
+
+importance_values <- importance(How_model)
+print(importance_values)
+
+# the higher the score, the more important the variable is in predicting GPP
+varImpPlot(How_model, main = "")
+
+# the model with the lower Out-of-Bag (OOB) MSE is better.
+print(simpler_model$mse[length(simpler_model$mse)])  
+print(How_model$mse[length(How_model$mse)])  
+```
+```{r}
+# Train the random forest model
+simpler_model <- randomForest(GPP ~ Tair + SW_rad, data=Ade_train, ntree=500, 
+                              mtry=2)
+Ade_model <- randomForest(GPP ~ Tair + SW_rad + VPD + cumulative_cwd_7day + Precip, 
+                      data=Ade_train, 
+                      ntree=500, mtry=3)
+print(Ade_model)
+
+# Predict on the testing data
+predictions <- predict(Ade_model, Ade_test)
+results <- data.frame(Observed=Ade_test$GPP, Predicted=predictions)
+
+# Dumps some stats
+rmse <- sqrt(mean((results$Observed - results$Predicted)^2))
+rsq <- cor(results$Observed, results$Predicted)^2
+mean_observed <- mean(results$Observed)
+nse <- (1 - sum((results$Observed - results$Predicted)^2) / 
+          sum((results$Observed - mean_observed)^2))
+
+cat("RMSE:", rmse, "\n")
+cat("R-squared:", rsq, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse, "\n")
+
+ggplot(results, aes(x=Observed, y=Predicted)) +
+  geom_point() +
+  geom_abline(intercept=0, slope=1, color="red") +
+  theme_minimal() +
+  labs(x="Observed GPP", y="Predicted GPP")
+
+
+importance_values <- importance(Ade_model)
+print(importance_values)
+
+# the higher the score, the more important the variable is in predicting GPP
+varImpPlot(Ade_model, main = "")
+
+# the model with the lower Out-of-Bag (OOB) MSE is better.
+print(simpler_model$mse[length(simpler_model$mse)])  
+print(Ade_model$mse[length(Ade_model$mse)])  
+```
+```{r}
+# Train the random forest model
+simpler_model <- randomForest(GPP ~ Tair + SW_rad, data=Das_train, ntree=500, 
+                              mtry=2)
+Das_model <- randomForest(GPP ~ Tair + SW_rad + VPD + cumulative_cwd_7day + Precip, 
+                      data=Das_train, 
+                      ntree=500, mtry=3)
+print(Das_model)
+
+# Predict on the testing data
+predictions <- predict(Das_model, Das_test)
+results <- data.frame(Observed=Das_test$GPP, Predicted=predictions)
+
+# Dumps some stats
+rmse <- sqrt(mean((results$Observed - results$Predicted)^2))
+rsq <- cor(results$Observed, results$Predicted)^2
+mean_observed <- mean(results$Observed)
+nse <- (1 - sum((results$Observed - results$Predicted)^2) / 
+          sum((results$Observed - mean_observed)^2))
+
+cat("RMSE:", rmse, "\n")
+cat("R-squared:", rsq, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse, "\n")
+
+ggplot(results, aes(x=Observed, y=Predicted)) +
+  geom_point() +
+  geom_abline(intercept=0, slope=1, color="red") +
+  theme_minimal() +
+  labs(x="Observed GPP", y="Predicted GPP")
+
+
+importance_values <- importance(Das_model)
+print(importance_values)
+
+# the higher the score, the more important the variable is in predicting GPP
+varImpPlot(Das_model, main = "")
+
+# the model with the lower Out-of-Bag (OOB) MSE is better.
+print(simpler_model$mse[length(simpler_model$mse)])  
+print(Das_model$mse[length(Das_model$mse)])  
+```
+```{r}
+# Train the random forest model
+simpler_model <- randomForest(GPP ~ Tair + SW_rad, data=Dap_train, ntree=500, 
+                              mtry=2)
+Dap_model <- randomForest(GPP ~ Tair + SW_rad + VPD + cumulative_cwd_7day + Precip, 
+                      data=Dap_train, 
+                      ntree=500, mtry=3)
+print(Dap_model)
+
+# Predict on the testing data
+predictions <- predict(Dap_model, Dap_test)
+results <- data.frame(Observed=Dap_test$GPP, Predicted=predictions)
+
+# Dumps some stats
+rmse <- sqrt(mean((results$Observed - results$Predicted)^2))
+rsq <- cor(results$Observed, results$Predicted)^2
+mean_observed <- mean(results$Observed)
+nse <- (1 - sum((results$Observed - results$Predicted)^2) / 
+          sum((results$Observed - mean_observed)^2))
+
+cat("RMSE:", rmse, "\n")
+cat("R-squared:", rsq, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse, "\n")
+
+ggplot(results, aes(x=Observed, y=Predicted)) +
+  geom_point() +
+  geom_abline(intercept=0, slope=1, color="red") +
+  theme_minimal() +
+  labs(x="Observed GPP", y="Predicted GPP")
+
+
+importance_values <- importance(Dap_model)
+print(importance_values)
+
+# the higher the score, the more important the variable is in predicting GPP
+varImpPlot(Dap_model, main = "")
+
+# the model with the lower Out-of-Bag (OOB) MSE is better.
+print(simpler_model$mse[length(simpler_model$mse)])  
+print(Dap_model$mse[length(Dap_model$mse)])  
+```
+```{r}
+# Train the random forest model
+simpler_model <- randomForest(GPP ~ Tair + SW_rad, data=Dry_train, ntree=500, 
+                              mtry=2)
+Dry_model <- randomForest(GPP ~ Tair + SW_rad + VPD + cumulative_cwd_7day + Precip, 
+                      data=Dry_train, 
+                      ntree=500, mtry=3)
+print(Dry_model)
+
+# Predict on the testing data
+predictions <- predict(Dry_model, Dry_test)
+results <- data.frame(Observed=Dry_test$GPP, Predicted=predictions)
+
+# Dumps some stats
+rmse <- sqrt(mean((results$Observed - results$Predicted)^2))
+rsq <- cor(results$Observed, results$Predicted)^2
+mean_observed <- mean(results$Observed)
+nse <- (1 - sum((results$Observed - results$Predicted)^2) / 
+          sum((results$Observed - mean_observed)^2))
+
+cat("RMSE:", rmse, "\n")
+cat("R-squared:", rsq, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse, "\n")
+
+ggplot(results, aes(x=Observed, y=Predicted)) +
+  geom_point() +
+  geom_abline(intercept=0, slope=1, color="red") +
+  theme_minimal() +
+  labs(x="Observed GPP", y="Predicted GPP")
+
+
+importance_values <- importance(Dry_model)
+print(importance_values)
+
+# the higher the score, the more important the variable is in predicting GPP
+varImpPlot(Dry_model, main = "")
+
+# the model with the lower Out-of-Bag (OOB) MSE is better.
+print(simpler_model$mse[length(simpler_model$mse)])  
+print(Dry_model$mse[length(Dry_model$mse)])  
+```
+```{r}
+# Train the random forest model
+simpler_model <- randomForest(GPP ~ Tair + SW_rad, data=Stp_train, ntree=500, 
+                              mtry=2)
+Stp_model <- randomForest(GPP ~ Tair + SW_rad + VPD + cumulative_cwd_7day + Precip, 
+                      data=Stp_train, 
+                      ntree=500, mtry=3)
+print(Stp_model)
+
+# Predict on the testing data
+predictions <- predict(Stp_model, Stp_test)
+results <- data.frame(Observed=Stp_test$GPP, Predicted=predictions)
+
+# Dumps some stats
+rmse <- sqrt(mean((results$Observed - results$Predicted)^2))
+rsq <- cor(results$Observed, results$Predicted)^2
+mean_observed <- mean(results$Observed)
+nse <- (1 - sum((results$Observed - results$Predicted)^2) / 
+          sum((results$Observed - mean_observed)^2))
+
+cat("RMSE:", rmse, "\n")
+cat("R-squared:", rsq, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse, "\n")
+
+ggplot(results, aes(x=Observed, y=Predicted)) +
+  geom_point() +
+  geom_abline(intercept=0, slope=1, color="red") +
+  theme_minimal() +
+  labs(x="Observed GPP", y="Predicted GPP")
+
+
+importance_values <- importance(Stp_model)
+print(importance_values)
+
+# the higher the score, the more important the variable is in predicting GPP
+varImpPlot(Stp_model, main = "")
+
+# the model with the lower Out-of-Bag (OOB) MSE is better.
+print(simpler_model$mse[length(simpler_model$mse)])  
+print(Stp_model$mse[length(Stp_model$mse)])  
+```
+```{r}
+# Train the random forest model
+simpler_model <- randomForest(GPP ~ Tair + SW_rad, data=Asm_train, ntree=500, 
+                              mtry=2)
+Asm_model <- randomForest(GPP ~ Tair + SW_rad + VPD + cumulative_cwd_7day + Precip, 
+                      data=Asm_train, 
+                      ntree=500, mtry=3)
+print(Asm_model)
+
+# Predict on the testing data
+predictions <- predict(Asm_model, Asm_test)
+results <- data.frame(Observed=Asm_test$GPP, Predicted=predictions)
+
+# Dumps some stats
+rmse <- sqrt(mean((results$Observed - results$Predicted)^2))
+rsq <- cor(results$Observed, results$Predicted)^2
+mean_observed <- mean(results$Observed)
+nse <- (1 - sum((results$Observed - results$Predicted)^2) / 
+          sum((results$Observed - mean_observed)^2))
+
+cat("RMSE:", rmse, "\n")
+cat("R-squared:", rsq, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse, "\n")
+
+ggplot(results, aes(x=Observed, y=Predicted)) +
+  geom_point() +
+  geom_abline(intercept=0, slope=1, color="red") +
+  theme_minimal() +
+  labs(x="Observed GPP", y="Predicted GPP")
+
+
+importance_values <- importance(Asm_model)
+print(importance_values)
+
+# the higher the score, the more important the variable is in predicting GPP
+varImpPlot(Asm_model, main = "")
+
+# the model with the lower Out-of-Bag (OOB) MSE is better.
+print(simpler_model$mse[length(simpler_model$mse)])  
+print(Asm_model$mse[length(Asm_model$mse)])  
+```
 
