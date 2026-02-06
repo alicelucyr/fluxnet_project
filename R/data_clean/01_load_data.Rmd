@@ -10,10 +10,12 @@ knitr::opts_chunk$set(echo = TRUE)
 
 Data loading, wrangling and cleaning workflow:
 1. Load in flux data (parse time stamps, rename variables, add site names)
-2. Handle missing/-9999 values - convert to NA
+2. Filter missing data
+3. Convert -9999 to NA
 3. Convert half-hourly data to daily
-4. Growing season filter
-5. Drop NA once before fitting model
+4. Convert NaN back to NA
+5. Growing season filter
+6. Drop NA once before fitting model
 
 
 1. Load in an eddy flux file
@@ -145,7 +147,23 @@ read_daily_flux <- function(fname) {
 }
 ```
 
-2. Handle the missing/-9999 values
+2. Filter missing data
+
+```{r}
+filter_low_coverage_days <- function(df, min_frac = 0.9, steps_per_day = 48) {
+
+  min_steps <- ceiling(min_frac * steps_per_day)
+
+  df %>%
+    group_by(date = floor_date(date, "day")) %>%
+    mutate(n_steps = n()) %>%
+    ungroup() %>%
+    filter(n_steps >= min_steps) %>%
+    select(-n_steps)
+}
+```
+
+3. Handle the -9999 values
 
 ```{r}
 
@@ -166,73 +184,71 @@ df_clean <- df %>%
   ))
 ```
 
-3. Convert half-hourly data to hourly
-- Added a new section that ensures dry days are not falsely added, it doesn't confuse NA = no data and 0 = true zero rainfall
-- After daily conversion, added a mutate chunk that converts NaN back to NA so there is not later confusion
+4. Convert half-hourly data to daily
 
 ```{r}
+####
+##  Convert the 30 min to daily ... someone should add something to check
+##. if the data is hourly ...
+##
+##
+##  author: Martin De Kauwe
+##  date: 27th February, 2025
+##  email: mdekauwe@gmail.com
+####
+library(tidyverse)
+
 convert_to_daily <- function(df) {
-  
-  #Conversion constants
-  
+
+  # Conversion constants
   UMOL_TO_MOL <- 1E-6
   MOL_C_TO_GRAMS_C <- 12.0
-  SEC_2_HALF_HOUR <- 1800.
-  WM2_TO_KG_M2_S <- 1.0 /  ( 2.45 * 1E6)
+  SEC_2_HLFHOUR <- 1800.
+  WM2_TO_KG_M2_S <- 1.0 / ( 2.45 * 1E6 )
   PA_2_KPA = 0.001
   HPA_2_KPA = 0.1
-  
+
   df <- df %>%
     mutate(
-      GPP = GPP * UMOL_TO_MOL * MOL_C_TO_GRAMS_C * SEC_2_HALF_HOUR,
-      ET = Qle * WM2_TO_KG_M2_S * SEC_2_HALF_HOUR, 
-      VPD = VPD * HPA_2_KPA,
-      Precip = Precip * SEC_2_HALF_HOUR
+      GPP = GPP * UMOL_TO_MOL * MOL_C_TO_GRAMS_C * SEC_2_HLFHOUR,
+      ET = Qle * WM2_TO_KG_M2_S * SEC_2_HLFHOUR,
+      VPD = VPD * HPA_2_KPA
     )
-  
-  #Had to change this, as many rows failing to parse
-  
-df <- df %>%
-  mutate(date = as.POSIXct(date, tz = "UTC"))
 
-  #Resample to daily, with additional Precip section
-  
+
+  # Resample to daily
   df <- df %>%
     mutate(date = floor_date(date, "day")) %>%
-    group_by(site, date) %>%
+    group_by(date) %>%
     summarise(
-      Precip = ifelse(
-        sum(!is.na(Precip)) > 0,
-        sum(Precip, na.rm = TRUE),
-        NA
-      ),
-      GPP = sum(GPP, na.rm = TRUE),
-      ET = sum(ET, na.rm = TRUE), 
-      Qle = mean(Qle, na.rm = TRUE), 
-      SW_rad = mean(SW_rad, na.rm = TRUE),
-      Tair = mean(Tair, na.rm = TRUE), 
-      VPD = mean(VPD, na.rm = TRUE),
-      Pa = mean(Pa, na.rm = TRUE),
-      Rn = mean(Rn, na.rm = TRUE),
+      GPP = sum(GPP, na.rm=TRUE),
+      ET = sum(ET, na.rm=TRUE),
+      Precip = sum(Precip, na.rm=TRUE),
+      Qle = mean(Qle, na.rm=TRUE),
+      Tair = mean(Tair, na.rm=TRUE),
+      SW_rad = mean(SW_rad, na.rm=TRUE),
+      Rn = mean(Rn, na.rm=TRUE),
+      Pa = mean(Pa, na.rm=TRUE),
+      VPD = mean(VPD, na.rm=TRUE),
       .groups = "drop"
     )
-  
+
   return(df)
-  
 }
 
-#Apply to dataset
+```
 
-df_daily <- convert_to_daily(df_clean)
+5. Convert NaN back to NA
 
+```{r}
 #Convert NaN ('Not a number') back to NA
 
 df_daily <- df_daily %>%
   mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
-
 ```
 
-5. Growing season filter
+
+6. Growing season filter
 Currently:
 - Shortwave radiation threshold
 - GPP > 0 threshold
@@ -248,7 +264,7 @@ filter_gs <- function(df, rad_thresh = 100) {
 growing_season_data <- filter_gs(df)
 ```
 
-6. Drop NA values
+7. Drop NA values
 
 ```{r}
 df_monthly <- monthly %>%
@@ -256,6 +272,12 @@ df_monthly <- monthly %>%
 
 ```
 
+
+
+
+
+
+Notes:
 
 Growing season:
 - Currently a bit too harsh
@@ -272,6 +294,7 @@ Growing season:
  - Soil moisture/precipitation?
  - **Top 3 months of highest GPP during the year**
  
+ Need to add hourly to daily conversion + way to check the data is hourly before converting it
 
 
 
