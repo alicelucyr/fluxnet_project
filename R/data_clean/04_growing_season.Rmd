@@ -12,9 +12,7 @@ knitr::opts_chunk$set(echo = TRUE)
 1. Growing season
 2. Drop NAs before fitting model
 
-```{r}
-
-6. Growing season filter
+Growing season filter
 Currently:
 - Shortwave radiation threshold
 - GPP > 0 threshold
