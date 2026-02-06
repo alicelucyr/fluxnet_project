@@ -270,12 +270,544 @@ Dap_daily <- convert_to_daily(Dap_HH)
 Dry_daily <- convert_to_daily(Dry_HH)
 Stp_daily <- convert_to_daily(Stp_HH)
 Asm_daily <- convert_to_daily(Asm_HH)
+```
 
+Convert NaN back to NA
+
+```{r}
+#Convert NaN ('Not a number') back to NA
+
+How_daily <- How_daily %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+
+Ade_daily <- Ade_daily %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+
+Das_daily <- Das_daily %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+
+Dap_daily <- Dap_daily %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+
+Dry_daily <- Dry_daily %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+
+Stp_daily <- Stp_daily %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+
+Asm_daily <- Asm_daily %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
 
 ```
+
 
 ```{r}
 plot(How_daily$VPD, How_daily$GPP)
 ```
+Look at annual precipitation:
 
+```{r}
+library(dplyr)
+library(lubridate)
+
+convert_to_annual <- function(df_daily) {
+
+  # Add year column
+  df_daily <- df_daily %>%
+    mutate(year = year(date))
+
+  df_annual <- df_daily %>%
+    group_by(year) %>%
+    summarise(
+      GPP = sum(GPP, na.rm = TRUE),
+      ET = sum(ET, na.rm = TRUE),
+      Precip = sum(Precip, na.rm = TRUE),
+      Qle = mean(Qle, na.rm = TRUE),
+      Tair = mean(Tair, na.rm = TRUE),
+      SW_rad = mean(SW_rad, na.rm = TRUE),
+      Rn = mean(Rn, na.rm = TRUE),
+      Pa = mean(Pa, na.rm = TRUE),
+      VPD = mean(VPD, na.rm = TRUE),
+      .groups = "drop"
+    )
+
+  return(df_annual)
+}
+```
+
+```{r}
+How_annual <- convert_to_annual(How_daily)
+Asm_annual <- convert_to_annual(Asm_daily)
+```
+
+```{r}
+summary(How_annual$Precip)
+summary(Asm_annual$Precip)
+```
+Which sites are the most/least predictable?
+- Climate variables - Temp, VPD, Precip, SW radiation, water stress component, lagged climate variables
+- Physiology variables - Leaf chlorophyll content, vcmax
+
+Along a precipitation gradient, how well can atmospheric drivers and physiology predict GPP?
+
+Adding in water stress component for sites:
+
+
+```{r}
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(zoo)
+library(mgcv)
+library(lattice)
+
+priestley_taylor_pet <- function(Rn, Tair, P) {
+  
+  alpha = 1.26      # PT constant
+  cp <- 1.013e-3    # Specific heat of air (MJ/kg°C)
+  epsilon <- 0.622  # Ratio of molecular weights of water vapor to dry air
+  lambda <- 2.45    # Latent heat of vaporization (MJ/kg)
+  G = 0             # Going to assume no ground heat flux on daily timescales
+  
+  # Psychrometric constant (kPa/°C)
+  gamma <- (cp * P) / (epsilon * lambda)
+  
+  # Saturation vapor pressure (kPa)
+  es <- 0.6108 * exp((17.27 * Tair) / (Tair + 237.3))
+  
+  # Slope of saturation vapor pressure curve (kPa/°C)
+  delta <- (4098 * es) / ((Tair+ 237.3)^2)
+  
+  # Priestley-Taylor PET calculation (mm/day)
+  pet <- alpha * (delta / (delta + gamma)) * ((Rn - G) / (lambda * 1e6)) * 86400
+
+  return(pet)
+}
+
+```
+
+```{r}
+Asm_daily$pet <- priestley_taylor_pet(Asm_daily$Rn, Asm_daily$Tair, Asm_daily$Pa)
+Asm_daily$cwd <- Asm_daily$pet - Asm_daily$Qle
+
+How_daily$pet <- priestley_taylor_pet(How_daily$Rn, How_daily$Tair, How_daily$Pa)
+How_daily$cwd <- How_daily$pet - How_daily$Qle
+
+Das_daily$pet <- priestley_taylor_pet(Das_daily$Rn, Das_daily$Tair, Das_daily$Pa)
+Das_daily$cwd <- Das_daily$pet - Das_daily$Qle
+
+Dap_daily$pet <- priestley_taylor_pet(Dap_daily$Rn, Dap_daily$Tair, Dap_daily$Pa)
+Dap_daily$cwd <- Dap_daily$pet - Dap_daily$Qle
+
+Dry_daily$pet <- priestley_taylor_pet(Dry_daily$Rn, Dry_daily$Tair, Dry_daily$Pa)
+Dry_daily$cwd <- Dry_daily$pet - Dry_daily$Qle
+
+Ade_daily$pet <- priestley_taylor_pet(Ade_daily$Rn, Ade_daily$Tair, Ade_daily$Pa)
+Ade_daily$cwd <- Ade_daily$pet - Ade_daily$Qle
+
+Stp_daily$pet <- priestley_taylor_pet(Stp_daily$Rn, Stp_daily$Tair, Stp_daily$Pa)
+Stp_daily$cwd <- Stp_daily$pet - Stp_daily$Qle
+```
+
+Load in vcmax and LLC:
+
+Add in doy and year again:
+
+```{r}
+How_daily <- How_daily %>%
+  mutate(
+    year = lubridate::year(date),
+    doy  = lubridate::yday(date)
+  )
+
+Dap_daily <- Dap_daily %>%
+  mutate(
+    year = lubridate::year(date),
+    doy = lubridate::yday(date)
+  )
+
+Das_daily <- Das_daily %>%
+  mutate(
+    year = lubridate::year(date),
+    doy = lubridate::yday(date)
+    )
+
+Dry_daily <- Dry_daily %>%
+  mutate(
+    year = lubridate::year(date),
+    doy = lubridate::yday(date)
+  )
+
+Stp_daily <- Stp_daily %>%
+  mutate(
+    year = lubridate::year(date),
+    doy = lubridate::yday(date)
+  )
+
+Asm_daily <- Asm_daily %>%
+  mutate(
+    year = lubridate::year(date),
+    doy = lubridate::yday(date)
+  )
+```
+
+Add in vcmax and LCC:
+```{r}
+# -----------------------------
+# Libraries
+# -----------------------------
+library(terra)
+library(ncdf4)
+library(dplyr)
+
+# -----------------------------
+# File paths
+# -----------------------------
+gome_file <- "/Users/alicerolfe/year_4_project/fluxnet_project/Data/GOME2_VcmaxTg_05deg.tif"
+vcmax_raster <- rast(gome_file)
+
+lcc_nc <- "/Users/alicerolfe/year_4_project/fluxnet_project/Chl_2003_2011_weeklyAll_01Deg_sf100.nc"
+
+# -----------------------------
+# Helper: Convert lat/lon to NetCDF indices
+# -----------------------------
+latlon_to_line_sample <- function(lat, lon, nlines = 1800, nsamples = 3600) {
+  lat_res <- 180. / nlines  
+  line <- round((90. - lat) / lat_res)
+  
+  lon_res <- 360. / nsamples
+  sample <- round((lon + 180.) / lon_res)
+  
+  # keep indices in bounds
+  line <- pmin(pmax(line, 1), nlines)
+  sample <- pmin(pmax(sample, 1), nsamples)
+  
+  list(line = line, sample = sample)
+}
+
+# -----------------------------
+# Helper: Extract Vcmax from raster
+# -----------------------------
+get_vcmax <- function(lat, lon, raster) {
+  coords <- data.frame(lon = lon, lat = lat)
+  vcmax <- terra::extract(raster, coords)
+  
+  if (is.null(vcmax) || all(is.na(vcmax))) {
+    stop("Vcmax extraction failed for coordinates: ", lat, ", ", lon)
+  }
+  
+  as.numeric(vcmax[1,2])
+}
+
+# -----------------------------
+# Helper: Extract daily LCC from NetCDF
+# -----------------------------
+get_daily_LCC <- function(nc_file, lat, lon) {
+  nc <- nc_open(nc_file)
+  
+  coords <- latlon_to_line_sample(lat, lon)
+  
+  pixel_time_series <- ncvar_get(
+    nc, "chl_all",
+    start = c(coords$line, coords$sample, 1, 1),
+    count = c(1, 1, -1, -1)
+  )
+  
+  fillvalue <- ncatt_get(nc, "chl_all", "_FillValue")$value
+  pixel_time_series[pixel_time_series == fillvalue] <- NA
+  nc_close(nc)
+  
+  LCC <- pixel_time_series / 100   # convert units
+  weekly_climatology <- rowMeans(LCC, na.rm = TRUE)
+  
+  weeks <- 1:length(weekly_climatology)
+  daily_weeks <- seq(1, max(weeks), by = 1/7)
+  
+  daily_climatology <- approx(x = weeks, y = weekly_climatology, xout = daily_weeks)$y
+  return(daily_climatology)
+}
+
+# -----------------------------
+# Main function: Attach Vcmax + LCC
+# -----------------------------
+attach_site_data <- function(df, lat, lon, vcmax_raster, lcc_nc_file) {
+  
+  vcmax_val <- get_vcmax(lat, lon, vcmax_raster)
+  message("Vcmax extracted: ", round(vcmax_val, 2))
+  
+  daily_LCC <- get_daily_LCC(lcc_nc_file, lat, lon)
+  
+  # Repeat daily LCC to match df rows
+  daily_LCC_full <- rep(daily_LCC, length.out = nrow(df))
+  
+  df <- df %>%
+    mutate(
+      vcmax = vcmax_val,
+      LCC_daily = daily_LCC_full
+    )
+  
+  return(df)
+}
+
+
+# -----------------------------
+# Site metadata table
+# -----------------------------
+sites <- tibble(
+  name = c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm"),
+  lat  = c(-12.4943, -13.0769, -14.1593, -14.0633, -15.2588, -17.1507, -22.283),
+  lon  = c(131.1523, 131.1178, 131.3881, 131.3181, 132.3706, 133.3502, 133.2490),
+  df   = list(How_daily, Ade_daily, Das_daily, Dap_daily, Dry_daily, Stp_daily, Asm_daily)
+)
+
+# -----------------------------
+# Apply function to all sites
+# -----------------------------
+sites <- sites %>%
+  rowwise() %>%
+  mutate(
+    df_with_data = list(attach_site_data(df, lat, lon, vcmax_raster, lcc_nc))
+  )
+
+# -----------------------------
+# Extract updated dataframes
+# -----------------------------
+How_daily <- sites$df_with_data[[1]]
+Ade_daily <- sites$df_with_data[[2]]
+Das_daily <- sites$df_with_data[[3]]
+Dap_daily <- sites$df_with_data[[4]]
+Dry_daily <- sites$df_with_data[[5]]
+Stp_daily <- sites$df_with_data[[6]]
+Asm_daily <- sites$df_with_data[[7]]
+
+```
+
+Now, let's fit some models yaaaaaaay
+
+Filter by growing season:
+```{r}
+
+filter_gs <- function(df, rad_thresh = 100) {
+  df %>%
+    filter(SW_rad > rad_thresh, GPP > 0)
+}
+
+#Apply to dataset
+
+How_gs <- filter_gs(How_daily)
+Ade_gs <- filter_gs(Ade_daily)
+Das_gs <- filter_gs(Das_daily)
+Dap_gs <- filter_gs(Dap_daily)
+Dry_gs <- filter_gs(Dry_daily)
+Stp_gs <- filter_gs(Stp_daily)
+Asm_gs <- filter_gs(Asm_daily)
+
+```
+
+Drop NA values
+
+```{r}
+How_gs <- How_gs %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Qle, cwd, pet, vcmax, LCC_daily, ET, Rn)
+
+Ade_gs <- Ade_gs %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Qle, cwd, pet, vcmax, LCC_daily, ET, Rn)
+
+Das_gs <- Das_gs %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Qle, cwd, pet, vcmax, LCC_daily, ET, Rn)
+
+Dap_gs <- Dap_gs %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Qle, cwd, pet, vcmax, LCC_daily, ET, Rn)
+
+Dry_gs <- Dry_gs %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Qle, cwd, pet, vcmax, LCC_daily, ET, Rn)
+
+Stp_gs <- Stp_gs %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Qle, cwd, pet, vcmax, LCC_daily, ET, Rn)
+
+Asm_gs <- Asm_gs %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Qle, cwd, pet, vcmax, LCC_daily, ET, Rn)
+
+```
+
+
+Diagnostic plots:
+
+```{r}
+library(ggplot2)
+library(GGally)
+library(dplyr)
+
+vars <- c("GPP", "VPD", "Tair", "Precip", "Pa", "Qle", "cwd", "pet", "vcmax", "LCC_daily", "ET", "Rn")
+
+diagnostic_plots <- function(df, site_name) {
+  
+  df <- df %>% select(all_of(vars))
+  
+  # 1. Histograms for each variable
+  hist_plots <- lapply(names(df), function(v) {
+    ggplot(df, aes_string(x = v)) +
+      geom_histogram(bins = 30, fill = "steelblue", color = "black") +
+      theme_minimal() +
+      labs(title = paste(site_name, "-", v))
+  })
+  
+  # Print histograms (one by one)
+  for (p in hist_plots) print(p)
+  
+  # 2. Scatterplots of GPP vs predictors
+  scatter_plots <- lapply(names(df)[-1], function(v) {
+    ggplot(df, aes_string(x = v, y = "GPP")) +
+      geom_point(alpha = 0.5) +
+      geom_smooth(method = "loess", color = "red") +
+      theme_minimal() +
+      labs(title = paste(site_name, "GPP vs", v))
+  })
+  
+  for (p in scatter_plots) print(p)
+  
+  # 3. Correlation matrix
+  cor_mat <- cor(df, use = "complete.obs")
+  print(site_name)
+  print(round(cor_mat, 2))
+  
+  return(list(histograms = hist_plots, scatter = scatter_plots, correlation = cor_mat))
+}
+
+How_diag <- diagnostic_plots(How_gs, "How")
+Ade_diag <- diagnostic_plots(Ade_gs, "Ade")
+Das_diag <- diagnostic_plots(Das_gs, "Das")
+Dap_diag <- diagnostic_plots(Dap_gs, "Dap")
+Dry_diag <- diagnostic_plots(Dry_gs, "Dry")
+Stp_diag <- diagnostic_plots(Stp_gs, "Stp")
+Asm_diag <- diagnostic_plots(Asm_gs, "Asm")
+
+
+
+
+```
+VPD ~ GPP plot
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# Add a 'site' column to each dataframe
+How_gs  <- How_gs  %>% mutate(site = "How")
+Ade_gs  <- Ade_gs  %>% mutate(site = "Ade")
+Das_gs  <- Das_gs  %>% mutate(site = "Das")
+Dap_gs  <- Dap_gs  %>% mutate(site = "Dap")
+Dry_gs  <- Dry_gs  %>% mutate(site = "Dry")
+Stp_gs  <- Stp_gs  %>% mutate(site = "Stp")
+Asm_gs  <- Asm_gs  %>% mutate(site = "Asm")
+
+# Combine all sites
+all_sites <- bind_rows(How_gs, Ade_gs, Das_gs, Dap_gs, Dry_gs, Stp_gs, Asm_gs)
+
+# Set wet → dry order
+all_sites$site <- factor(all_sites$site,
+                         levels = c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm"))
+
+```
+
+```{r}
+
+library(RColorBrewer)
+# Define 7 distinct colors for the sites
+site_colors <- brewer.pal(n = 7, name = "Set1")  # Set1 is bright and categorical
+
+
+ggplot(all_sites, aes(x = VPD, y = GPP, color = site)) +
+  geom_smooth(method = "loess", se = TRUE, size = 1.2, span = 0.3) +
+  scale_color_manual(values = site_colors, name = "Site (Wet → Dry)") +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "GPP response to VPD across FluxNet sites",
+    x = "VPD (kPa)",
+    y = "GPP (g C m-2 d-1)"
+  ) +
+  theme(
+    legend.position = "right"
+  )
+
+ggplot(all_sites, aes(x = Tair, y = GPP, color = site)) +
+  geom_smooth(method = "loess", se = TRUE, size = 1.2, span = 0.3) +
+  scale_color_manual(values = site_colors, name = "Site (Wet → Dry)") +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "GPP response to air temperature across FluxNet sites",
+    x = "Tair (°C)",
+    y = "GPP (g C m-2 d-1)"
+  ) +
+  theme(
+    legend.position = "right"
+  )
+
+ggplot(all_sites, aes(x = Precip, y = GPP, color = site)) +
+  geom_smooth(method = "gam", formula = y ~ s(x), se = TRUE, size = 1.2) +
+  scale_color_manual(values = site_colors, name = "Site (Wet → Dry)") +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "GPP response to Precipitation across FluxNet sites",
+    x = "Precipitation (mm/day)",
+    y = "GPP (g C m-2 d-1)"
+  )
+
+
+ggplot(all_sites, aes(x = pet, y = GPP, color = site)) +
+  geom_smooth(method = "loess", se = TRUE, size = 1.2, span = 0.3) +
+  scale_color_manual(values = site_colors, name = "Site (Wet → Dry)") +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "GPP response to pet across FluxNet sites",
+    x = "pet",
+    y = "GPP (g C m-2 d-1)"
+  ) +
+  theme(
+    legend.position = "right"
+  )
+```
+Interestingly, Das and Dap respond differently to VPD. Das is a savanna ecosystem and Dap is a grasslands/wetlands ecosystem. 
+
+As VPD increases, variability increases, likely because there are fewer data recorded when VPD is extremely high. 
+
+Let's visualise the sites on a map:
+
+```{r}
+install.packages("rnaturalearth")
+install.packages("rnaturalearthdata")
+```
+
+
+```{r}
+library(dplyr)
+
+# Site coordinates + name + rough "wetness" ordering
+sites <- tibble(
+  site = c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm"),
+  lat  = c(-12.4943, -13.0769, -14.1593, -14.0633, -15.2588, -17.1507, -22.283),
+  lon  = c(131.1523, 131.1178, 131.3881, 131.3181, 132.3706, 133.3502, 133.2490),
+  wetness_order = 1:7  # 1 = wettest (How), 7 = driest (Asm)
+)
+
+library(ggplot2)
+library(rnaturalearth)
+library(rnaturalearthdata)
+
+# Get Australia map
+aus <- ne_countries(scale = "medium", country = "Australia", returnclass = "sf")
+
+ggplot() +
+  geom_sf(data = aus, fill = "antiquewhite", color = "black") +
+  geom_point(data = sites, aes(x = lon, y = lat, color = factor(wetness_order)), size = 4) +
+  geom_text(data = sites, aes(x = lon, y = lat, label = site), nudge_y = 0.3, size = 4) +
+  scale_color_viridis_d(option = "C", direction = -1, name = "Wet → Dry") +
+  coord_sf(xlim = c(130, 135), ylim = c(-23, -12), expand = FALSE) +  # zoom to your region
+  theme_minimal() +
+  labs(title = "FluxNet Sites in Northern Australia",
+       x = "Longitude",
+       y = "Latitude")
+
+
+```
 
