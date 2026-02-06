@@ -1,0 +1,281 @@
+---
+title: "Untitled"
+output: html_document
+date: "2026-02-06"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Site analysis:
+- Which site has the most predictable GPP?
+- What variables are the most important drivers of GPP across bioclimatic gradients? (structural, physiology, climate)
+- How well do models generalize to new sites?
+
+```{r}
+rm(list = ls())
+```
+
+```{r}
+library(tidyverse)
+read_flux <- function(fname) {
+  
+  #Ensure it reads one file at a time
+  if (length(fname) != 1) {
+    stop("read_flux() expects a single filename")
+  }
+  
+  df <- read.csv(fname)
+  
+  #extract site code from file name
+  base <- basename(fname)
+  no_ext <- gsub("\\.csv$", "", base)
+  
+ site <- regmatches(
+  no_ext,
+  regexpr("[A-Z]{2}-[A-Za-z]{2,3}[0-9]?", no_ext)
+)
+ 
+ if(length(site) == 0) {
+   stop(paste("Could not extract site code from filename:", base))
+ }
+ 
+  #add site column
+  df$site <- site
+  
+   # Convert TIMESTAMP_START to datetime and set as index
+  df <- df %>%
+    mutate(date = ymd_hm(TIMESTAMP_START)) %>%
+    select(-TIMESTAMP_START, -TIMESTAMP_END) %>%
+    relocate(date)
+
+  df <- df %>%
+    mutate(
+      year = year(date),
+      doy = yday(date),
+      hod = hour(date)
+    )
+  
+#renaming some variables
+  
+   df <- df %>%
+    rename(
+      GPP = GPP_NT_VUT_REF,
+      Qle = LE_F_MDS,
+      Precip = P_ERA,
+      Tair = TA_F_MDS,
+      SW_rad = SW_IN_F_MDS,
+      Rn = NETRAD,
+      Pa = PA_F,
+      VPD = VPD_F_MDS,
+      Rn = NETRAD
+    )
+
+  vars_to_keep <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "VPD", "Precip", "Pa", "Rn")
+  df <- df %>% select(date, all_of(vars_to_keep), year, doy, hod, site)
+  
+  return(df)
+  
+}
+```
+
+Sites:
+- Howard Springs
+- Adelaide River
+- Daly Pasture
+- Daly savanna
+- Dry river
+- Sturt plains
+- Alice springs
+
+
+```{r}
+How_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-How_FLUXNET2015_FULLSET_HH_2001-2014_1-4.csv")
+
+Ade_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Ade_FLUXNET2015_FULLSET_HH_2007-2009_1-4.csv")
+
+Dap_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-DaP_FLUXNET2015_FULLSET_HH_2007-2013_2-4.csv")
+
+Das_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-DaS_FLUXNET2015_FULLSET_HH_2008-2014_2-4.csv")
+
+Dry_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Dry_FLUXNET2015_FULLSET_HH_2008-2014_2-4.csv")
+
+Stp_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Stp_FLUXNET2015_FULLSET_HH_2008-2014_1-4.csv")
+
+Asm_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-ASM_FLUXNET2015_FULLSET_HH_2010-2014_2-4.csv")
+
+```
+
+Convert -9999 to NA
+```{r}
+flux_vars <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "Precip", "Pa", "VPD")
+
+#Clean dataframe, convert to 'na' if '-9999'
+
+How_HH <- How_HH %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+Ade_HH <- Ade_HH %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+Das_HH <- Das_HH %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+Dap_HH <- Dap_HH %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+Dry_HH <- Dry_HH %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+Stp_HH <- Stp_HH %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+Asm_HH <- Asm_HH %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+```
+
+
+Filter missing data before daily conversion
+
+```{r}
+filter_low_coverage_days <- function(df, min_frac = 0.9, steps_per_day = 48) {
+
+  min_steps <- ceiling(min_frac * steps_per_day)
+
+  df %>%
+    group_by(date = floor_date(date, "day")) %>%
+    mutate(n_steps = n()) %>%
+    ungroup() %>%
+    filter(n_steps >= min_steps) %>%
+    select(-n_steps)
+}
+```
+
+```{r}
+How_HH <- filter_low_coverage_days(How_HH)
+Ade_HH <- filter_low_coverage_days(Ade_HH)
+Das_HH <- filter_low_coverage_days(Das_HH)
+Dap_HH <- filter_low_coverage_days(Dap_HH)
+Dry_HH <- filter_low_coverage_days(Dry_HH)
+Stp_HH <- filter_low_coverage_days(Stp_HH)
+Asm_HH <- filter_low_coverage_days(Asm_HH)
+```
+
+```{r}
+####
+##  Convert the 30 min to daily ... someone should add something to check
+##. if the data is hourly ...
+##
+##
+##  author: Martin De Kauwe
+##  date: 27th February, 2025
+##  email: mdekauwe@gmail.com
+####
+library(tidyverse)
+
+convert_to_daily <- function(df) {
+
+  # Conversion constants
+  UMOL_TO_MOL <- 1E-6
+  MOL_C_TO_GRAMS_C <- 12.0
+  SEC_2_HLFHOUR <- 1800.
+  WM2_TO_KG_M2_S <- 1.0 / ( 2.45 * 1E6 )
+  PA_2_KPA = 0.001
+  HPA_2_KPA = 0.1
+
+  df <- df %>%
+    mutate(
+      GPP = GPP * UMOL_TO_MOL * MOL_C_TO_GRAMS_C * SEC_2_HLFHOUR,
+      ET = Qle * WM2_TO_KG_M2_S * SEC_2_HLFHOUR,
+      VPD = VPD * HPA_2_KPA
+    )
+
+
+  # Resample to daily
+  df <- df %>%
+    mutate(date = floor_date(date, "day")) %>%
+    group_by(date) %>%
+    summarise(
+      GPP = sum(GPP, na.rm=TRUE),
+      ET = sum(ET, na.rm=TRUE),
+      Precip = sum(Precip, na.rm=TRUE),
+      Qle = mean(Qle, na.rm=TRUE),
+      Tair = mean(Tair, na.rm=TRUE),
+      SW_rad = mean(SW_rad, na.rm=TRUE),
+      Rn = mean(Rn, na.rm=TRUE),
+      Pa = mean(Pa, na.rm=TRUE),
+      VPD = mean(VPD, na.rm=TRUE),
+      .groups = "drop"
+    )
+
+  return(df)
+}
+```
+
+```{r}
+How_daily <- convert_to_daily(How_HH)
+Ade_daily <- convert_to_daily(Ade_HH)
+Das_daily <- convert_to_daily(Das_HH)
+Dap_daily <- convert_to_daily(Dap_HH)
+Dry_daily <- convert_to_daily(Dry_HH)
+Stp_daily <- convert_to_daily(Stp_HH)
+Asm_daily <- convert_to_daily(Asm_HH)
+
+
+```
+
+```{r}
+plot(How_daily$VPD, How_daily$GPP)
+```
+
+
