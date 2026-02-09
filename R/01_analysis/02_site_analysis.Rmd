@@ -814,8 +814,455 @@ Full GAM (climate + LCC + VPD) for each site
 Plot sites r-squared by same wetness 
 - Load in pet/cwd and LCC
 
+Load in water stress component
+```{r}
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(zoo)
+library(mgcv)
+library(lattice)
+
+priestley_taylor_pet <- function(Rn, Tair, P) {
+  
+  alpha = 1.26      # PT constant
+  cp <- 1.013e-3    # Specific heat of air (MJ/kg°C)
+  epsilon <- 0.622  # Ratio of molecular weights of water vapor to dry air
+  lambda <- 2.45    # Latent heat of vaporization (MJ/kg)
+  G = 0             # Going to assume no ground heat flux on daily timescales
+  
+  # Psychrometric constant (kPa/°C)
+  gamma <- (cp * P) / (epsilon * lambda)
+  
+  # Saturation vapor pressure (kPa)
+  es <- 0.6108 * exp((17.27 * Tair) / (Tair + 237.3))
+  
+  # Slope of saturation vapor pressure curve (kPa/°C)
+  delta <- (4098 * es) / ((Tair+ 237.3)^2)
+  
+  # Priestley-Taylor PET calculation (mm/day)
+  pet <- alpha * (delta / (delta + gamma)) * ((Rn - G) / (lambda * 1e6)) * 86400
+
+  return(pet)
+}
+
+Asm_daily$pet <- priestley_taylor_pet(Asm_daily$Rn, Asm_daily$Tair, Asm_daily$Pa)
+Asm_daily$cwd <- Asm_daily$pet - Asm_daily$Qle
+
+How_daily$pet <- priestley_taylor_pet(How_daily$Rn, How_daily$Tair, How_daily$Pa)
+How_daily$cwd <- How_daily$pet - How_daily$Qle
+
+Das_daily$pet <- priestley_taylor_pet(Das_daily$Rn, Das_daily$Tair, Das_daily$Pa)
+Das_daily$cwd <- Das_daily$pet - Das_daily$Qle
+
+Dap_daily$pet <- priestley_taylor_pet(Dap_daily$Rn, Dap_daily$Tair, Dap_daily$Pa)
+Dap_daily$cwd <- Dap_daily$pet - Dap_daily$Qle
+
+Dry_daily$pet <- priestley_taylor_pet(Dry_daily$Rn, Dry_daily$Tair, Dry_daily$Pa)
+Dry_daily$cwd <- Dry_daily$pet - Dry_daily$Qle
+
+Ade_daily$pet <- priestley_taylor_pet(Ade_daily$Rn, Ade_daily$Tair, Ade_daily$Pa)
+Ade_daily$cwd <- Ade_daily$pet - Ade_daily$Qle
+
+Stp_daily$pet <- priestley_taylor_pet(Stp_daily$Rn, Stp_daily$Tair, Stp_daily$Pa)
+Stp_daily$cwd <- Stp_daily$pet - Stp_daily$Qle
+
+Cum_daily$pet <- priestley_taylor_pet(Cum_daily$Rn, Cum_daily$Tair, Cum_daily$Pa)
+Cum_daily$cwd <- Cum_daily$pet - Cum_daily$Qle
+
+Emr_daily$pet <- priestley_taylor_pet(Emr_daily$Rn, Emr_daily$Tair, Emr_daily$Pa)
+Emr_daily$cwd <- Emr_daily$pet - Emr_daily$Qle
+
+Fog_daily$pet <- priestley_taylor_pet(Fog_daily$Rn, Fog_daily$Tair, Fog_daily$Pa)
+Fog_daily$cwd <- Fog_daily$pet - Fog_daily$Qle
+
+Gin_daily$pet <- priestley_taylor_pet(Gin_daily$Rn, Gin_daily$Tair, Gin_daily$Pa)
+Gin_daily$cwd <- Gin_daily$pet - Gin_daily$Qle
+
+Gww_daily$pet <- priestley_taylor_pet(Gww_daily$Rn, Gww_daily$Tair, Gww_daily$Pa)
+Gww_daily$cwd <- Gww_daily$pet - Gww_daily$Qle
+
+Lox_daily$pet <- priestley_taylor_pet(Lox_daily$Rn, Lox_daily$Tair, Lox_daily$Pa)
+Lox_daily$cwd <- Lox_daily$pet - Lox_daily$Qle
+
+Rdf_daily$pet <- priestley_taylor_pet(Rdf_daily$Rn, Rdf_daily$Tair, Rdf_daily$Pa)
+Rdf_daily$cwd <- Rdf_daily$pet - Rdf_daily$Qle
+
+Rig_daily$pet <- priestley_taylor_pet(Rig_daily$Rn, Rig_daily$Tair, Rig_daily$Pa)
+Rig_daily$cwd <- Rig_daily$pet - Rig_daily$Qle
+
+Rob_daily$pet <- priestley_taylor_pet(Rob_daily$Rn, Rob_daily$Tair, Rob_daily$Pa)
+Rob_daily$cwd <- Rob_daily$pet - Rob_daily$Qle
+
+TTE_daily$pet <- priestley_taylor_pet(TTE_daily$Rn, TTE_daily$Tair, TTE_daily$Pa)
+TTE_daily$cwd <- TTE_daily$pet - TTE_daily$Qle
+
+Wac_daily$pet <- priestley_taylor_pet(Wac_daily$Rn, Wac_daily$Tair, Wac_daily$Pa)
+Wac_daily$cwd <- Wac_daily$pet - Wac_daily$Qle
+
+Wom_daily$pet <- priestley_taylor_pet(Wom_daily$Rn, Wom_daily$Tair, Wom_daily$Pa)
+Wom_daily$cwd <- Wom_daily$pet - Wom_daily$Qle
+
+Ync_daily$pet <- priestley_taylor_pet(Ync_daily$Rn, Ync_daily$Tair, Ync_daily$Pa)
+Ync_daily$cwd <- Ync_daily$pet - Ync_daily$Qle
+
+Whr_daily$pet <- priestley_taylor_pet(Whr_daily$Rn, Whr_daily$Tair, Whr_daily$Pa)
+Whr_daily$cwd <- Whr_daily$pet - Whr_daily$Qle
+
+```
+
+```{r}
+library(dplyr)
+library(lubridate)
+
+# Define a function to add year and day-of-year
+add_year_doy <- function(df) {
+  df %>%
+    mutate(
+      year = year(date),
+      doy  = yday(date)
+    )
+}
+
+# Apply to each dataset
+How_daily <- add_year_doy(How_daily)
+Dap_daily <- add_year_doy(Dap_daily)
+Das_daily <- add_year_doy(Das_daily)
+Dry_daily <- add_year_doy(Dry_daily)
+Stp_daily <- add_year_doy(Stp_daily)
+Asm_daily <- add_year_doy(Asm_daily)
+Cum_daily <- add_year_doy(Cum_daily)
+Emr_daily <- add_year_doy(Emr_daily)
+Fog_daily <- add_year_doy(Fog_daily)
+Gin_daily <- add_year_doy(Gin_daily)
+Gww_daily <- add_year_doy(Gww_daily)
+Lox_daily <- add_year_doy(Lox_daily)
+Rdf_daily <- add_year_doy(Rdf_daily)
+Rig_daily <- add_year_doy(Rig_daily)
+Rob_daily <- add_year_doy(Rob_daily)
+TTE_daily <- add_year_doy(TTE_daily)
+Wac_daily <- add_year_doy(Wac_daily)
+Wom_daily <- add_year_doy(Wom_daily)
+Ync_daily <- add_year_doy(Ync_daily)
+Whr_daily <- add_year_doy(Whr_daily)
 
 
+```
+
+```{r}
+# -----------------------------
+# Libraries
+# -----------------------------
+library(terra)
+library(ncdf4)
+library(dplyr)
+
+# -----------------------------
+# File paths
+# -----------------------------
+gome_file <- "/Users/alicerolfe/year_4_project/fluxnet_project/Data/GOME2_VcmaxTg_05deg.tif"
+vcmax_raster <- rast(gome_file)
+
+lcc_nc <- "/Users/alicerolfe/year_4_project/fluxnet_project/Chl_2003_2011_weeklyAll_01Deg_sf100.nc"
+
+# -----------------------------
+# Helper: Convert lat/lon to NetCDF indices
+# -----------------------------
+latlon_to_line_sample <- function(lat, lon, nlines = 1800, nsamples = 3600) {
+  lat_res <- 180. / nlines  
+  line <- round((90. - lat) / lat_res)
+  
+  lon_res <- 360. / nsamples
+  sample <- round((lon + 180.) / lon_res)
+  
+  # keep indices in bounds
+  line <- pmin(pmax(line, 1), nlines)
+  sample <- pmin(pmax(sample, 1), nsamples)
+  
+  list(line = line, sample = sample)
+}
+
+# -----------------------------
+# Helper: Extract Vcmax from raster
+# -----------------------------
+get_vcmax <- function(lat, lon, raster) {
+  coords <- data.frame(lon = lon, lat = lat)
+  vcmax <- terra::extract(raster, coords)
+  
+  if (is.null(vcmax) || all(is.na(vcmax))) {
+    stop("Vcmax extraction failed for coordinates: ", lat, ", ", lon)
+  }
+  
+  as.numeric(vcmax[1,2])
+}
+
+# -----------------------------
+# Helper: Extract daily LCC from NetCDF
+# -----------------------------
+get_daily_LCC <- function(nc_file, lat, lon) {
+  nc <- nc_open(nc_file)
+  
+  coords <- latlon_to_line_sample(lat, lon)
+  
+  pixel_time_series <- ncvar_get(
+    nc, "chl_all",
+    start = c(coords$line, coords$sample, 1, 1),
+    count = c(1, 1, -1, -1)
+  )
+  
+  fillvalue <- ncatt_get(nc, "chl_all", "_FillValue")$value
+  pixel_time_series[pixel_time_series == fillvalue] <- NA
+  nc_close(nc)
+  
+  LCC <- pixel_time_series / 100   # convert units
+  weekly_climatology <- rowMeans(LCC, na.rm = TRUE)
+  
+  weeks <- 1:length(weekly_climatology)
+  daily_weeks <- seq(1, max(weeks), by = 1/7)
+  
+  daily_climatology <- approx(x = weeks, y = weekly_climatology, xout = daily_weeks)$y
+  return(daily_climatology)
+}
+
+# -----------------------------
+# Main function: Attach Vcmax + LCC
+# -----------------------------
+attach_site_data <- function(df, lat, lon, vcmax_raster, lcc_nc_file) {
+  
+  vcmax_val <- get_vcmax(lat, lon, vcmax_raster)
+  message("Vcmax extracted: ", round(vcmax_val, 2))
+  
+  daily_LCC <- get_daily_LCC(lcc_nc_file, lat, lon)
+  
+  # Repeat daily LCC to match df rows
+  daily_LCC_full <- rep(daily_LCC, length.out = nrow(df))
+  
+  df <- df %>%
+    mutate(
+      vcmax = vcmax_val,
+      LCC_daily = daily_LCC_full
+    )
+  
+  return(df)
+}
+
+
+# -----------------------------
+# Site metadata table
+# -----------------------------
+sites <- tibble(
+  name = c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm", "Cum", "Emr", "Fog", "Gin", "Gww", "Lox", "Rdf", "Rig", "Rob", "TTE", "Wac", "Whr", "Wom", "Ync"),
+  lat  = c(-12.4943, -13.0769, -14.1593, -14.0633, -15.2588, -17.1507, -22.283, -33.6152, -23.8587, -12.5452, -31.3764, -30.1913, -34.4704, -14.5636, -36.6499, -17.1175, -22.287, -37.4259, -36.6732, -37.4222, -34.9893),
+  lon  = c(131.1523, 131.1178, 131.3881, 131.3181, 132.3706, 133.3502, 133.2490, 150.7236, 148.4746,  131.3072, 115.7138, 120.6541, 140.6551, 132.4776, 145.5759, 145.6301, 133.64, 145.1878, 145.0294, 144.0944, 146.2907),
+  df   = list(How_daily, Ade_daily, Das_daily, Dap_daily, Dry_daily, Stp_daily, Asm_daily, Cum_daily, Emr_daily, Fog_daily, Gin_daily, Gww_daily, Lox_daily, Rdf_daily, Rig_daily, Rob_daily, TTE_daily, Wac_daily, Whr_daily, Wom_daily, Ync_daily)
+)
+
+# -----------------------------
+# Apply function to all sites
+# -----------------------------
+sites <- sites %>%
+  rowwise() %>%
+  mutate(
+    df_with_data = list(attach_site_data(df, lat, lon, vcmax_raster, lcc_nc))
+  )
+
+# -----------------------------
+# Extract updated dataframes
+# -----------------------------
+How_daily <- sites$df_with_data[[1]]
+Ade_daily <- sites$df_with_data[[2]]
+Das_daily <- sites$df_with_data[[3]]
+Dap_daily <- sites$df_with_data[[4]]
+Dry_daily <- sites$df_with_data[[5]]
+Stp_daily <- sites$df_with_data[[6]]
+Asm_daily <- sites$df_with_data[[7]]
+Cum_daily <- sites$df_with_data[[8]]
+Emr_daily <- sites$df_with_data[[9]]
+Fog_daily <- sites$df_with_data[[10]]
+Gin_daily <- sites$df_with_data[[11]]
+Gww_daily <- sites$df_with_data[[12]]
+Lox_daily <- sites$df_with_data[[13]]
+Rdf_daily <- sites$df_with_data[[14]]
+Rig_daily <- sites$df_with_data[[15]]
+Rob_daily <- sites$df_with_data[[16]]
+TTE_daily <- sites$df_with_data[[17]]
+Wac_daily <- sites$df_with_data[[18]]
+Whr_daily <- sites$df_with_data[[19]]
+Wom_daily <- sites$df_with_data[[20]]
+Ync_daily <- sites$df_with_data[[21]]
+```
+
+```{r}
+# -----------------------------
+# Libraries
+# -----------------------------
+library(terra)
+library(ncdf4)
+library(dplyr)
+library(lubridate)
+library(purrr)
+
+# -----------------------------
+# File paths
+# -----------------------------
+gome_file <- "/Users/alicerolfe/year_4_project/fluxnet_project/Data/GOME2_VcmaxTg_05deg.tif"
+vcmax_raster <- rast(gome_file)
+
+lcc_nc <- "/Users/alicerolfe/year_4_project/fluxnet_project/Chl_2003_2011_weeklyAll_01Deg_sf100.nc"
+
+# -----------------------------
+# Helper: Convert lat/lon to NetCDF indices
+# -----------------------------
+latlon_to_line_sample <- function(lat, lon, nlines = 1800, nsamples = 3600) {
+  lat_res <- 180 / nlines  
+  line <- round((90 - lat) / lat_res)
+  
+  lon_res <- 360 / nsamples
+  sample <- round((lon + 180) / lon_res)
+  
+  # clamp to valid range
+  line <- pmin(pmax(line, 1), nlines)
+  sample <- pmin(pmax(sample, 1), nsamples)
+  
+  list(line = line, sample = sample)
+}
+
+# -----------------------------
+# Helper: Extract Vcmax from raster
+# -----------------------------
+get_vcmax <- function(lat, lon, raster) {
+  coords <- data.frame(lon = lon, lat = lat)
+  vcmax <- terra::extract(raster, coords)
+  
+  if (is.null(vcmax) || all(is.na(vcmax))) {
+    stop("Vcmax extraction failed for coordinates: ", lat, ", ", lon)
+  }
+  
+  as.numeric(vcmax[1,2])
+}
+
+# -----------------------------
+# Helper: Extract daily LCC from NetCDF
+# -----------------------------
+get_daily_LCC <- function(nc_file, lat, lon) {
+  nc <- nc_open(nc_file)
+  coords <- latlon_to_line_sample(lat, lon)
+  
+  # Extract time series for the pixel
+  pixel_time_series <- ncvar_get(
+    nc, "chl_all",
+    start = c(coords$line, coords$sample, 1, 1),
+    count = c(1, 1, -1, -1)
+  )
+  
+  fillvalue <- ncatt_get(nc, "chl_all", "_FillValue")$value
+  pixel_time_series[pixel_time_series == fillvalue] <- NA
+  nc_close(nc)
+  
+  # Convert units
+  LCC <- pixel_time_series / 100
+  
+  # Weekly climatology -> daily
+  weekly_climatology <- rowMeans(LCC, na.rm = TRUE)
+  weeks <- 1:length(weekly_climatology)
+  daily_weeks <- seq(1, max(weeks), by = 1/7)
+  
+  daily_climatology <- approx(x = weeks, y = weekly_climatology, xout = daily_weeks)$y
+  return(daily_climatology)
+}
+
+# -----------------------------
+# Main function: attach site data
+# -----------------------------
+attach_site_data <- function(df, lat, lon, vcmax_raster, lcc_nc_file) {
+  
+  vcmax_val <- get_vcmax(lat, lon, vcmax_raster)
+  daily_LCC <- get_daily_LCC(lcc_nc_file, lat, lon)
+  
+  # Repeat daily LCC to match number of rows in df
+  daily_LCC_full <- rep(daily_LCC, length.out = nrow(df))
+  
+  df %>%
+    mutate(
+      vcmax = vcmax_val,
+      LCC_daily = daily_LCC_full,
+      year = year(date),
+      doy  = yday(date)
+    )
+}
+
+# -----------------------------
+# Site metadata table
+# -----------------------------
+sites <- tibble(
+  name = c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm", "Cum", "Emr", "Fog",
+           "Gin", "Gww", "Lox", "Rdf", "Rig", "Rob", "TTE", "Wac", "Whr", "Wom", "Ync"),
+  lat  = c(-12.4943, -13.0769, -14.1593, -14.0633, -15.2588, -17.1507, -22.283, -33.6152, -23.8587,
+           -12.5452, -31.3764, -30.1913, -34.4704, -14.5636, -36.6499, -17.1175, -22.287, -37.4259,
+           -36.6732, -37.4222, -34.9893),
+  lon  = c(131.1523, 131.1178, 131.3881, 131.3181, 132.3706, 133.3502, 133.2490, 150.7236, 148.4746,
+           131.3072, 115.7138, 120.6541, 140.6551, 132.4776, 145.5759, 145.6301, 133.64, 145.1878,
+           145.0294, 144.0944, 146.2907),
+  df   = list(How_daily, Ade_daily, Das_daily, Dap_daily, Dry_daily, Stp_daily, Asm_daily, Cum_daily,
+              Emr_daily, Fog_daily, Gin_daily, Gww_daily, Lox_daily, Rdf_daily, Rig_daily, Rob_daily,
+              TTE_daily, Wac_daily, Whr_daily, Wom_daily, Ync_daily)
+)
+
+# -----------------------------
+# Apply function to all sites
+# -----------------------------
+sites <- sites %>%
+  mutate(
+    df_with_data = pmap(list(df, lat, lon),
+                        ~ attach_site_data(..1, ..2, ..3, vcmax_raster, lcc_nc))
+  )
+
+# -----------------------------
+# Extract updated dataframes to global environment
+# -----------------------------
+list2env(setNames(sites$df_with_data, sites$name), envir = .GlobalEnv)
+
+```
+
+
+```{r}
+library(dplyr)
+
+filter_gs <- function(df, gpp_quantile = 0.25, swrad_thresh = 20) {
+
+  df %>%
+    # remove nighttime
+    filter(SW_rad > swrad_thresh) %>%
+    
+    # global GPP filtering
+    filter(GPP > quantile(GPP, gpp_quantile, na.rm = TRUE))
+}
+
+
+#Apply to dataset
+
+How_gs <- filter_gs(How)
+Ade_gs <- filter_gs(Ade)
+Das_gs <- filter_gs(Das)
+Dap_gs <- filter_gs(Dap)
+Dry_gs <- filter_gs(Dry)
+Stp_gs <- filter_gs(Stp)
+Asm_gs <- filter_gs(Asm)
+Cum_gs <- filter_gs(Cum)
+Emr_gs <- filter_gs(Emr)
+Fog_gs <- filter_gs(Fog)
+Gin_gs <- filter_gs(Gin)
+Gww_gs <- filter_gs(Gww)
+Lox_gs <- filter_gs(Lox)
+Rdf_gs <- filter_gs(Rdf)
+Rig_gs <- filter_gs(Rig)
+Rob_gs <- filter_gs(Rob)
+TTE_gs <- filter_gs(TTE)
+Wac_gs <- filter_gs(Wac)
+Wom_gs <- filter_gs(Wom)
+Ync_gs <- filter_gs(Ync)
+Whr_gs <- filter_gs(Whr)
+```
 
 
 
