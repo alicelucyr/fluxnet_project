@@ -949,148 +949,6 @@ Whr_daily <- add_year_doy(Whr_daily)
 
 ```
 
-```{r}
-# -----------------------------
-# Libraries
-# -----------------------------
-library(terra)
-library(ncdf4)
-library(dplyr)
-
-# -----------------------------
-# File paths
-# -----------------------------
-gome_file <- "/Users/alicerolfe/year_4_project/fluxnet_project/Data/GOME2_VcmaxTg_05deg.tif"
-vcmax_raster <- rast(gome_file)
-
-lcc_nc <- "/Users/alicerolfe/year_4_project/fluxnet_project/Chl_2003_2011_weeklyAll_01Deg_sf100.nc"
-
-# -----------------------------
-# Helper: Convert lat/lon to NetCDF indices
-# -----------------------------
-latlon_to_line_sample <- function(lat, lon, nlines = 1800, nsamples = 3600) {
-  lat_res <- 180. / nlines  
-  line <- round((90. - lat) / lat_res)
-  
-  lon_res <- 360. / nsamples
-  sample <- round((lon + 180.) / lon_res)
-  
-  # keep indices in bounds
-  line <- pmin(pmax(line, 1), nlines)
-  sample <- pmin(pmax(sample, 1), nsamples)
-  
-  list(line = line, sample = sample)
-}
-
-# -----------------------------
-# Helper: Extract Vcmax from raster
-# -----------------------------
-get_vcmax <- function(lat, lon, raster) {
-  coords <- data.frame(lon = lon, lat = lat)
-  vcmax <- terra::extract(raster, coords)
-  
-  if (is.null(vcmax) || all(is.na(vcmax))) {
-    stop("Vcmax extraction failed for coordinates: ", lat, ", ", lon)
-  }
-  
-  as.numeric(vcmax[1,2])
-}
-
-# -----------------------------
-# Helper: Extract daily LCC from NetCDF
-# -----------------------------
-get_daily_LCC <- function(nc_file, lat, lon) {
-  nc <- nc_open(nc_file)
-  
-  coords <- latlon_to_line_sample(lat, lon)
-  
-  pixel_time_series <- ncvar_get(
-    nc, "chl_all",
-    start = c(coords$line, coords$sample, 1, 1),
-    count = c(1, 1, -1, -1)
-  )
-  
-  fillvalue <- ncatt_get(nc, "chl_all", "_FillValue")$value
-  pixel_time_series[pixel_time_series == fillvalue] <- NA
-  nc_close(nc)
-  
-  LCC <- pixel_time_series / 100   # convert units
-  weekly_climatology <- rowMeans(LCC, na.rm = TRUE)
-  
-  weeks <- 1:length(weekly_climatology)
-  daily_weeks <- seq(1, max(weeks), by = 1/7)
-  
-  daily_climatology <- approx(x = weeks, y = weekly_climatology, xout = daily_weeks)$y
-  return(daily_climatology)
-}
-
-# -----------------------------
-# Main function: Attach Vcmax + LCC
-# -----------------------------
-attach_site_data <- function(df, lat, lon, vcmax_raster, lcc_nc_file) {
-  
-  vcmax_val <- get_vcmax(lat, lon, vcmax_raster)
-  message("Vcmax extracted: ", round(vcmax_val, 2))
-  
-  daily_LCC <- get_daily_LCC(lcc_nc_file, lat, lon)
-  
-  # Repeat daily LCC to match df rows
-  daily_LCC_full <- rep(daily_LCC, length.out = nrow(df))
-  
-  df <- df %>%
-    mutate(
-      vcmax = vcmax_val,
-      LCC_daily = daily_LCC_full
-    )
-  
-  return(df)
-}
-
-
-# -----------------------------
-# Site metadata table
-# -----------------------------
-sites <- tibble(
-  name = c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm", "Cum", "Emr", "Fog", "Gin", "Gww", "Lox", "Rdf", "Rig", "Rob", "TTE", "Wac", "Whr", "Wom", "Ync"),
-  lat  = c(-12.4943, -13.0769, -14.1593, -14.0633, -15.2588, -17.1507, -22.283, -33.6152, -23.8587, -12.5452, -31.3764, -30.1913, -34.4704, -14.5636, -36.6499, -17.1175, -22.287, -37.4259, -36.6732, -37.4222, -34.9893),
-  lon  = c(131.1523, 131.1178, 131.3881, 131.3181, 132.3706, 133.3502, 133.2490, 150.7236, 148.4746,  131.3072, 115.7138, 120.6541, 140.6551, 132.4776, 145.5759, 145.6301, 133.64, 145.1878, 145.0294, 144.0944, 146.2907),
-  df   = list(How_daily, Ade_daily, Das_daily, Dap_daily, Dry_daily, Stp_daily, Asm_daily, Cum_daily, Emr_daily, Fog_daily, Gin_daily, Gww_daily, Lox_daily, Rdf_daily, Rig_daily, Rob_daily, TTE_daily, Wac_daily, Whr_daily, Wom_daily, Ync_daily)
-)
-
-# -----------------------------
-# Apply function to all sites
-# -----------------------------
-sites <- sites %>%
-  rowwise() %>%
-  mutate(
-    df_with_data = list(attach_site_data(df, lat, lon, vcmax_raster, lcc_nc))
-  )
-
-# -----------------------------
-# Extract updated dataframes
-# -----------------------------
-How_daily <- sites$df_with_data[[1]]
-Ade_daily <- sites$df_with_data[[2]]
-Das_daily <- sites$df_with_data[[3]]
-Dap_daily <- sites$df_with_data[[4]]
-Dry_daily <- sites$df_with_data[[5]]
-Stp_daily <- sites$df_with_data[[6]]
-Asm_daily <- sites$df_with_data[[7]]
-Cum_daily <- sites$df_with_data[[8]]
-Emr_daily <- sites$df_with_data[[9]]
-Fog_daily <- sites$df_with_data[[10]]
-Gin_daily <- sites$df_with_data[[11]]
-Gww_daily <- sites$df_with_data[[12]]
-Lox_daily <- sites$df_with_data[[13]]
-Rdf_daily <- sites$df_with_data[[14]]
-Rig_daily <- sites$df_with_data[[15]]
-Rob_daily <- sites$df_with_data[[16]]
-TTE_daily <- sites$df_with_data[[17]]
-Wac_daily <- sites$df_with_data[[18]]
-Whr_daily <- sites$df_with_data[[19]]
-Wom_daily <- sites$df_with_data[[20]]
-Ync_daily <- sites$df_with_data[[21]]
-```
 
 ```{r}
 # -----------------------------
@@ -1264,8 +1122,173 @@ Ync_gs <- filter_gs(Ync)
 Whr_gs <- filter_gs(Whr)
 ```
 
+```{r}
+install.packages("viridis")
+```
 
 
+```{r}
+library(dplyr)
+library(ggplot2)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(viridis)  # for color scale
+
+# -----------------------------
+# Full site list
+# -----------------------------
+sites <- tibble(
+  site = c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm", "Cum", "Emr", "Fog",
+           "Gin", "Gww", "Lox", "Rdf", "Rig", "Rob", "TTE", "Wac", "Whr", "Wom", "Ync"),
+  lat  = c(-12.4943, -13.0769, -14.1593, -14.0633, -15.2588, -17.1507, -22.283,
+           -33.6152, -23.8587, -12.5452, -31.3764, -30.1913, -34.4704, -14.5636,
+           -36.6499, -17.1175, -22.287, -37.4259, -36.6732, -37.4222, -34.9893),
+  lon  = c(131.1523, 131.1178, 131.3881, 131.3181, 132.3706, 133.3502, 133.2490,
+           150.7236, 148.4746, 131.3072, 115.7138, 120.6541, 140.6551, 132.4776,
+           145.5759, 145.6301, 133.64, 145.1878, 145.0294, 144.0944, 146.2907),
+  wetness_order = NA  # optional: assign numbers 1 (wettest) → 21 (driest) if known
+)
+
+# -----------------------------
+# Get Australia map
+# -----------------------------
+aus <- ne_countries(scale = "medium", country = "Australia", returnclass = "sf")
+
+# -----------------------------
+# Plot
+# -----------------------------
+ggplot() +
+  geom_sf(data = aus, fill = "antiquewhite", color = "black") +
+  geom_point(data = sites, aes(x = lon, y = lat, color = wetness_order), size = 4) +
+  geom_text(data = sites, aes(x = lon, y = lat, label = site), nudge_y = 0.3, size = 4) +
+  scale_color_viridis_c(option = "C", direction = -1, na.value = "grey50", name = "Wet → Dry") +
+  coord_sf(xlim = c(110, 155), ylim = c(-40, -10), expand = FALSE) +  # full map of Australia
+  theme_minimal() +
+  labs(title = "FluxNet Sites Across Australia",
+       x = "Longitude",
+       y = "Latitude")
+
+```
+1. Fit GAM for each site to find R-squared and compare site predictability across OzFlux sites
+
+```{r}
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(zoo)
+library(mgcv)
+
+set.seed(123)  # for reproducibility
+
+# -----------------------------
+# List all sites
+# -----------------------------
+all_sites <- c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm",
+               "Cum", "Emr", "Fog", "Gin", "Gww", "Lox",
+               "Rdf", "Rig", "Rob", "TTE", "Wac", "Whr",
+               "Wom", "Ync")
+
+# -----------------------------
+# Split, rolling CWD, lagged variables
+# -----------------------------
+for(site in all_sites){
+  
+  df <- get(paste0(site, "_gs"))
+  
+  # Split into train/test
+  idx <- createDataPartition(df$GPP, p=0.8, list=FALSE)
+  train <- df[idx, ]
+  test  <- df[-idx, ]
+  
+  # Drop NA in test
+  test <- test %>% drop_na()
+  
+  # 7-day rolling cumulative CWD
+  train$cumulative_cwd_7day <- rollapply(train$cwd, width=7, FUN=sum, 
+                                         align="right", fill=NA, na.rm=TRUE)
+  test$cumulative_cwd_7day  <- rollapply(test$cwd, width=7, FUN=sum, 
+                                         align="right", fill=NA, na.rm=TRUE)
+  
+  # Drop NA after rolling
+  train <- train %>% drop_na()
+  test  <- test %>% drop_na()
+  
+  # Add 3-day lag variables
+  train <- train %>%
+    mutate(
+      Tair_lag3 = lag(Tair, 3),
+      VPD_lag3  = lag(VPD, 3)
+    ) %>%
+    drop_na()
+  
+  test <- test %>%
+    mutate(
+      Tair_lag3 = lag(Tair, 3),
+      VPD_lag3  = lag(VPD, 3)
+    ) %>%
+    drop_na()
+  
+  # Save back to global environment
+  assign(paste0(site, "_train"), train, envir = .GlobalEnv)
+  assign(paste0(site, "_test"),  test,  envir = .GlobalEnv)
+}
+
+# -----------------------------
+# Function to fit GAM and calculate metrics
+# -----------------------------
+fit_gam_and_metrics <- function(train_data, test_data) {
+  
+  model <- gam(
+    GPP ~ s(Tair) + s(VPD) + s(SW_rad) + s(Precip) + s(cumulative_cwd_7day) +
+          s(Tair_lag3) + s(VPD_lag3) + s(LCC_daily),
+    data = train_data,
+    method = "REML"
+  )
+  
+  preds <- predict(model, newdata = test_data)
+  
+  rmse <- sqrt(mean((test_data$GPP - preds)^2))
+  rsq  <- cor(test_data$GPP, preds)^2
+  
+  tibble(
+    RMSE = rmse,
+    R2   = rsq
+  )
+}
+
+# -----------------------------
+# Run GAM for all sites and combine results
+# -----------------------------
+climate_metrics <- bind_rows(
+  lapply(all_sites, function(site) {
+    fit_gam_and_metrics(
+      get(paste0(site, "_train")),
+      get(paste0(site, "_test"))
+    ) %>%
+      mutate(site = site)
+  })
+)
+
+```
+
+
+```{r}
+# Define wet → dry order
+wet_dry_order <- c("Wac", "Rob","How", "Das", "Fog", "Rdf", "Dap", "Ade", "Wom", "Dry", "Stp", "Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "TTE", "Lox")
+
+climate_metrics$site <- factor(climate_metrics$site, levels = wet_dry_order)
+
+ggplot(climate_metrics, aes(x = site, y = R2)) +
+  geom_col(fill = "violet") +
+  coord_flip() +
+  labs(
+    x = "Site",
+    y = expression(R^2),
+    title = "Predictability of GPP across OzFlux sites (Wet → Dry)"
+  ) +
+  theme_minimal()
+
+```
 
 
 
