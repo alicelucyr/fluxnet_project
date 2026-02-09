@@ -640,45 +640,193 @@ convert_to_annual <- function(df_daily) {
   return(df_annual)
 }
 
-How_a <- convert_to_annual(How_HH)
-Ade_a <- convert_to_daily(Ade_HH)
-Das_a <- convert_to_daily(Das_HH)
-Dap_a<- convert_to_daily(Dap_HH)
-Dry_a <- convert_to_daily(Dry_HH)
-Stp_a <- convert_to_daily(Stp_HH)
-Asm_a <- convert_to_daily(Asm_HH)
-Cum_a <- convert_to_daily(Cum_HH)
-Emr_a <- convert_to_daily(Emr_HH)
-Fog_a <- convert_to_daily(Fog_HH)
-Gin_a <- convert_to_daily(Gin_HH)
-Gww_a <- convert_to_daily(Gww_HH)
-Lox_a <- convert_to_daily(Lox_HH)
-Rdf_a <- convert_to_daily(Rdf_HH)
-Rig_a <- convert_to_daily(Rig_HH)
-Rob_a <- convert_to_daily(Rob_HH)
-TTE_a <- convert_to_daily(TTE_HH)
-Wac_a <- convert_to_daily(Wac_HH)
-Whr_a <- convert_to_daily(Whr_HH)
-Wom_a <- convert_to_daily(Wom_HH)
-Ync_a <- convert_to_daily(Ync_HH)
+How_a <- convert_to_annual(How_daily)
+Ade_a <- convert_to_annual(Ade_daily)
+Das_a <- convert_to_annual(Das_daily)
+Dap_a <- convert_to_annual(Dap_daily)
+Dry_a <- convert_to_annual(Dry_daily)
+Stp_a <- convert_to_annual(Stp_daily)
+Asm_a <- convert_to_annual(Asm_daily)
+Cum_a <- convert_to_annual(Cum_daily)
+Emr_a <- convert_to_annual(Emr_daily)
+Fog_a <- convert_to_annual(Fog_daily)
+Gin_a <- convert_to_annual(Gin_daily)
+Gww_a <- convert_to_annual(Gww_daily)
+Lox_a <- convert_to_annual(Lox_daily)
+Rdf_a <- convert_to_annual(Rdf_daily)
+Rig_a <- convert_to_annual(Rig_daily)
+Rob_a <- convert_to_annual(Rob_daily)
+TTE_a <- convert_to_annual(TTE_daily)
+Wac_a <- convert_to_annual(Wac_daily)
+Whr_a <- convert_to_annual(Whr_daily)
+Wom_a <- convert_to_annual(Wom_daily)
+Ync_a <- convert_to_annual(Ync_daily)
 
 ```
 
+```{r}
+library(tidyverse)
+
+annual_precip <- bind_rows(
+  How_a %>% mutate(site = "How"),
+  Ade_a %>% mutate(site = "Ade"),
+  Das_a %>% mutate(site = "Das"),
+  Dap_a %>% mutate(site = "Dap"),
+  Dry_a %>% mutate(site = "Dry"),
+  Stp_a %>% mutate(site = "Stp"),
+  Asm_a %>% mutate(site = "Asm"),
+  Cum_a %>% mutate(site = "Cum"),
+  Emr_a %>% mutate(site = "Emr"),
+  Fog_a %>% mutate(site = "Fog"),
+  Gin_a %>% mutate(site = "Gin"),
+  Gww_a %>% mutate(site = "Gww"),
+  Lox_a %>% mutate(site = "Lox"),
+  Rdf_a %>% mutate(site = "Rdf"),
+  Rig_a %>% mutate(site = "Rig"),
+  Rob_a %>% mutate(site = "Rob"),
+  TTE_a %>% mutate(site = "TTE"),
+  Wac_a %>% mutate(site = "Wac"),
+  Whr_a %>% mutate(site = "Whr"),
+  Wom_a %>% mutate(site = "Wom"),
+  Ync_a %>% mutate(site = "Ync")
+)
+
+```
+
+```{r}
+annual_summary <- annual_precip %>%
+  group_by(site) %>%
+  summarise(mean_precip = mean(Precip, na.rm = TRUE))
+
+annual_summary <- annual_summary %>%
+  arrange(desc(mean_precip)) %>%
+  mutate(site = factor(site, levels = site))
+
+ggplot(annual_summary, aes(x = site, y = mean_precip)) +
+  geom_col() +
+  coord_flip() +
+  theme_minimal(base_size = 14) +
+  labs(
+    x = "OzFlux site",
+    y = "Mean annual precipitation (mm)",
+    title = "Mean annual precipitation across OzFlux sites"
+  )
+
+```
+```{r}
+#growing season - this time i am keeping the top 75% productive periods per site because hard threshold is not fair across different ecosystems
+
+library(dplyr)
+
+filter_gs <- function(df, gpp_quantile = 0.25, swrad_thresh = 20) {
+
+  df %>%
+    # remove nighttime
+    filter(SW_rad > swrad_thresh) %>%
+    
+    # global GPP filtering
+    filter(GPP > quantile(GPP, gpp_quantile, na.rm = TRUE))
+}
+
+
+#Apply to dataset
+
+How_gs <- filter_gs(How_daily)
+Ade_gs <- filter_gs(Ade_daily)
+Das_gs <- filter_gs(Das_daily)
+Dap_gs <- filter_gs(Dap_daily)
+Dry_gs <- filter_gs(Dry_daily)
+Stp_gs <- filter_gs(Stp_daily)
+Asm_gs <- filter_gs(Asm_daily)
+Cum_gs <- filter_gs(Cum_daily)
+Emr_gs <- filter_gs(Emr_daily)
+Fog_gs <- filter_gs(Fog_daily)
+Gin_gs <- filter_gs(Gin_daily)
+Gww_gs <- filter_gs(Gww_daily)
+Lox_gs <- filter_gs(Lox_daily)
+Rdf_gs <- filter_gs(Rdf_daily)
+Rig_gs <- filter_gs(Rig_daily)
+Rob_gs <- filter_gs(Rob_daily)
+TTE_gs <- filter_gs(TTE_daily)
+Wac_gs <- filter_gs(Wac_daily)
+Wom_gs <- filter_gs(Wom_daily)
+Ync_gs <- filter_gs(Ync_daily)
+Whr_gs <- filter_gs(Whr_daily)
+```
+
+1. 
+GPP ~ VPD curve for all sites:
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# Add a 'site' column to each dataframe
+How_gs  <- How_gs  %>% mutate(site = "How")
+Ade_gs  <- Ade_gs  %>% mutate(site = "Ade")
+Das_gs  <- Das_gs  %>% mutate(site = "Das")
+Dap_gs  <- Dap_gs  %>% mutate(site = "Dap")
+Dry_gs  <- Dry_gs  %>% mutate(site = "Dry")
+Stp_gs  <- Stp_gs  %>% mutate(site = "Stp")
+Asm_gs  <- Asm_gs  %>% mutate(site = "Asm")
+Cum_gs <- Cum_gs %>% mutate(site = "Cum")
+Emr_gs <- Emr_gs %>% mutate(site = "Emr")
+Fog_gs <- Fog_gs %>% mutate(site = "Fog")
+Gin_gs <- Gin_gs %>% mutate(site = "Gin")
+Gww_gs <- Gww_gs %>% mutate(site = "Gww")
+Lox_gs <- Lox_gs %>% mutate(site = "Lox")
+Rdf_gs <- Rdf_gs %>% mutate(site = "Rdf")
+Rig_gs <- Rig_gs %>% mutate(site = "Rig")
+Rob_gs <- Rob_gs %>% mutate(site = "Rob")
+TTE_gs <- TTE_gs %>% mutate(site = "TTE")
+Wac_gs <- Wac_gs %>% mutate(site = "Wac")
+Wom_gs <- Wom_gs %>% mutate(site = "Wom")
+Ync_gs <- Ync_gs %>% mutate(site = "Ync")
+Whr_gs <- Whr_gs %>% mutate(site = "Whr")
+
+# Combine all sites
+all_sites <- bind_rows(How_gs, Ade_gs, Das_gs, Dap_gs, Dry_gs, Stp_gs, Asm_gs, Cum_gs, Emr_gs, Fog_gs, Gin_gs, Gww_gs, Lox_gs, Rdf_gs, Rig_gs, Rob_gs, TTE_gs, Wac_gs, Wom_gs, Ync_gs, Whr_gs)
+
+# Set wet → dry order
+all_sites$site <- factor(all_sites$site,
+                         levels = c("Wac", "Rob", "How", "Das", "Fog", "Rdf", "Dap", "Ade", "Wom", "Dry", "Stp","Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "TTE", "Lox"))
+```
+
+```{r}
+library(RColorBrewer)
+# Define 7 distinct colors for the sites
+site_colors <- brewer.pal(n = 9, name = "Set1")  # Set1 is bright and categorical
+
+ggplot(all_sites, aes(x = VPD, y = GPP, color = site)) +
+  geom_smooth(method = "loess", se = TRUE, linewidth = 1.2, span = 0.3) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "GPP response to VPD across OzFlux sites",
+    x = "VPD (kPa)",
+    y = "GPP (g C m-2 d-1)"
+  )
+
+```
+Overall, we can see that the drier sites are less sensitive to higher VPD. 
+
+2. 
+Full GAM (climate + LCC + VPD) for each site
+Plot sites r-squared by same wetness 
+- Load in pet/cwd and LCC
 
 
 
 
 
 
-Growing season
-Drop NA before fitting models
-pet and cwd and climate lags
-Group into PFTs?
 
-1. Plot VPD curves across sites
-2. Full GAM - most predictable/least predictable sites
 
-Separate into PFTs/groups:
-1. VPD only model
-2. Full model without VPD 
-3. Added predictive value of VPD
+
+
+
+
+
+Separate into PFTs/groups/precip gradient:
+1. VPD only model and full model without VPD 
+2. Compare with previous model of climate + VPD + physiology
+3. Added predictive value of VPD?
