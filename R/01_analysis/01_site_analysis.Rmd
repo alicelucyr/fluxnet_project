@@ -601,7 +601,20 @@ Dap_gs <- filter_gs(Dap_daily)
 Dry_gs <- filter_gs(Dry_daily)
 Stp_gs <- filter_gs(Stp_daily)
 Asm_gs <- filter_gs(Asm_daily)
-
+Cum_gs <- filter_gs(Cum_daily)
+Emr_gs <- filter_gs(Emr_daily)
+Fog_gs <- filter_gs(Fog_daily)
+Gin_gs <- filter_gs(Gin_daily)
+Gww_gs <- filter_gs(Gww_daily)
+Lox_gs <- filter_gs(Lox_daily)
+Rdf_gs <- filter_gs(Rdf_daily)
+Rig_gs <- filter_gs(Rig_daily)
+Rob_gs <- filter_gs(Rob_daily)
+TTE_gs <- filter_gs(TTE_daily)
+Wac_gs <- filter_gs(Wac_daily)
+Wom_gs <- filter_gs(Wom_daily)
+Ync_gs <- filter_gs(Ync_daily)
+Whr_gs <- filter_gs(Whr_daily)
 ```
 
 Drop NA values
@@ -1026,31 +1039,7 @@ Asm_test <- Asm_test %>%
 
 ```
 
-1. Full climate model for each site:
 
-```{r}
-climate_How <- gam(GPP ~ s(Tair) + s(VPD) + s(Precip) +s(SW_rad) + s(cumulative_cwd_7day) + 
-                   s(Tair_lag3) + s(VPD_lag3), data=How_train, 
-                 method = "REML")
-
-summary(climate_How)
-
-
-predictions_gam <- predict(climate_How, newdata=How_test)
-results_gam <- data.frame(Observed=How_test$GPP, Predicted=predictions_gam)
-
-
-# Dumps some stats
-rmse_gam <- sqrt(mean((results_gam$Observed - results_gam$Predicted)^2))
-rsq_gam <- cor(results_gam$Observed, results_gam$Predicted)^2
-mean_observed_gam <- mean(results_gam$Observed)
-nse_gam <- (1 - sum((results_gam$Observed - results_gam$Predicted)^2) / 
-              sum((results_gam$Observed - mean_observed_gam)^2))
-cat("RMSE:", rmse_gam, "\n")
-cat("R-squared:", rsq_gam, "\n")
-cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
-
-```
 Function to fit GAM (one site)
 ```{r}
 fit_gam_and_metrics <- function(train_data, test_data) {
@@ -1480,6 +1469,7 @@ ggplot(all_metrics, aes(x = site, y = R2, fill = Model)) +
   theme_minimal(base_size = 14)
 
 ```
+
 ```{r}
 # Merge R2 from no VPD and full model
 gam_comparison <- no_vpd_metrics %>%
