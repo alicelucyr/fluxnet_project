@@ -1650,6 +1650,4 @@ ggplot(PFT_all, aes(x = VPD, y = GPP, colour = PFT)) +
   )
 
 ```
-Mean functional response of PFT to atmospheric drying
-
-
+Mean functional response of PFT to atmospheric drying using GAM to characterise non-linear responses of GPP to VPD. 
