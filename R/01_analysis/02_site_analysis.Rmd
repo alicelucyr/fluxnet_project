@@ -1123,7 +1123,7 @@ Whr_gs <- filter_gs(Whr)
 ```
 
 ```{r}
-install.packages("viridis")
+install.packages("viridisLite")
 ```
 
 
@@ -1132,21 +1132,21 @@ library(dplyr)
 library(ggplot2)
 library(rnaturalearth)
 library(rnaturalearthdata)
-library(viridis)  # for color scale
+library(viridis)
+library(viridisLite)# for color scale
 
 # -----------------------------
 # Full site list
 # -----------------------------
 sites <- tibble(
-  site = c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm", "Cum", "Emr", "Fog",
-           "Gin", "Gww", "Lox", "Rdf", "Rig", "Rob", "TTE", "Wac", "Whr", "Wom", "Ync"),
+  site = c("Wac", "Rob","How", "Das", "Fog", "Rdf", "Dap", "Ade", "Wom", "Dry", "Stp", "Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "TTE", "Lox"),
   lat  = c(-12.4943, -13.0769, -14.1593, -14.0633, -15.2588, -17.1507, -22.283,
            -33.6152, -23.8587, -12.5452, -31.3764, -30.1913, -34.4704, -14.5636,
            -36.6499, -17.1175, -22.287, -37.4259, -36.6732, -37.4222, -34.9893),
   lon  = c(131.1523, 131.1178, 131.3881, 131.3181, 132.3706, 133.3502, 133.2490,
            150.7236, 148.4746, 131.3072, 115.7138, 120.6541, 140.6551, 132.4776,
            145.5759, 145.6301, 133.64, 145.1878, 145.0294, 144.0944, 146.2907),
-  wetness_order = NA  # optional: assign numbers 1 (wettest) → 21 (driest) if known
+  wetness_order = 1:21  # optional: assign numbers 1 (wettest) → 21 (driest) if known
 )
 
 # -----------------------------
@@ -1233,6 +1233,10 @@ for(site in all_sites){
   assign(paste0(site, "_test"),  test,  envir = .GlobalEnv)
 }
 
+```
+
+
+```{r}
 # -----------------------------
 # Function to fit GAM and calculate metrics
 # -----------------------------
@@ -1272,6 +1276,7 @@ climate_metrics <- bind_rows(
 ```
 
 
+
 ```{r}
 # Define wet → dry order
 wet_dry_order <- c("Wac", "Rob","How", "Das", "Fog", "Rdf", "Dap", "Ade", "Wom", "Dry", "Stp", "Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "TTE", "Lox")
@@ -1284,15 +1289,261 @@ ggplot(climate_metrics, aes(x = site, y = R2)) +
   labs(
     x = "Site",
     y = expression(R^2),
-    title = "Predictability of GPP across OzFlux sites (Wet → Dry)"
+    title = "Predictability of GPP across OzFlux sites (Dry -> Wet)"
   ) +
   theme_minimal()
 
 ```
+Range of R-squared across OzFlux sites. GAM used with VPD, Tair, Precip, cumulative cwd, VPD lag, Tair lag, leaf chlorophyll content and shortwave radiation. Only thing missing is LAI (leaf area index) which could improve model fit for some of the sites.
 
 
+No of observations per site:
+```{r}
+length(unique(How_train$GPP))
+length(unique(Ade_train$GPP))
+length(unique(Das_train$GPP))
+length(unique(Dap_train$GPP))
+length(unique(Dry_train$GPP))
+length(unique(Stp_train$GPP))
+length(unique(Asm_train$GPP))
+length(unique(Cum_train$GPP))
+length(unique(Emr_train$GPP))
+length(unique(Fog_train$GPP))
+length(unique(Gin_train$GPP))
+length(unique(Gww_train$GPP))
+length(unique(Lox_train$GPP))
+length(unique(Rdf_train$GPP))
+length(unique(Rig_train$GPP))
+length(unique(Rob_train$GPP))
+length(unique(TTE_train$GPP))
+length(unique(Wac_train$GPP))
+length(unique(Whr_train$GPP))
+length(unique(Wom_train$GPP))
+length(unique(Ync_train$GPP))
 
 
+```
+```{r}
+# Define wet → dry order
+obs_order <- c("How", "Das", "Stp", "Dry", "Dap", "Ync", "Asm", "Rob", "Whr",
+  "Gww", "Wom", "Fog", "Gin", "Wac", "Emr", "Cum", "Lox", "Rig",
+  "Ade", "TTE", "Rdf")
+
+
+climate_metrics$site <- factor(climate_metrics$site, levels = obs_order)
+
+ggplot(climate_metrics, aes(x = site, y = R2)) +
+  geom_col(fill = "violet") +
+  coord_flip() +
+  labs(
+    x = "Site",
+    y = expression(R^2),
+    title = "Predictability of GPP across OzFlux sites (least to most number of obs)"
+  ) +
+  theme_minimal()
+```
+Now let's look at how VPD improves model fit:
+
+1. Model without VPD
+2. VPD only model
+3. Full model with VPD
+
+Model without VPD
+```{r}
+# -----------------------------
+# Function to fit GAM and calculate metrics
+# -----------------------------
+fit_gam_and_metrics <- function(train_data, test_data) {
+  
+  model <- gam(
+    GPP ~ s(Tair) + s(SW_rad) + s(Precip) + s(cumulative_cwd_7day) +
+          s(Tair_lag3) + s(LCC_daily),
+    data = train_data,
+    method = "REML"
+  )
+  
+  preds <- predict(model, newdata = test_data)
+  
+  rmse <- sqrt(mean((test_data$GPP - preds)^2))
+  rsq  <- cor(test_data$GPP, preds)^2
+  
+  tibble(
+    RMSE = rmse,
+    R2   = rsq
+  )
+}
+
+# -----------------------------
+# Run GAM for all sites and combine results
+# -----------------------------
+no_vpd_metrics <- bind_rows(
+  lapply(all_sites, function(site) {
+    fit_gam_and_metrics(
+      get(paste0(site, "_train")),
+      get(paste0(site, "_test"))
+    ) %>%
+      mutate(site = site)
+  })
+)
+
+```
+
+```{r}
+# Define wet → dry order
+wet_dry_order <- c("Wac", "Rob","How", "Das", "Fog", "Rdf", "Dap", "Ade", "Wom", "Dry", "Stp", "Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "TTE", "Lox")
+
+no_vpd_metrics$site <- factor(no_vpd_metrics$site, levels = wet_dry_order)
+
+ggplot(no_vpd_metrics, aes(x = site, y = R2)) +
+  geom_col(fill = "violet") +
+  coord_flip() +
+  labs(
+    x = "Site",
+    y = expression(R^2),
+    title = "Predictability of GPP across OzFlux sites (Dry -> Wet)"
+  ) +
+  theme_minimal()
+```
+VPD only model
+
+```{r}
+# -----------------------------
+# Function to fit GAM and calculate metrics
+# -----------------------------
+fit_gam_and_metrics <- function(train_data, test_data) {
+  
+  model <- gam(
+    GPP ~ s(VPD) + s(VPD_lag3),
+    data = train_data,
+    method = "REML"
+  )
+  
+  preds <- predict(model, newdata = test_data)
+  
+  rmse <- sqrt(mean((test_data$GPP - preds)^2))
+  rsq  <- cor(test_data$GPP, preds)^2
+  
+  tibble(
+    RMSE = rmse,
+    R2   = rsq
+  )
+}
+
+# -----------------------------
+# Run GAM for all sites and combine results
+# -----------------------------
+vpd_metrics <- bind_rows(
+  lapply(all_sites, function(site) {
+    fit_gam_and_metrics(
+      get(paste0(site, "_train")),
+      get(paste0(site, "_test"))
+    ) %>%
+      mutate(site = site)
+  })
+)
+```
+
+```{r}
+# Define wet → dry order
+wet_dry_order <- c("Wac", "Rob","How", "Das", "Fog", "Rdf", "Dap", "Ade", "Wom", "Dry", "Stp", "Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "TTE", "Lox")
+
+vpd_metrics$site <- factor(vpd_metrics$site, levels = wet_dry_order)
+
+ggplot(vpd_metrics, aes(x = site, y = R2)) +
+  geom_col(fill = "violet") +
+  coord_flip() +
+  labs(
+    x = "Site",
+    y = expression(R^2),
+    title = "Predictability of GPP across OzFlux sites (Dry -> Wet)"
+  ) +
+  theme_minimal()
+```
+Full model with VPD
+
+```{r}
+fit_gam_and_metrics <- function(train_data, test_data) {
+  
+  model <- gam(
+    GPP ~ s(Tair) + s(VPD) + s(SW_rad) + s(Precip) + s(cumulative_cwd_7day) +
+          s(Tair_lag3) + s(VPD_lag3) + s(LCC_daily),
+    data = train_data,
+    method = "REML"
+  )
+  
+  preds <- predict(model, newdata = test_data)
+  
+  rmse <- sqrt(mean((test_data$GPP - preds)^2))
+  rsq  <- cor(test_data$GPP, preds)^2
+  
+  tibble(
+    RMSE = rmse,
+    R2   = rsq
+  )
+}
+
+# -----------------------------
+# Run GAM for all sites and combine results
+# -----------------------------
+full_metrics <- bind_rows(
+  lapply(all_sites, function(site) {
+    fit_gam_and_metrics(
+      get(paste0(site, "_train")),
+      get(paste0(site, "_test"))
+    ) %>%
+      mutate(site = site)
+  })
+)
+```
+
+compare models:
+```{r}
+library(dplyr)
+
+gam_comparison <- no_vpd_metrics %>%
+  select(site, R2) %>%
+  rename(R2_no_vpd = R2) %>%
+  
+  inner_join(
+    vpd_metrics %>%
+      select(site, R2) %>%
+      rename(R2_VPD = R2),
+    by = "site"
+  ) %>%
+  
+  inner_join(
+    full_metrics %>%
+      select(site, R2) %>%
+      rename(R2_full = R2),
+    by = "site"
+  ) %>%
+  
+  mutate(
+    delta_R2_VPD = R2_full - R2_no_vpd
+  )
+
+
+wet_dry_order <- c("Wac", "Rob","How", "Das", "Fog", "Rdf", "Dap", "Ade", "Wom", "Dry", "Stp", "Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "TTE", "Lox")
+
+gam_comparison <- gam_comparison %>%
+  mutate(site = factor(site, levels = wet_dry_order)) %>%
+  arrange(site)
+
+gam_comparison
+```
+
+```{r}
+ggplot(gam_comparison, aes(x = site, y = delta_R2_VPD)) +
+  geom_col(fill = "firebrick") +
+  coord_flip() +
+  theme_minimal(base_size = 14) +
+  labs(
+    x = "Site (Wet → Dry)",
+    y = expression(Delta*R^2),
+    title = "Added predictive value of VPD across OzFlux sites"
+  )
+
+```
 
 
 
