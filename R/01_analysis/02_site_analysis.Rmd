@@ -2018,4 +2018,111 @@ Dry <- bind_rows(Ync, Emr, Gin, Cum, Rig, Asm)
 Very_dry <- bind_rows(Whr, Gww, Cpr, TTE, Lox)
 ```
 
+```{r}
+precip_groups <- c("Very_dry", "Dry", "Wet", "Very_wet")
+```
+
+
+```{r}
+for(group in precip_groups){
+  
+  df <- get(group)
+  
+  idx <- createDataPartition(df$GPP, p = 0.8, list = FALSE)
+  train <- df[idx, ]
+  test  <- df[-idx, ]
+  
+  test <- test %>% drop_na()
+  
+  train$cumulative_cwd_7day <- rollapply(train$cwd, width = 7, FUN = sum,
+                                         align = "right", fill = NA, na.rm = TRUE)
+  test$cumulative_cwd_7day  <- rollapply(test$cwd, width = 7, FUN = sum,
+                                         align = "right", fill = NA, na.rm = TRUE)
+  
+  train <- train %>% drop_na()
+  test  <- test %>% drop_na()
+  
+  train <- train %>%
+    mutate(
+      Tair_lag3 = lag(Tair, 3),
+      VPD_lag3  = lag(VPD, 3)
+    ) %>%
+    drop_na()
+  
+  test <- test %>%
+    mutate(
+      Tair_lag3 = lag(Tair, 3),
+      VPD_lag3  = lag(VPD, 3)
+    ) %>%
+    drop_na()
+  
+  assign(paste0(group, "_train"), train, envir = .GlobalEnv)
+  assign(paste0(group, "_test"),  test,  envir = .GlobalEnv)
+}
+
+
+```
+
+Fit GAMs for each precip class
+```{r}
+all_metrics_precip <- map_dfr(precip_groups, function(group) {
+  
+  train_data <- get(paste0(group, "_train"))
+  test_data  <- get(paste0(group, "_test"))
+  
+  fit_gam_models(train_data, test_data) %>%
+    mutate(precip_class = group)
+})
+
+```
+
+```{r}
+vpd_additive_precip <- all_metrics_precip %>%
+  pivot_wider(names_from = Model, values_from = R2) %>%
+  mutate(
+    VPD_additive = Full_VPD - No_VPD
+  )
+
+```
+
+```{r}
+all_metrics_precip %>%
+  filter(Model == "Full_VPD") %>%
+  ggplot(aes(x = precip_class, y = R2)) +
+  geom_col(fill = "steelblue") +
+  theme_minimal(base_size = 14) +
+  labs(
+    x = "Precipitation regime",
+    y = expression(R^2),
+    title = "Full GAM predictability across precipitation classes"
+  )
+
+```
+VPD additive value
+
+```{r}
+vpd_additive_precip <- all_metrics_precip %>%
+  select(precip_class, Model, R2) %>%
+  pivot_wider(names_from = Model, values_from = R2) %>%
+  mutate(
+    VPD_additive = Full_VPD - No_VPD
+  )
+
+ggplot(vpd_additive_precip,
+       aes(x = precip_class, y = VPD_additive)) +
+  geom_col(fill = "firebrick") +
+  theme_minimal(base_size = 14) +
+  labs(
+    x = "Precipitation class",
+    y = expression(Delta*R^2~"(VPD contribution)"),
+    title = "Additive contribution of VPD to GPP predictability"
+  )
+
+```
+The addition of VPD improved model fit for all precipitation classes, more in dry classes than in wet classes. 
+
+VPD improves predictability more on a wider, climate scale than at an individual site or PFT level scale. PFTs assume all forests/savannas/woody savannas behave similarly, however, within PFTs VPD-GPP relationships are heterogenous.
+
+Precipitation class performs nearly as well as site-specific GAMS, highlighting the importance of hydrological footprint on ecosystem functioning and response. 
+
 
