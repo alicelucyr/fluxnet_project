@@ -12,23 +12,30 @@ knitr::opts_chunk$set(echo = TRUE)
 1. Growing season
 2. Drop NAs before fitting model
 
-Growing season filter
+**Growing season filter**
 Currently:
-- Shortwave radiation threshold
+- Shortwave radiation threshold and Temp threshold
 - GPP > 0 threshold
 
 ```{r}
-filter_gs <- function(df, rad_thresh = 100) {
+
+filter_gs <- function(df) {
   df %>%
-    filter(SW_rad > rad_thresh, GPP > 0)
+    filter(
+      Tair > 5,
+      SW_rad > 50,
+      GPP > 0
+    )
 }
+
+
 
 #Apply to dataset
 
 growing_season_data <- filter_gs(df)
 ```
 
-7. Drop NA values
+**Drop NA values**
 
 ```{r}
 df_monthly <- monthly %>%
