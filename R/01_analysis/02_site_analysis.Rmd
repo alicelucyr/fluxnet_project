@@ -80,6 +80,7 @@ read_flux <- function(fname) {
   
 }
 ```
+
 ```{r}
 How_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-How_FLUXNET2015_FULLSET_HH_2001-2014_1-4.csv")
 
@@ -125,14 +126,46 @@ Wom_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/
 
 Ync_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Ync_FLUXNET2015_FULLSET_HH_2012-2014_1-4.csv")
 
+Cpr_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Cpr_FLUXNET2015_FULLSET_HH_2010-2014_2-4.csv")
 
 ```
 
+Hourly AU-Tum
 ```{r}
 Tum_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/hourly_2/FLX_AU-Tum_FLUXNET2015_FULLSET_HR_2001-2014_2-4.csv")
 ```
 
 Remove -9999 values
+
+```{r}
+sites_HH <- list(
+  How = How_HH,
+  Ade = Ade_HH,
+  Das = Das_HH,
+  Dap = Dap_HH,
+  Tum = Tum_HH, 
+  Cpr = Cpr_HH, 
+  Dry = Dry_HH, 
+  Stp = Stp_HH, 
+  Asm = Asm_HH, 
+  Cum = Cum_HH, 
+  Emr = Emr_HH, 
+  Fog = Fog_HH, 
+  Gin = Gin_HH, 
+  Gww = Gww_HH, 
+  Lox = Lox_HH, 
+  Rdf = Rdf_HH, 
+  Rig = Rig_HH, 
+  Rob = Rob_HH, 
+  TTE = TTE_HH, 
+  Wac = Wac_HH, 
+  Whr = Whr_HH, 
+  Wom = Wom_HH,
+  Ync = Ync_HH
+)
+```
+
+
 
 ```{r}
 flux_vars <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "Precip", "Pa", "VPD")
@@ -358,11 +391,8 @@ Tum_HH <- Tum_HH %>%
     all_of(flux_vars),
     ~na_if(., -9999.9)
   ))
-```
 
-
-```{r}
-Tum_HH <- Tum_HH %>%
+Cpr_HH <- Cpr_HH %>%
   mutate(across(
     all_of(flux_vars),
     ~na_if(., -9999)
@@ -373,7 +403,7 @@ Tum_HH <- Tum_HH %>%
   ))
 ```
 
-
+Filter low coverage days (half-hourly daya)
 ```{r}
 filter_low_coverage_days <- function(df, min_frac = 0.9, steps_per_day = 48) {
 
@@ -387,6 +417,22 @@ filter_low_coverage_days <- function(df, min_frac = 0.9, steps_per_day = 48) {
     select(-n_steps)
 }
 ```
+
+Filter low coverage days (hourly data, AU-Tum)
+```{r}
+filter_low_coverage_days_2 <- function(df, min_frac = 0.9, steps_per_day = 24) {
+
+  min_steps <- ceiling(min_frac * steps_per_day)
+
+  df %>%
+    group_by(date = floor_date(date, "day")) %>%
+    mutate(n_steps = n()) %>%
+    ungroup() %>%
+    filter(n_steps >= min_steps) %>%
+    select(-n_steps)
+}
+```
+
 
 ```{r}
 How_HH <- filter_low_coverage_days(How_HH)
@@ -410,11 +456,8 @@ Wac_HH <- filter_low_coverage_days(Wac_HH)
 Wom_HH <- filter_low_coverage_days(Wom_HH)
 Whr_HH <- filter_low_coverage_days(Whr_HH)
 Ync_HH <- filter_low_coverage_days(Ync_HH)
-Tum_HH <- filter_low_coverage_days(Tum_HH)
-```
-
-```{r}
-Tum_HH <- filter_low_coverage_days(Tum_HH)
+Tum_HH <- filter_low_coverage_days_2(Tum_HH)
+Cpr_HH <- filter_low_coverage_days(Cpr_HH)
 ```
 
 
@@ -537,6 +580,7 @@ Wac_daily <- convert_to_daily(Wac_HH)
 Whr_daily <- convert_to_daily(Whr_HH)
 Wom_daily <- convert_to_daily(Wom_HH)
 Ync_daily <- convert_to_daily(Ync_HH)
+Cpr_daily <- convert_to_daily(Cpr_HH)
 Tum_daily <- convert_hourly_to_daily(Tum_HH)
 ```
 
@@ -604,11 +648,16 @@ Wom_daily <- Wom_daily %>%
 Ync_daily <- Ync_daily %>%
   mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
 
+Cpr_daily <- Cpr_daily %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+
+Tum_daily <- Tum_daily %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
 ```
 
 
 ```{r}
-plot(Wac_daily$VPD)
+plot(Cpr_daily$VPD)
 ```
 Plot annual precipitation for each site - to find dry - wet gradient of sites
 
@@ -661,6 +710,8 @@ Wac_a <- convert_to_annual(Wac_daily)
 Whr_a <- convert_to_annual(Whr_daily)
 Wom_a <- convert_to_annual(Wom_daily)
 Ync_a <- convert_to_annual(Ync_daily)
+Tum_a <- convert_to_annual(Tum_daily)
+Cpr_a <- convert_to_annual(Cpr_daily)
 
 ```
 
@@ -688,7 +739,9 @@ annual_precip <- bind_rows(
   Wac_a %>% mutate(site = "Wac"),
   Whr_a %>% mutate(site = "Whr"),
   Wom_a %>% mutate(site = "Wom"),
-  Ync_a %>% mutate(site = "Ync")
+  Ync_a %>% mutate(site = "Ync"),
+  Tum_a %>% mutate(site = "Tum"),
+  Cpr_a %>% mutate(site = "Cpr")
 )
 
 ```
@@ -709,27 +762,28 @@ ggplot(annual_summary, aes(x = site, y = mean_precip)) +
   labs(
     x = "OzFlux site",
     y = "Mean annual precipitation (mm)",
-    title = "Mean annual precipitation across OzFlux sites"
+    title = "Mean annual precipitation across Australian Fluxnet sites"
   )
 
 ```
+
+
 ```{r}
-#growing season - this time i am keeping the top 75% productive periods per site because hard threshold is not fair across different ecosystems
+#growing season - for now, it is going to be above a certain temp threshold 5°C and above a short-wave radiation threshold
 
-library(dplyr)
-
-filter_gs <- function(df, gpp_quantile = 0.25, swrad_thresh = 20) {
-
+filter_gs <- function(df) {
   df %>%
-    # remove nighttime
-    filter(SW_rad > swrad_thresh) %>%
-    
-    # global GPP filtering
-    filter(GPP > quantile(GPP, gpp_quantile, na.rm = TRUE))
+    filter(
+      Tair > 5,
+      SW_rad > 50
+    )
 }
 
 
+```
+
 #Apply to dataset
+```{r}
 
 How_gs <- filter_gs(How_daily)
 Ade_gs <- filter_gs(Ade_daily)
@@ -752,6 +806,8 @@ Wac_gs <- filter_gs(Wac_daily)
 Wom_gs <- filter_gs(Wom_daily)
 Ync_gs <- filter_gs(Ync_daily)
 Whr_gs <- filter_gs(Whr_daily)
+Tum_gs <- filter_gs(Tum_daily)
+Cpr_gs <- filter_gs(Cpr_daily)
 ```
 
 1. 
@@ -783,18 +839,21 @@ Wac_gs <- Wac_gs %>% mutate(site = "Wac")
 Wom_gs <- Wom_gs %>% mutate(site = "Wom")
 Ync_gs <- Ync_gs %>% mutate(site = "Ync")
 Whr_gs <- Whr_gs %>% mutate(site = "Whr")
+Tum_gs <- Tum_gs %>% mutate(site = "Tum")
+Cpr_gs <- Cpr_gs %>% mutate(site = "Cpr")
 
 # Combine all sites
-all_sites <- bind_rows(How_gs, Ade_gs, Das_gs, Dap_gs, Dry_gs, Stp_gs, Asm_gs, Cum_gs, Emr_gs, Fog_gs, Gin_gs, Gww_gs, Lox_gs, Rdf_gs, Rig_gs, Rob_gs, TTE_gs, Wac_gs, Wom_gs, Ync_gs, Whr_gs)
+all_sites <- bind_rows(How_gs, Ade_gs, Das_gs, Dap_gs, Dry_gs, Stp_gs, Asm_gs, Cum_gs, Emr_gs, Fog_gs, Gin_gs, Gww_gs, Lox_gs, Rdf_gs, Rig_gs, Rob_gs, TTE_gs, Wac_gs, Wom_gs, Ync_gs, Whr_gs, Tum_gs, Cpr_gs)
 
 # Set wet → dry order
 all_sites$site <- factor(all_sites$site,
-                         levels = c("Wac", "Rob", "How", "Das", "Fog", "Rdf", "Dap", "Ade", "Wom", "Dry", "Stp","Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "TTE", "Lox"))
+                         levels = c("Wac", "Rob", "How", "Das", "Fog", "Rdf", "Dap", "Ade", "Wom", "Dry", "Stp","Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "TTE", "Lox", "Tum", "Cpr"))
 ```
 
+Loess smooth lines: (ok but not great, may not show true curves )
 ```{r}
 library(RColorBrewer)
-# Define 7 distinct colors for the sites
+# Define distinct colors for the sites
 site_colors <- brewer.pal(n = 9, name = "Set1")  # Set1 is bright and categorical
 
 ggplot(all_sites, aes(x = VPD, y = GPP, color = site)) +
@@ -807,9 +866,111 @@ ggplot(all_sites, aes(x = VPD, y = GPP, color = site)) +
   )
 
 ```
-Overall, we can see that the drier sites are less sensitive to higher VPD. 
 
+Instead, I am going to bin VPD and calculate mean GPP and Standard error for each VPD bin - and then plot that
+```{r}
+#Can increase to larger bins later (0.1, 0.2, 0.5...)
+all_sites$VPD_bin <- cut(all_sites$VPD, breaks = seq(0, max(all_sites$VPD, na.rm = TRUE), by = 0.5))
+```
+
+Calculate mean GPP and standard error
+```{r}
+library(dplyr)
+
+binned_data <- all_sites %>%
+  group_by(site, VPD_bin) %>%
+  summarise(
+    mean_GPP = mean(GPP, na.rm = TRUE),
+    sd_GPP = sd(GPP, na.rm = TRUE),
+    n = n(),
+    se_GPP = sd_GPP / sqrt(n)
+  ) %>%
+  ungroup()
+
+```
+
+```{r}
+ggplot(binned_data, aes(x = as.numeric(VPD_bin), y = mean_GPP, color = site)) +
+  geom_point(size = 2) +
+  geom_errorbar(aes(ymin = mean_GPP - se_GPP, ymax = mean_GPP + se_GPP), width = 0.05) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Binned GPP response to VPD across OzFlux sites",
+    x = "VPD bin (kPa)",
+    y = "Mean GPP (g C m-2 d-1)"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+Quite difficult to make out any sort of pattern. I think drier sites are less sensitive to changes in VPD compared to wet sites. 
+
+Let's separate sites into PFT and then plot their VPD curves:
+
+```{r}
+WSA <- bind_rows(Ade_gs, Gin_gs, How_gs, Rdf_gs) %>% group_by(site)
+
+SAV <- bind_rows(Das_gs, Dry_gs, Gww_gs, Asm_gs, Cpr_gs) %>% group_by(site)
+
+EBF <- bind_rows(Cum_gs, Rob_gs, Wac_gs, Whr_gs, Wom_gs, Tum_gs) %>% group_by(site)
+
+GRA <- bind_rows(Dap_gs, Emr_gs, Rig_gs, Stp_gs, TTE_gs, Ync_gs) %>% group_by(site)
+
+WET <- Fog_gs %>% group_by(site)
+
+DBF <- Lox_gs %>% group_by(site)
+```
+
+```{r}
+WSA$PFT <- "WSA"
+SAV$PFT <- "SAV"
+EBF$PFT <- "EBF"
+GRA$PFT <- "GRA"
+WET$PFT <- "WET"
+DBF$PFT <- "DBF"
+```
+
+```{r}
+PFT_all <- bind_rows(WSA, SAV, EBF, GRA, WET, DBF)
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# Create VPD bins of width 0.5 kPa
+PFT_all <- PFT_all %>%
+  mutate(VPD_bin = cut(VPD,
+                       breaks = seq(floor(min(VPD, na.rm = TRUE)), 
+                                    ceiling(max(VPD, na.rm = TRUE)), 
+                                    by = 0.5),
+                       include.lowest = TRUE))
+
+# Calculate mean and SE of GPP per PFT per VPD bin
+summary_stats <- PFT_all %>%
+  group_by(PFT, VPD_bin) %>%
+  summarise(
+    mean_GPP = mean(GPP, na.rm = TRUE),
+    se_GPP = sd(GPP, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  )
+
+# Plot binned means with error bars
+ggplot(summary_stats, aes(x = VPD_bin, y = mean_GPP, colour = PFT, group = PFT)) +
+  geom_point(size = 2) +
+  geom_errorbar(aes(ymin = mean_GPP - se_GPP, ymax = mean_GPP + se_GPP), width = 0.2) +
+  geom_line(linewidth = 1) +
+  theme_minimal(base_size = 14) +
+  labs(
+    x = "VPD (0.5 kPa bins)",
+    y = "Mean GPP ± SE",
+    colour = "PFT",
+    title = "Binned GPP–VPD relationships across PFTs"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
 2. 
+How does predictabilty vary across sites in Australia?
 Full GAM (climate + LCC + VPD) for each site
 Plot sites r-squared by same wetness 
 - Load in pet/cwd and LCC
@@ -847,67 +1008,73 @@ priestley_taylor_pet <- function(Rn, Tair, P) {
 }
 
 Asm_daily$pet <- priestley_taylor_pet(Asm_daily$Rn, Asm_daily$Tair, Asm_daily$Pa)
-Asm_daily$cwd <- Asm_daily$pet - Asm_daily$Qle
+Asm_daily$cwd <- Asm_daily$pet - Asm_daily$ET
 
 How_daily$pet <- priestley_taylor_pet(How_daily$Rn, How_daily$Tair, How_daily$Pa)
-How_daily$cwd <- How_daily$pet - How_daily$Qle
+How_daily$cwd <- How_daily$pet - How_daily$ET
 
 Das_daily$pet <- priestley_taylor_pet(Das_daily$Rn, Das_daily$Tair, Das_daily$Pa)
-Das_daily$cwd <- Das_daily$pet - Das_daily$Qle
+Das_daily$cwd <- Das_daily$pet - Das_daily$ET
 
 Dap_daily$pet <- priestley_taylor_pet(Dap_daily$Rn, Dap_daily$Tair, Dap_daily$Pa)
-Dap_daily$cwd <- Dap_daily$pet - Dap_daily$Qle
+Dap_daily$cwd <- Dap_daily$pet - Dap_daily$ET
 
 Dry_daily$pet <- priestley_taylor_pet(Dry_daily$Rn, Dry_daily$Tair, Dry_daily$Pa)
-Dry_daily$cwd <- Dry_daily$pet - Dry_daily$Qle
+Dry_daily$cwd <- Dry_daily$pet - Dry_daily$ET
 
 Ade_daily$pet <- priestley_taylor_pet(Ade_daily$Rn, Ade_daily$Tair, Ade_daily$Pa)
-Ade_daily$cwd <- Ade_daily$pet - Ade_daily$Qle
+Ade_daily$cwd <- Ade_daily$pet - Ade_daily$ET
 
 Stp_daily$pet <- priestley_taylor_pet(Stp_daily$Rn, Stp_daily$Tair, Stp_daily$Pa)
-Stp_daily$cwd <- Stp_daily$pet - Stp_daily$Qle
+Stp_daily$cwd <- Stp_daily$pet - Stp_daily$ET
 
 Cum_daily$pet <- priestley_taylor_pet(Cum_daily$Rn, Cum_daily$Tair, Cum_daily$Pa)
-Cum_daily$cwd <- Cum_daily$pet - Cum_daily$Qle
+Cum_daily$cwd <- Cum_daily$pet - Cum_daily$ET
 
 Emr_daily$pet <- priestley_taylor_pet(Emr_daily$Rn, Emr_daily$Tair, Emr_daily$Pa)
-Emr_daily$cwd <- Emr_daily$pet - Emr_daily$Qle
+Emr_daily$cwd <- Emr_daily$pet - Emr_daily$ET
 
 Fog_daily$pet <- priestley_taylor_pet(Fog_daily$Rn, Fog_daily$Tair, Fog_daily$Pa)
-Fog_daily$cwd <- Fog_daily$pet - Fog_daily$Qle
+Fog_daily$cwd <- Fog_daily$pet - Fog_daily$ET
 
 Gin_daily$pet <- priestley_taylor_pet(Gin_daily$Rn, Gin_daily$Tair, Gin_daily$Pa)
-Gin_daily$cwd <- Gin_daily$pet - Gin_daily$Qle
+Gin_daily$cwd <- Gin_daily$pet - Gin_daily$ET
 
 Gww_daily$pet <- priestley_taylor_pet(Gww_daily$Rn, Gww_daily$Tair, Gww_daily$Pa)
-Gww_daily$cwd <- Gww_daily$pet - Gww_daily$Qle
+Gww_daily$cwd <- Gww_daily$pet - Gww_daily$ET
 
 Lox_daily$pet <- priestley_taylor_pet(Lox_daily$Rn, Lox_daily$Tair, Lox_daily$Pa)
-Lox_daily$cwd <- Lox_daily$pet - Lox_daily$Qle
+Lox_daily$cwd <- Lox_daily$pet - Lox_daily$ET
 
 Rdf_daily$pet <- priestley_taylor_pet(Rdf_daily$Rn, Rdf_daily$Tair, Rdf_daily$Pa)
-Rdf_daily$cwd <- Rdf_daily$pet - Rdf_daily$Qle
+Rdf_daily$cwd <- Rdf_daily$pet - Rdf_daily$ET
 
 Rig_daily$pet <- priestley_taylor_pet(Rig_daily$Rn, Rig_daily$Tair, Rig_daily$Pa)
-Rig_daily$cwd <- Rig_daily$pet - Rig_daily$Qle
+Rig_daily$cwd <- Rig_daily$pet - Rig_daily$ET
 
 Rob_daily$pet <- priestley_taylor_pet(Rob_daily$Rn, Rob_daily$Tair, Rob_daily$Pa)
-Rob_daily$cwd <- Rob_daily$pet - Rob_daily$Qle
+Rob_daily$cwd <- Rob_daily$pet - Rob_daily$ET
 
 TTE_daily$pet <- priestley_taylor_pet(TTE_daily$Rn, TTE_daily$Tair, TTE_daily$Pa)
-TTE_daily$cwd <- TTE_daily$pet - TTE_daily$Qle
+TTE_daily$cwd <- TTE_daily$pet - TTE_daily$ET
 
 Wac_daily$pet <- priestley_taylor_pet(Wac_daily$Rn, Wac_daily$Tair, Wac_daily$Pa)
-Wac_daily$cwd <- Wac_daily$pet - Wac_daily$Qle
+Wac_daily$cwd <- Wac_daily$pet - Wac_daily$ET
 
 Wom_daily$pet <- priestley_taylor_pet(Wom_daily$Rn, Wom_daily$Tair, Wom_daily$Pa)
-Wom_daily$cwd <- Wom_daily$pet - Wom_daily$Qle
+Wom_daily$cwd <- Wom_daily$pet - Wom_daily$ET
 
 Ync_daily$pet <- priestley_taylor_pet(Ync_daily$Rn, Ync_daily$Tair, Ync_daily$Pa)
-Ync_daily$cwd <- Ync_daily$pet - Ync_daily$Qle
+Ync_daily$cwd <- Ync_daily$pet - Ync_daily$ET
 
 Whr_daily$pet <- priestley_taylor_pet(Whr_daily$Rn, Whr_daily$Tair, Whr_daily$Pa)
-Whr_daily$cwd <- Whr_daily$pet - Whr_daily$Qle
+Whr_daily$cwd <- Whr_daily$pet - Whr_daily$ET
+
+Cpr_daily$pet <- priestley_taylor_pet(Cpr_daily$Rn, Cpr_daily$Tair, Cpr_daily$Pa)
+Cpr_daily$cwd <- Cpr_daily$pet - Cpr_daily$ET
+
+Tum_daily$pet <- priestley_taylor_pet(Tum_daily$Rn, Tum_daily$Tair, Tum_daily$Pa)
+Tum_daily$cwd <- Tum_daily$pet - Tum_daily$ET
 
 ```
 
@@ -945,8 +1112,8 @@ Wac_daily <- add_year_doy(Wac_daily)
 Wom_daily <- add_year_doy(Wom_daily)
 Ync_daily <- add_year_doy(Ync_daily)
 Whr_daily <- add_year_doy(Whr_daily)
-
-
+Tum_daily <- add_year_doy(Tum_daily)
+Cpr_daily <- add_year_doy(Cpr_daily)
 ```
 
 
@@ -1054,16 +1221,16 @@ attach_site_data <- function(df, lat, lon, vcmax_raster, lcc_nc_file) {
 # -----------------------------
 sites <- tibble(
   name = c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm", "Cum", "Emr", "Fog",
-           "Gin", "Gww", "Lox", "Rdf", "Rig", "Rob", "TTE", "Wac", "Whr", "Wom", "Ync"),
+           "Gin", "Gww", "Lox", "Rdf", "Rig", "Rob", "TTE", "Wac", "Whr", "Wom", "Ync", "Cpr", "Tum"),
   lat  = c(-12.4943, -13.0769, -14.1593, -14.0633, -15.2588, -17.1507, -22.283, -33.6152, -23.8587,
            -12.5452, -31.3764, -30.1913, -34.4704, -14.5636, -36.6499, -17.1175, -22.287, -37.4259,
-           -36.6732, -37.4222, -34.9893),
+           -36.6732, -37.4222, -34.9893, -34.0021, -35.6566),
   lon  = c(131.1523, 131.1178, 131.3881, 131.3181, 132.3706, 133.3502, 133.2490, 150.7236, 148.4746,
            131.3072, 115.7138, 120.6541, 140.6551, 132.4776, 145.5759, 145.6301, 133.64, 145.1878,
-           145.0294, 144.0944, 146.2907),
+           145.0294, 144.0944, 146.2907, 140.5891, 148.1517),
   df   = list(How_daily, Ade_daily, Das_daily, Dap_daily, Dry_daily, Stp_daily, Asm_daily, Cum_daily,
               Emr_daily, Fog_daily, Gin_daily, Gww_daily, Lox_daily, Rdf_daily, Rig_daily, Rob_daily,
-              TTE_daily, Wac_daily, Whr_daily, Wom_daily, Ync_daily)
+              TTE_daily, Wac_daily, Whr_daily, Wom_daily, Ync_daily, Cpr_daily, Tum_daily)
 )
 
 # -----------------------------
@@ -1081,21 +1248,20 @@ sites <- sites %>%
 list2env(setNames(sites$df_with_data, sites$name), envir = .GlobalEnv)
 
 ```
-
+sites called "Cpr" and "Tum" in global environment after that function
 
 ```{r}
+#For now, growing season filter - Temp, SW rad and GPP > 0, but this needs some work
 library(dplyr)
 
-filter_gs <- function(df, gpp_quantile = 0.25, swrad_thresh = 20) {
-
+filter_gs <- function(df) {
   df %>%
-    # remove nighttime
-    filter(SW_rad > swrad_thresh) %>%
-    
-    # global GPP filtering
-    filter(GPP > quantile(GPP, gpp_quantile, na.rm = TRUE))
+    filter(
+      Tair > 5,
+      SW_rad > 50, 
+      GPP > 0
+    )
 }
-
 
 #Apply to dataset
 
@@ -1120,6 +1286,8 @@ Wac_gs <- filter_gs(Wac)
 Wom_gs <- filter_gs(Wom)
 Ync_gs <- filter_gs(Ync)
 Whr_gs <- filter_gs(Whr)
+Cpr_gs <- filter_gs(Cpr)
+Tum_gs <- filter_gs(Tum)
 ```
 
 ```{r}
@@ -1139,14 +1307,14 @@ library(viridisLite)# for color scale
 # Full site list
 # -----------------------------
 sites <- tibble(
-  site = c("Wac", "Rob","How", "Das", "Fog", "Rdf", "Dap", "Ade", "Wom", "Dry", "Stp", "Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "TTE", "Lox"),
+  site = c("Wac", "Rob","How", "Das", "Fog", "Rdf", "Dap", "Ade", "Wom", "Dry", "Stp", "Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "TTE", "Lox", "Cpr", "Tum"),
   lat  = c(-12.4943, -13.0769, -14.1593, -14.0633, -15.2588, -17.1507, -22.283,
            -33.6152, -23.8587, -12.5452, -31.3764, -30.1913, -34.4704, -14.5636,
-           -36.6499, -17.1175, -22.287, -37.4259, -36.6732, -37.4222, -34.9893),
+           -36.6499, -17.1175, -22.287, -37.4259, -36.6732, -37.4222, -34.9893, -34.0021, -35.6566),
   lon  = c(131.1523, 131.1178, 131.3881, 131.3181, 132.3706, 133.3502, 133.2490,
            150.7236, 148.4746, 131.3072, 115.7138, 120.6541, 140.6551, 132.4776,
-           145.5759, 145.6301, 133.64, 145.1878, 145.0294, 144.0944, 146.2907),
-  wetness_order = 1:21  # optional: assign numbers 1 (wettest) → 21 (driest) if known
+           145.5759, 145.6301, 133.64, 145.1878, 145.0294, 144.0944, 146.2907, 140.5891, 148.1517),
+  wetness_order = NA  # optional: assign numbers 1 (wettest) → 21 (driest) if known
 )
 
 # -----------------------------
@@ -1161,7 +1329,7 @@ ggplot() +
   geom_sf(data = aus, fill = "antiquewhite", color = "black") +
   geom_point(data = sites, aes(x = lon, y = lat, color = wetness_order), size = 4) +
   geom_text(data = sites, aes(x = lon, y = lat, label = site), nudge_y = 0.3, size = 4) +
-  scale_color_viridis_c(option = "C", direction = -1, na.value = "grey50", name = "Wet → Dry") +
+  scale_color_viridis_c(option = "C", direction = -1, na.value = "grey50", name = "Wet -> Dry") +
   coord_sf(xlim = c(110, 155), ylim = c(-40, -10), expand = FALSE) +  # full map of Australia
   theme_minimal() +
   labs(title = "FluxNet Sites Across Australia",
@@ -1186,7 +1354,7 @@ set.seed(123)  # for reproducibility
 all_sites <- c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm",
                "Cum", "Emr", "Fog", "Gin", "Gww", "Lox",
                "Rdf", "Rig", "Rob", "TTE", "Wac", "Whr",
-               "Wom", "Ync")
+               "Wom", "Ync", "Cpr", "Tum")
 
 # -----------------------------
 # Split, rolling CWD, lagged variables
@@ -1279,7 +1447,7 @@ climate_metrics <- bind_rows(
 
 ```{r}
 # Define wet → dry order
-wet_dry_order <- c("Wac", "Rob","How", "Das", "Fog", "Rdf", "Dap", "Ade", "Wom", "Dry", "Stp", "Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "TTE", "Lox")
+wet_dry_order <- c("Wac", "Rob","How", "Das", "Fog", "Rdf", "Dap", "Ade", "Tum", "Wom", "Dry", "Stp", "Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "Cpr", "TTE", "Lox")
 
 climate_metrics$site <- factor(climate_metrics$site, levels = wet_dry_order)
 
@@ -1567,8 +1735,8 @@ Cumberland plains - little predictive ability with the climate and physiology me
 Separate sites into PFT to visualize trends:
 
 WSA - Ade, Gin, How, Rdf, 
-SAV - DaS, Dry, Gww, Asm
-EBF - Cum, Rob, Wac, Whr, Wom
+SAV - DaS, Dry, Gww, Asm, Cpr
+EBF - Cum, Rob, Wac, Whr, Wom, Tum
 GRA - Dap, Emr, Rig, Stp, TTE, Ync
 WET - Fog
 DBF - Lox
