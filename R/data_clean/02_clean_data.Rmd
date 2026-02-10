@@ -13,7 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 - Filter low coverage days
 *Done BEFORE converting to daily data*
 
-Convert -9999 values to NA
+**Convert -9999 values to NA**
 
 ```{r}
 flux_vars <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "Precip", "Pa", "VPD")
@@ -32,10 +32,11 @@ df_2 <- df_1 %>%
 ```
 
 
-Filter low coverage days:
+**Filter low coverage days:**
 - Removes days that don't have enough half-hourly measurements
-- Assumes half-hourly data
 - Leaves only days with >90% data coverage
+
+Half-hourly flux data:
 ```{r}
 filter_low_coverage_days <- function(df, min_frac = 0.9, steps_per_day = 48) {
 
@@ -50,6 +51,22 @@ filter_low_coverage_days <- function(df, min_frac = 0.9, steps_per_day = 48) {
 }
 
 df_clean <- filter_low_coverage_days(df_2)
+```
+
+Hourly flux data e.g., AU-Tum
+
+```{r}
+filter_low_coverage_days_2 <- function(df, min_frac = 0.9, steps_per_day = 24) {
+
+  min_steps <- ceiling(min_frac * steps_per_day)
+
+  df %>%
+    group_by(date = floor_date(date, "day")) %>%
+    mutate(n_steps = n()) %>%
+    ungroup() %>%
+    filter(n_steps >= min_steps) %>%
+    select(-n_steps)
+}
 ```
 
 
