@@ -1464,7 +1464,7 @@ ggplot(climate_metrics, aes(x = site, y = R2)) +
 ```
 Range of R-squared across OzFlux sites. GAM used with VPD, Tair, Precip, cumulative cwd, VPD lag, Tair lag, leaf chlorophyll content and shortwave radiation. Only thing missing is LAI (leaf area index) which could improve model fit for some of the sites.
 
-
+Just wanted to double check there wasn't underlying effect of no. of observations:
 No of observations per site:
 ```{r}
 length(unique(How_train$GPP))
@@ -1510,6 +1510,7 @@ ggplot(climate_metrics, aes(x = site, y = R2)) +
   ) +
   theme_minimal()
 ```
+
 Now let's look at how VPD improves model fit:
 
 1. Model without VPD
@@ -1558,7 +1559,7 @@ no_vpd_metrics <- bind_rows(
 
 ```{r}
 # Define wet → dry order
-wet_dry_order <- c("Wac", "Rob","How", "Das", "Fog", "Rdf", "Dap", "Ade", "Wom", "Dry", "Stp", "Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "TTE", "Lox")
+wet_dry_order <- c("Wac", "Rob","How", "Das", "Fog", "Rdf", "Dap", "Ade", "Tum", "Wom", "Dry", "Stp", "Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "Cpr", "TTE", "Lox")
 
 no_vpd_metrics$site <- factor(no_vpd_metrics$site, levels = wet_dry_order)
 
@@ -1613,7 +1614,7 @@ vpd_metrics <- bind_rows(
 
 ```{r}
 # Define wet → dry order
-wet_dry_order <- c("Wac", "Rob","How", "Das", "Fog", "Rdf", "Dap", "Ade", "Wom", "Dry", "Stp", "Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "TTE", "Lox")
+wet_dry_order <- c("Wac", "Rob","How", "Das", "Fog", "Rdf", "Dap", "Ade", "Tum", "Wom", "Dry", "Stp", "Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "Cpr", "TTE", "Lox")
 
 vpd_metrics$site <- factor(vpd_metrics$site, levels = wet_dry_order)
 
@@ -1664,7 +1665,7 @@ full_metrics <- bind_rows(
 )
 
 # Define wet → dry order
-wet_dry_order <- c("Wac", "Rob","How", "Das", "Fog", "Rdf", "Dap", "Ade", "Wom", "Dry", "Stp", "Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "TTE", "Lox")
+wet_dry_order <- c("Wac", "Rob","How", "Das", "Fog", "Rdf", "Dap", "Ade", "Tum", "Wom", "Dry", "Stp", "Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "Cpr", "TTE", "Lox")
 
 full_metrics$site <- factor(full_metrics$site, levels = wet_dry_order)
 
@@ -1707,7 +1708,7 @@ gam_comparison <- no_vpd_metrics %>%
   )
 
 
-wet_dry_order <- c("Wac", "Rob","How", "Das", "Fog", "Rdf", "Dap", "Ade", "Wom", "Dry", "Stp", "Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "TTE", "Lox")
+wet_dry_order <- c("Wac", "Rob","How", "Das", "Fog", "Rdf", "Dap", "Ade", "Tum", "Wom", "Dry", "Stp", "Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "Cpr", "TTE", "Lox")
 
 gam_comparison <- gam_comparison %>%
   mutate(site = factor(site, levels = wet_dry_order)) %>%
@@ -1722,19 +1723,21 @@ ggplot(gam_comparison, aes(x = site, y = delta_R2_VPD)) +
   coord_flip() +
   theme_minimal(base_size = 14) +
   labs(
-    x = "Site (Wet → Dry)",
+    x = "Site (Wet -> Dry)",
     y = expression(Delta*R^2),
     title = "Added predictive value of VPD across OzFlux sites"
   )
 
 ```
 
-Seems to be a trend that VPD controls predictability of GPP more in wetter sites than in drier sites. 
-Cumberland plains - little predictive ability with the climate and physiology metrics - could it be controlled by LAI?
+Not sure if there is any pattern here. 
+TTE - interestingly VPD reduces site predictability. 
+*Explore this further*. - think this could be interesting
+Could be interesting to add in LAI to this, so there can be some sort of mechanistic interpretation of these results. 
 
 Separate sites into PFT to visualize trends:
 
-WSA - Ade, Gin, How, Rdf, 
+WSA - Ade, Gin, How, Rdf
 SAV - DaS, Dry, Gww, Asm, Cpr
 EBF - Cum, Rob, Wac, Whr, Wom, Tum
 GRA - Dap, Emr, Rig, Stp, TTE, Ync
@@ -1763,14 +1766,16 @@ TTE_gs <- TTE_gs %>% mutate(site = "TTE")
 Ync_gs <- Ync_gs %>% mutate(site = "Ync")
 Fog_gs <- Fog_gs %>% mutate(site = "Fog")
 Lox_gs <- Lox_gs %>% mutate(site = "Lox")
+Tum_gs <- Tum_gs %>% mutate(site = "Tum")
+Cpr_gs <- Cpr_gs %>% mutate(site = "Cpr")
 ```
 
 ```{r}
 WSA <- bind_rows(Ade_gs, Gin_gs, How_gs, Rdf_gs) %>% group_by(site)
 
-SAV <- bind_rows(Das_gs, Dry_gs, Gww_gs, Asm_gs) %>% group_by(site)
+SAV <- bind_rows(Das_gs, Dry_gs, Gww_gs, Asm_gs, Cpr_gs) %>% group_by(site)
 
-EBF <- bind_rows(Cum_gs, Rob_gs, Wac_gs, Whr_gs, Wom_gs) %>% group_by(site)
+EBF <- bind_rows(Cum_gs, Rob_gs, Wac_gs, Whr_gs, Wom_gs, Tum_gs) %>% group_by(site)
 
 GRA <- bind_rows(Dap_gs, Emr_gs, Rig_gs, Stp_gs, TTE_gs, Ync_gs) %>% group_by(site)
 
@@ -1819,3 +1824,124 @@ ggplot(PFT_all, aes(x = VPD, y = GPP, colour = PFT)) +
 
 ```
 Mean functional response of PFT to atmospheric drying using GAM to characterise non-linear responses of GPP to VPD. 
+
+Need to bin VPD because these lines look too smooth
+
+
+Fit GAM for each PFT
+- No VPD
+- VPD only
+- Full with VPD
+
+What is the additive predictive value of VPD across plant functional groups?
+
+```{r}
+library(tidyverse)
+library(mgcv)
+library(zoo)
+library(caret)
+
+PFT_all <- c("GRA", "EBF", "SAV", "WSA", "WET", "DBF")
+
+```
+
+```{r}
+fit_gam_models <- function(train_data, test_data) {
+  
+  # ---- Model formulas ----
+  formula_no_vpd   <- GPP ~ s(Tair) + s(SW_rad) + s(Precip) + s(cumulative_cwd_7day) +
+                      s(Tair_lag3) + s(LCC_daily)
+  
+  formula_vpd_only <- GPP ~ s(VPD)
+  
+  formula_full_vpd <- GPP ~ s(Tair) + s(SW_rad) + s(Precip) + s(cumulative_cwd_7day) +
+                      s(Tair_lag3) + s(LCC_daily) + s(VPD)
+  
+  # ---- Fit models ----
+  gam_no_vpd   <- gam(formula_no_vpd, data = train_data, method = "REML")
+  gam_vpd_only <- gam(formula_vpd_only, data = train_data, method = "REML")
+  gam_full_vpd <- gam(formula_full_vpd, data = train_data, method = "REML")
+  
+  # ---- Predictions ----
+  preds_no_vpd   <- predict(gam_no_vpd, newdata = test_data)
+  preds_vpd_only <- predict(gam_vpd_only, newdata = test_data)
+  preds_full_vpd <- predict(gam_full_vpd, newdata = test_data)
+  
+  # ---- Calculate metrics ----
+  tibble(
+    Model = c("No_VPD", "VPD_only", "Full_VPD"),
+    RMSE  = c(
+      sqrt(mean((test_data$GPP - preds_no_vpd)^2)),
+      sqrt(mean((test_data$GPP - preds_vpd_only)^2)),
+      sqrt(mean((test_data$GPP - preds_full_vpd)^2))
+    ),
+    R2    = c(
+      cor(test_data$GPP, preds_no_vpd)^2,
+      cor(test_data$GPP, preds_vpd_only)^2,
+      cor(test_data$GPP, preds_full_vpd)^2
+    )
+  )
+}
+
+```
+
+```{r}
+all_metrics <- map_dfr(PFT_all, function(PFT) {
+  
+  train_data <- get(paste0(PFT, "_train"))
+  test_data  <- get(paste0(PFT, "_test"))
+  
+  fit_gam_models(train_data, test_data) %>%
+    mutate(PFT = PFT)
+})
+
+```
+
+```{r}
+all_metrics %>%
+  pivot_wider(names_from = Model, values_from = R2) %>%
+  mutate(
+    VPD_additive = Full_VPD - No_VPD
+  )
+
+```
+```{r}
+library(tidyr)
+library(dplyr)
+
+vpd_additive <- all_metrics %>%
+  pivot_wider(names_from = Model, values_from = c(R2, RMSE)) %>%
+  mutate(
+    R2_gain_VPD = R2_Full_VPD - R2_No_VPD,
+    RMSE_drop_VPD = RMSE_No_VPD - RMSE_Full_VPD
+  )
+
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(vpd_additive, aes(x = PFT, y = R2_gain_VPD, fill = PFT)) +
+  geom_col() +
+  theme_minimal(base_size = 14) +
+  labs(
+    y = "R² gain from VPD",
+    x = "Plant Functional Type",
+    title = "Additive predictive value of VPD on GPP"
+  )
+
+```
+
+```{r}
+ggplot(all_metrics %>% filter(Model %in% c("No_VPD", "Full_VPD")),
+       aes(x = PFT, y = R2, colour = Model)) +
+  geom_point(size = 3, position = position_dodge(width = 0.5)) +
+  theme_minimal(base_size = 14) +
+  labs(
+    y = "R²",
+    x = "Plant Functional Type",
+    title = "Predictive value of VPD across PFTs"
+  )
+
+```
+
