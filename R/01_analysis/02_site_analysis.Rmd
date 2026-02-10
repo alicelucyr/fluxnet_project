@@ -970,7 +970,7 @@ ggplot(summary_stats, aes(x = VPD_bin, y = mean_GPP, colour = PFT, group = PFT))
 
 ```
 2. 
-How does predictabilty vary across sites in Australia?
+How does predictability vary across sites in Australia?
 Full GAM (climate + LCC + VPD) for each site
 Plot sites r-squared by same wetness 
 - Load in pet/cwd and LCC
@@ -2125,4 +2125,9 @@ VPD improves predictability more on a wider, climate scale than at an individual
 
 Precipitation class performs nearly as well as site-specific GAMS, highlighting the importance of hydrological footprint on ecosystem functioning and response. 
 
+Summary:
+- VPD needs to be binned before plotting
+- site, PFT and precipitation class predictability across Australia
+- PFT models perform worse than precip class models 
+- VPD has greater additional value in precip class models than PFT and site-level models
 
