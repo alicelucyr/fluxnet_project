@@ -1944,4 +1944,78 @@ ggplot(all_metrics %>% filter(Model %in% c("No_VPD", "Full_VPD")),
   )
 
 ```
+```{r}
+full_model_only <- all_metrics %>%
+  filter(Model == "Full_VPD")
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(full_model_only, aes(x = PFT, y = R2)) +
+  geom_col(fill = "steelblue") +
+  theme_minimal(base_size = 14) +
+  labs(
+    x = "Plant Functional Type",
+    y = expression(R^2),
+    title = "Full GAM predictability of GPP across PFTs"
+  )
+
+```
+Predictability decreases when sites are grouped by PFT. 
+- PFTs are heterogenous in their GPP-VPD sensitivty
+- Plant functional groups do not behave as single functional units 
+
+Predictive performance decreased when sites were aggregated by plant functional type, reflecting the substantial within-PFT heterogeneity in GPP responses to atmospheric and hydrological drivers. This suggests that PFT-level grouping conceals site-specific controls.
+
+This supports emeging literature that PFTs are too broad - model fit was particularly low compared to site-specific GAMs. 
+
+What if we grouped sites based on their annual precipitation?
+
+Separate sites into very wet, wet, dry, and very dry? Is this better than separating into PFT in terms of predictability?
+
+```{r}
+annual_summary <- annual_precip %>%
+  group_by(site) %>%
+  summarise(mean_precip = mean(Precip, na.rm = TRUE))
+
+annual_summary <- annual_summary %>%
+  arrange(desc(mean_precip)) %>%
+  mutate(site = factor(site, levels = site))
+
+ggplot(annual_summary, aes(x = site, y = mean_precip)) +
+  geom_col() +
+  coord_flip() +
+  theme_minimal(base_size = 14) +
+  labs(
+    x = "OzFlux site",
+    y = "Mean annual precipitation (mm)",
+    title = "Mean annual precipitation across Australian Fluxnet sites"
+  )
+```
+23 sites 
+4 groups, very wet, wet, dry and very dry
+Grouped into 4 groups based on quantile to make it even (although a bit arbitrary)
+
+```{r}
+site_precip_class <- annual_summary %>%
+  mutate(
+    precip_quantile = ntile(annual_summary, 4),
+    precip_class = case_when(
+      precip_quantile == 1 ~ "Very wet",
+      precip_quantile == 2 ~ "Wet",
+      precip_quantile == 3 ~ "Dry",
+      precip_quantile == 4 ~ "Very Dry"
+    )
+  )
+
+```
+
+```{r}
+Very_wet <- bind_rows(Wac, Rob, How, Das, Fog, Rdf)
+Wet <- bind_rows(Dap, Ade, Tum, Wom, Dry, Stp)
+Dry <- bind_rows(Ync, Emr, Gin, Cum, Rig, Asm)
+Very_dry <- bind_rows(Whr, Gww, Cpr, TTE, Lox)
+```
+
 
