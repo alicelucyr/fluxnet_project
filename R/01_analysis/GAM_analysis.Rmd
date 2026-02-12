@@ -569,7 +569,7 @@ Now need to do additive value of LCC
 - GAMs across PFTs
 - GAMs across precipitation gradients
 
-
+----------------------------------------------------------------------------------------
 
 
 Not sure if there is any pattern here. 
