@@ -8,11 +8,14 @@ date: "2026-02-09"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-Which Australian flux site is the most/least predictable?
-- R-squared from model
-- Change in R-squared when VPD is added to GAM
-- Can VPD explain residual variation?
-- VPD curves for sites/PFT groups?
+Updated data cleaning pipeline:
+1. Load in flux data
+2. store in sites_clean
+3. Remove -9999 values
+4. Filter low coverage days
+5. Convert to daily
+6. NaN back to NA
+7. Growing season filter
 
 ```{r}
 rm(list = ls())
@@ -131,7 +134,6 @@ Cpr_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/
 Tum_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/hourly_2/FLX_AU-Tum_FLUXNET2015_FULLSET_HR_2001-2014_2-4.csv") #remember AU-Tum is hourly
 
 ```
-
 
 Remove -9999 values:
 
@@ -331,6 +333,13 @@ sites_daily <- sites_daily %>%
 Check variables look normal:
 ```{r}
 plot(sites_daily$How_HH$Precip)
+```
+```{r}
+#export back to environment
+
+names(sites_daily) <- paste0(names(sites_daily), "_daily")
+list2env(sites_daily, envir = .GlobalEnv)
+
 ```
 
 
