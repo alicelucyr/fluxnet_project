@@ -565,11 +565,14 @@ ggplot(cwd_metrics, aes(x = site, y = R2)) +
   ) +
   theme_minimal()
 ```
-Now need to do additive value of LCC
+To do:
+- lcc model
 - GAMs across PFTs
 - GAMs across precipitation gradients
 
 ----------------------------------------------------------------------------------------
+
+
 
 
 Not sure if there is any pattern here. 
