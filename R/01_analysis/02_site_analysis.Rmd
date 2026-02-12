@@ -188,6 +188,11 @@ sites_clean <- sites_clean %>%
   
 ```
 
+Double checking variables:
+```{r}
+plot(sites_clean$Tum_HH$VPD)
+```
+So all the cleaned AU_HH dataframes are in the object sites_clean. The external AU_HH in the environment is the raw data
 
 Convert to daily:
 
@@ -287,107 +292,56 @@ convert_hourly_to_daily <- function(df) {
 ```
 
 ```{r}
-How_daily <- convert_to_daily(How_HH)
-Ade_daily <- convert_to_daily(Ade_HH)
-Das_daily <- convert_to_daily(Das_HH)
-Dap_daily <- convert_to_daily(Dap_HH)
-Dry_daily <- convert_to_daily(Dry_HH)
-Stp_daily <- convert_to_daily(Stp_HH)
-Asm_daily <- convert_to_daily(Asm_HH)
-Cum_daily <- convert_to_daily(Cum_HH)
-Emr_daily <- convert_to_daily(Emr_HH)
-Fog_daily <- convert_to_daily(Fog_HH)
-Gin_daily <- convert_to_daily(Gin_HH)
-Gww_daily <- convert_to_daily(Gww_HH)
-Lox_daily <- convert_to_daily(Lox_HH)
-Rdf_daily <- convert_to_daily(Rdf_HH)
-Rig_daily <- convert_to_daily(Rig_HH)
-Rob_daily <- convert_to_daily(Rob_HH)
-TTE_daily <- convert_to_daily(TTE_HH)
-Wac_daily <- convert_to_daily(Wac_HH)
-Whr_daily <- convert_to_daily(Whr_HH)
-Wom_daily <- convert_to_daily(Wom_HH)
-Ync_daily <- convert_to_daily(Ync_HH)
-Cpr_daily <- convert_to_daily(Cpr_HH)
-Tum_daily <- convert_hourly_to_daily(Tum_HH)
+#so basically, apply hourly to daily if it equals Tum, but if not apply half-hourly to daily conversion. Save in a list called sites_daily
+
+sites_daily <- sites_clean %>%
+  imap(~ if (.y == "Tum_HH") {
+    convert_hourly_to_daily(.x)
+  } else {
+    convert_to_daily(.x)
+  })
 ```
 
-Convert NaN back to NA:
 ```{r}
-How_daily <- How_daily %>%
-  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+#convert everything back to NA
 
-Ade_daily <- Ade_daily %>%
-  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+sites_daily <- sites_daily %>%
+  map(~ .x %>% mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .))))
 
-Das_daily <- Das_daily %>%
-  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
-
-Dap_daily <- Dap_daily %>%
-  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
-
-Dry_daily <- Dry_daily %>%
-  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
-
-Stp_daily <- Stp_daily %>%
-  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
-
-Asm_daily <- Asm_daily %>%
-  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
-
-Cum_daily <- Cum_daily %>%
-  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
-
-Emr_daily <- Emr_daily %>%
-  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
-
-Fog_daily <- Fog_daily %>%
-  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
-
-Gin_daily <- Gin_daily %>%
-  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
-
-Gww_daily <- Gww_daily %>%
-  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
-
-Lox_daily <- Lox_daily %>%
-  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
-
-Rdf_daily <- Rdf_daily %>%
-  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
-
-Rig_daily <- Rig_daily %>%
-  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
-
-Rob_daily <- Rob_daily %>%
-  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
-
-TTE_daily <- TTE_daily %>%
-  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
-
-Wac_daily <- Wac_daily %>%
-  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
-
-Whr_daily <- Whr_daily %>%
-  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
-
-Wom_daily <- Wom_daily %>%
-  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
-
-Ync_daily <- Ync_daily %>%
-  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
-
-Cpr_daily <- Cpr_daily %>%
-  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
-
-Tum_daily <- Tum_daily %>%
-  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
 ```
 
-Double check variables look normal:
+Growing season:
+
 ```{r}
-plot(Asm_daily$VPD)
+#growing season - for now, it is going to be above a certain temp threshold 5°C and above a short-wave radiation threshold
+
+filter_gs <- function(df) {
+  df %>%
+    filter(
+      Tair > 5,
+      SW_rad > 50,
+      GPP > 0
+    )
+}
+
+sites_daily <- sites_daily %>%
+  map(filter_gs)
 ```
+
+Check variables look normal:
+```{r}
+plot(sites_daily$How_HH$Precip)
+```
+
+
+
+
+
+
+
+
+
+
 Plot annual precipitation for each site - to find dry - wet gradient of sites
 
 ```{r}
@@ -497,51 +451,6 @@ ggplot(annual_summary, aes(x = site, y = mean_precip)) +
 
 ```
 
-
-```{r}
-#growing season - for now, it is going to be above a certain temp threshold 5°C and above a short-wave radiation threshold
-
-filter_gs <- function(df) {
-  df %>%
-    filter(
-      Tair > 5,
-      SW_rad > 50,
-      GPP > 0
-    )
-}
-
-```
-
-#Apply to dataset
-```{r}
-
-
-
-
-How_gs <- filter_gs(How_daily)
-Ade_gs <- filter_gs(Ade_daily)
-Das_gs <- filter_gs(Das_daily)
-Dap_gs <- filter_gs(Dap_daily)
-Dry_gs <- filter_gs(Dry_daily)
-Stp_gs <- filter_gs(Stp_daily)
-Asm_gs <- filter_gs(Asm_daily)
-Cum_gs <- filter_gs(Cum_daily)
-Emr_gs <- filter_gs(Emr_daily)
-Fog_gs <- filter_gs(Fog_daily)
-Gin_gs <- filter_gs(Gin_daily)
-Gww_gs <- filter_gs(Gww_daily)
-Lox_gs <- filter_gs(Lox_daily)
-Rdf_gs <- filter_gs(Rdf_daily)
-Rig_gs <- filter_gs(Rig_daily)
-Rob_gs <- filter_gs(Rob_daily)
-TTE_gs <- filter_gs(TTE_daily)
-Wac_gs <- filter_gs(Wac_daily)
-Wom_gs <- filter_gs(Wom_daily)
-Ync_gs <- filter_gs(Ync_daily)
-Whr_gs <- filter_gs(Whr_daily)
-Tum_gs <- filter_gs(Tum_daily)
-Cpr_gs <- filter_gs(Cpr_daily)
-```
 
 1. 
 GPP ~ VPD curve for all sites:
