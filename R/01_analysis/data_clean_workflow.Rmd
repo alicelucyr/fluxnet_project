@@ -342,4 +342,4 @@ list2env(sites_daily, envir = .GlobalEnv)
 
 ```
 
-
+Now you have a list of the sites cleaned (sites_daily) and you have also exported the dataframes to the environment. Remember not to rewrite over these key lists.
