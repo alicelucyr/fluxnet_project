@@ -1,0 +1,293 @@
+---
+title: "VPD_GPP_plot"
+output: html_document
+date: "2026-02-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+**GPP-VPD plots**
+- Data density varies - some sites rarely experience high VPD
+- Scale differences 
+- Nonlinear responses
+
+1. Hexbin plot with data density
+
+```{r}
+install.packages("hexbin")
+```
+
+
+```{r}
+library(tidyverse)
+library(hexbin)
+library(patchwork)
+
+# Create site metadata (add PFT and moisture info)
+site_meta <- tibble(
+  site_code = c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm",
+                "Cum", "Emr", "Fog", "Gin", "Gww", "Lox",
+                "Rdf", "Rig", "Rob", "TTE", "Wac", "Whr",
+                "Wom", "Ync", "Cpr", "Tum"),
+  PFT = c("WSA", "WSA", "SAV", "GRA", "SAV", "GRA", "SAV",
+          "EBF", "GRA", "WET", "WSA", "SAV", "DBF",
+          "WSA", "GRA", "EBF", "GRA", "EBF", "EBF",
+          "EBF", "GRA", "SAV", "EBF"),
+  moisture = c("Wet", "Wet", "Wet", "Wet", "Medium", "Medium", "Dry",
+               "Medium", "Medium", "Wet", "Medium", "Dry", "Dry",
+               "Wet", "Dry", "Wet", "Dry", "Wet", "Dry",
+               "Medium", "Dry", "Dry", "Medium")
+)
+
+# List of your site names (matching your dataframe naming convention)
+aus_sites <- c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm",
+               "Cum", "Emr", "Fog", "Gin", "Gww", "Lox",
+               "Rdf", "Rig", "Rob", "TTE", "Wac", "Whr",
+               "Wom", "Ync", "Cpr", "Tum")
+```
+
+```{r}
+library(tidyverse)
+library(hexbin)
+library(patchwork)
+library(gridExtra)  # ADD THIS
+
+# Function for hexbin plot with density
+plot_vpd_gpp_hexbin <- function(site_code) {
+  
+  # Get data
+  data <- get(paste0(site_code, "_HH_daily")) %>%
+    drop_na(VPD, GPP)
+  
+  # Get site info
+  site_info <- site_meta %>% filter(site_code == !!site_code)
+  
+  # Count data points in VPD bins for density plot
+  vpd_density <- data %>%
+    mutate(vpd_bin = cut(VPD, breaks = seq(0, ceiling(max(VPD)), by = 0.3))) %>%
+    count(vpd_bin) %>%
+    drop_na() %>%
+    mutate(vpd_mid = seq(0.15, by = 0.3, length.out = n()))
+  
+  # Main hexbin plot
+  p1 <- ggplot(data, aes(x = VPD, y = GPP)) +
+    geom_hex(bins = 30, alpha = 0.8) +
+    geom_smooth(method = "gam", formula = y ~ s(x, k = 5), 
+                color = "red", linewidth = 1.2, se = TRUE,
+                fill = "red", alpha = 0.2) +
+    scale_fill_viridis_c(option = "plasma", trans = "log10", 
+                         name = "Count") +
+    labs(
+      title = paste0(site_code, " (", site_info$PFT, ", ", site_info$moisture, ")"),
+      x = NULL, 
+      y = expression(GPP~(gC~m^-2~d^-1))
+    ) +
+    theme_minimal(base_size = 12)
+  
+  # Data density histogram
+  p2 <- ggplot(vpd_density, aes(x = vpd_mid, y = n)) +
+    geom_col(fill = "gray40", alpha = 0.7, width = 0.25) +
+    labs(x = "VPD (kPa)", y = "N obs") +
+    theme_minimal(base_size = 10) +
+    theme(axis.title.y = element_text(size = 9))  # FIXED THIS LINE
+  
+  # Combine
+  p1 / p2 + plot_layout(heights = c(4, 1))
+}
+
+# Example: Plot for a few sites
+plot_vpd_gpp_hexbin("TTE")
+plot_vpd_gpp_hexbin("Rob")
+plot_vpd_gpp_hexbin("Whr")
+
+# Multi-panel figure
+plots_hexbin <- list(
+  plot_vpd_gpp_hexbin("TTE"),
+  plot_vpd_gpp_hexbin("Rob"),
+  plot_vpd_gpp_hexbin("Whr"),
+  plot_vpd_gpp_hexbin("Gin")
+)
+
+grid.arrange(grobs = plots_hexbin, ncol = 2)
+```
+
+
+
+2. Truncate at data thresholds
+
+```{r}
+# Function to find VPD threshold with adequate data
+find_vpd_threshold <- function(data, min_n = 50) {
+  data %>%
+    arrange(desc(VPD)) %>%
+    mutate(cumsum_n = row_number()) %>%
+    filter(cumsum_n >= min_n) %>%
+    summarise(vpd_95th = quantile(VPD, 0.95, na.rm = TRUE)) %>%
+    pull(vpd_95th)
+}
+
+# Function for truncated plot
+plot_vpd_gpp_truncated <- function(site_code) {
+  
+  # Get data
+  data <- get(paste0(site_code, "_HH_daily")) %>%
+    drop_na(VPD, GPP)
+  
+  # Get site info
+  site_info <- site_meta %>% filter(site_code == !!site_code)
+  
+  # Find 95th percentile where we have at least 50 observations beyond
+  vpd_max <- find_vpd_threshold(data, min_n = 50)
+  
+  # Filter data
+  data_plot <- data %>% filter(VPD <= vpd_max)
+  
+  ggplot(data_plot, aes(x = VPD, y = GPP)) +
+    geom_point(alpha = 0.15, size = 0.8, color = "gray50") +
+    geom_smooth(method = "gam", formula = y ~ s(x, k = 5),
+                color = "firebrick", linewidth = 1.5, se = TRUE, 
+                fill = "firebrick", alpha = 0.2) +
+    # Show where we truncated
+    geom_vline(xintercept = vpd_max, linetype = "dashed", 
+               color = "gray30", alpha = 0.6, linewidth = 0.8) +
+    annotate("text", x = vpd_max, y = max(data_plot$GPP) * 0.95,
+             label = "Data limit\n(95th %ile)",
+             hjust = -0.1, size = 3, color = "gray20") +
+    labs(
+      title = paste0(site_code, " (", site_info$PFT, ", ", site_info$moisture, ")"),
+      x = "VPD (kPa)",
+      y = expression(GPP~(gC~m^-2~d^-1))
+    ) +
+    theme_minimal(base_size = 12)
+}
+
+# Examples
+plot_vpd_gpp_truncated("TTE")
+plot_vpd_gpp_truncated("Rob")
+plot_vpd_gpp_truncated("Cpr")
+plot_vpd_gpp_truncated("Asm")
+
+
+```
+
+
+3. Normalise GPP for comparison
+
+```{r}
+# Function to normalize GPP
+normalize_gpp <- function(data) {
+  data %>%
+    mutate(
+      GPP_norm = (GPP - min(GPP, na.rm = TRUE)) / 
+                 (max(GPP, na.rm = TRUE) - min(GPP, na.rm = TRUE))
+    )
+}
+
+# Combine all sites with normalized GPP
+all_sites_normalized <- aus_sites %>%
+  map_dfr(~ {
+    data <- get(paste0(.x, "_HH_daily")) %>%
+      drop_na(VPD, GPP) %>%
+      normalize_gpp() %>%
+      select(VPD, GPP_norm) %>%
+      mutate(site = .x)
+    data
+  }) %>%
+  left_join(site_meta, by = c("site" = "site_code"))
+
+# Plot all sites together with normalized GPP
+all_sites_normalized %>%
+  ggplot(aes(x = VPD, y = GPP_norm, group = site, color = moisture)) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4), 
+              se = FALSE, linewidth = 1, alpha = 0.7) +
+  facet_wrap(~PFT, ncol = 3) +
+  scale_color_manual(values = c("Wet" = "dodgerblue", 
+                                 "Medium" = "purple", 
+                                 "Dry" = "firebrick")) +
+  labs(
+    x = "VPD (kPa)",
+    y = "Normalized GPP (0-1)",
+    title = "VPD-GPP response curves across Australian ecosystems",
+    subtitle = "Grouped by plant functional type",
+    color = "Moisture regime"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom")
+
+# Alternative: facet by moisture regime instead
+all_sites_normalized %>%
+  ggplot(aes(x = VPD, y = GPP_norm, group = site, color = PFT)) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4), 
+              se = FALSE, linewidth = 1, alpha = 0.7) +
+  facet_wrap(~moisture, ncol = 3) +
+  scale_color_brewer(palette = "Set2") +
+  labs(
+    x = "VPD (kPa)",
+    y = "Normalized GPP (0-1)",
+    title = "VPD-GPP response curves by moisture regime",
+    color = "PFT"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom")
+```
+
+
+4. Binned means with sample sizes
+
+```{r}
+library(gridExtra)
+
+# Function for binned means plot
+plot_vpd_gpp_binned <- function(site_code) {
+  
+  # Get data
+  data <- get(paste0(site_code, "_HH_daily")) %>%
+    drop_na(VPD, GPP)
+  
+  # Get site info
+  site_info <- site_meta %>% filter(site_code == !!site_code)
+  
+  # Create VPD bins and calculate means
+  binned <- data %>%
+    mutate(vpd_bin = cut(VPD, breaks = seq(0, ceiling(max(VPD)), by = 0.3))) %>%
+    group_by(vpd_bin) %>%
+    summarise(
+      vpd_mid = mean(VPD, na.rm = TRUE),
+      gpp_mean = mean(GPP, na.rm = TRUE),
+      gpp_se = sd(GPP, na.rm = TRUE) / sqrt(n()),
+      n = n(),
+      .groups = "drop"
+    ) %>%
+    filter(n >= 10) %>%  # Only show bins with at least 10 observations
+    drop_na()
+  
+  ggplot(binned, aes(x = vpd_mid, y = gpp_mean)) +
+    # Point size represents sample size
+    geom_point(aes(size = n), alpha = 0.7, color = "firebrick") +
+    geom_errorbar(aes(ymin = gpp_mean - gpp_se, ymax = gpp_mean + gpp_se),
+                  width = 0.1, alpha = 0.5, color = "firebrick") +
+    geom_line(linewidth = 1, color = "firebrick", alpha = 0.5) +
+    scale_size_continuous(range = c(2, 10), name = "N obs") +
+    labs(
+      title = paste0(site_code, " (", site_info$PFT, ", ", site_info$moisture, ")"),
+      x = "VPD (kPa)",
+      y = expression(GPP~(gC~m^-2~d^-1)),
+      subtitle = "Points sized by sample size; error bars show ±SE"
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(legend.position = "right")
+}
+
+# Examples
+plot_vpd_gpp_binned("TTE")
+plot_vpd_gpp_binned("Rob")
+plot_vpd_gpp_binned("Whr")
+
+# Multi-panel
+plots_binned <- lapply(c("TTE", "Ync", "Cpr", "Lox", "Rob", "Wac"), 
+                       plot_vpd_gpp_binned)
+grid.arrange(grobs = plots_binned, ncol = 2)
+```
+
