@@ -13,8 +13,6 @@ knitr::opts_chunk$set(echo = TRUE)
 - Scale differences 
 - Nonlinear responses
 
-
-
 ```{r}
 library(tidyverse)
 library(hexbin)
@@ -227,6 +225,44 @@ all_sites_normalized %>%
   theme_minimal(base_size = 12) +
   theme(legend.position = "bottom")
 ```
+Truncated to prevent the flicking up at the end:
+```{r}
+# Truncate each site to its 95th percentile VPD before plotting
+all_sites_normalized_truncated <- aus_sites %>%
+  map_dfr(~ {
+    data <- get(paste0(.x, "_HH_daily")) %>%
+      drop_na(VPD, GPP)
+    
+    # Get 95th percentile for THIS site
+    vpd_95 <- quantile(data$VPD, 0.95, na.rm = TRUE)
+    
+    data %>%
+      filter(VPD <= vpd_95) %>%  # Truncate BEFORE normalizing
+      normalize_gpp() %>%
+      select(VPD, GPP_norm) %>%
+      mutate(site = .x)
+  }) %>%
+  left_join(site_meta, by = c("site" = "site_code"))
+
+# Now plot - no more weird upticks!
+all_sites_normalized_truncated %>%
+  ggplot(aes(x = VPD, y = GPP_norm, group = site, color = moisture)) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4), 
+              se = FALSE, linewidth = 1, alpha = 0.7) +
+  facet_wrap(~PFT, ncol = 3) +
+  scale_color_manual(values = c("Wet" = "dodgerblue", 
+                                 "Medium" = "purple", 
+                                 "Dry" = "firebrick")) +
+  labs(
+    x = "VPD (kPa)",
+    y = "Normalized GPP (0-1)",
+    title = "VPD-GPP response curves across Australian ecosystems",
+    subtitle = "Truncated to 95th percentile VPD per site",
+    color = "Moisture regime"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom")
+```
 
 4. Binned means with sample sizes
 
@@ -280,7 +316,7 @@ plot_vpd_gpp_binned("Rob")
 plot_vpd_gpp_binned("Whr")
 
 # Multi-panel
-plots_binned <- lapply(c("TTE", "Ync", "Cpr", "Lox", "Rob", "Wac"), 
+plots_binned <- lapply(c("TTE", "Ync", "Cpr"), 
                        plot_vpd_gpp_binned)
 grid.arrange(grobs = plots_binned, ncol = 2)
 ```
