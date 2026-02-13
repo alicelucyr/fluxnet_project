@@ -192,7 +192,7 @@ sites_clean <- sites_clean %>%
 
 Double checking variables:
 ```{r}
-plot(sites_clean$Tum_HH$VPD)
+plot(sites_clean$Tum_HH$Precip)
 ```
 So all the cleaned AU_HH dataframes are in the object sites_clean. The external AU_HH in the environment is the raw data
 

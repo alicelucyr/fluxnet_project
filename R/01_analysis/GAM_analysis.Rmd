@@ -68,12 +68,6 @@ sites_daily <- sites_daily %>%
  
 ```
 
-put updated sites back into global environment
-
-```{r}
-list2env(sites_daily, envir = .GlobalEnv)
-
-```
 
 Add in day of year and year again for the LCC data:
 ```{r}
@@ -94,10 +88,6 @@ sites_daily <- sites_daily %>%
 
 ```
 
-Now add that back into GE:
-```{r}
-list2env(sites_daily, envir = .GlobalEnv)
-```
 ```{r}
 library(dplyr)
 library(lubridate)
@@ -105,10 +95,15 @@ library(purrr)
 library(terra)
 library(ncdf4)
 
+gome_file <- "/Users/alicerolfe/year_4_project/fluxnet_project/Data/GOME2_VcmaxTg_05deg.tif"
+vcmax_raster <- rast(gome_file)
+
+lcc_nc <- "/Users/alicerolfe/year_4_project/fluxnet_project/Chl_2003_2011_weeklyAll_01Deg_sf100.nc"
+
 # --- 1. Functions to get VCmax and daily LCC ---
-get_vcmax <- function(lat, lon, raster) {
+get_vcmax <- function(lat, lon, vcmax_raster) {
   coords <- data.frame(lon = lon, lat = lat)
-  vcmax <- terra::extract(raster, coords)
+  vcmax <- terra::extract(vcmax_raster, coords)
   as.numeric(vcmax[1,2])
 }
 
@@ -123,8 +118,8 @@ latlon_to_line_sample <- function(lat, lon, nlines = 1800, nsamples = 3600) {
   )
 }
 
-get_daily_LCC <- function(nc_file, lat, lon) {
-  nc <- nc_open(nc_file)
+get_daily_LCC <- function(lcc_nc, lat, lon) {
+  nc <- nc_open(lcc_nc)
   coords <- latlon_to_line_sample(lat, lon)
   
   pixel <- ncvar_get(nc, "chl_all",
@@ -144,10 +139,10 @@ get_daily_LCC <- function(nc_file, lat, lon) {
 }
 
 # --- 2. Function to attach VCmax and LCC to a site dataframe ---
-attach_site_data <- function(df, lat, lon, vcmax_raster, lcc_nc_file) {
+attach_site_data <- function(df, lat, lon, vcmax_raster, lcc_nc) {
   
   vcmax_val <- get_vcmax(lat, lon, vcmax_raster)
-  daily_LCC <- get_daily_LCC(lcc_nc_file, lat, lon)
+  daily_LCC <- get_daily_LCC(lcc_nc, lat, lon)
   daily_LCC_full <- rep(daily_LCC, length.out = nrow(df))
   
   df %>%
@@ -177,15 +172,13 @@ sites_daily <- pmap(
 
 ```
 
-```{r}
-# Push back to global environment
-list2env(sites_daily, envir = .GlobalEnv)
 
+```{r}
+list2env(sites_daily, envir = .GlobalEnv)
 ```
 
+
 Everything loaded in properly.
-
-
 
 1. Fit GAM for each site to find R-squared and compare site predictability across OzFlux sites
 
@@ -220,9 +213,9 @@ for(site in aus_sites){
   test <- test %>% drop_na()
   
   # 7-day rolling cumulative CWD
-  train$cumulative_cwd_7day <- rollapply(train$cwd, width=7, FUN=sum, 
+  train$cumulative_cwd_5day <- rollapply(train$cwd, width=5, FUN=sum, 
                                          align="right", fill=NA, na.rm=TRUE)
-  test$cumulative_cwd_7day  <- rollapply(test$cwd, width=7, FUN=sum, 
+  test$cumulative_cwd_5day  <- rollapply(test$cwd, width=5, FUN=sum, 
                                          align="right", fill=NA, na.rm=TRUE)
   
   # Drop NA after rolling
@@ -232,15 +225,15 @@ for(site in aus_sites){
   # Add 7-day lag variables
   train <- train %>%
     mutate(
-      Tair_lag3 = lag(Tair, 7),
-      VPD_lag3  = lag(VPD, 7)
+      Tair_lag5 = lag(Tair, 5),
+      VPD_lag5  = lag(VPD, 5)
     ) %>%
     drop_na()
   
   test <- test %>%
     mutate(
-      Tair_lag3 = lag(Tair, 3),
-      VPD_lag3  = lag(VPD, 3)
+      Tair_lag5 = lag(Tair, 5),
+      VPD_lag5  = lag(VPD, 5)
     ) %>%
     drop_na()
   
@@ -254,7 +247,7 @@ for(site in aus_sites){
 
 ```{r}
 
-#Model 1 - climate only
+#Model 1 - climate only (Air temp, Shortwave radiation, precipitation)
 
 fit_gam_and_metrics <- function(train_data, test_data) {
   
@@ -299,7 +292,7 @@ wet_dry_order <- c("Rob", "How", "Wac", "Das", "Fog", "Dap", "Ade", "Dry", "Stp"
 #most to least variable
 precip_variability_order <- c("Gww", "TTE", "Asm", "Cpr", "Ync", "Lox", "Emr","Whr", "Wom", "Tum", "Rig", "Wac", "Stp", "Dry", "Gin", "Cum", "Fog", "Das", "Rob", "Rdf", "Dap", "How", "Ade")
 
-climate_metrics$site <- factor(climate_metrics$site, levels = precip_variability_order)
+climate_metrics$site <- factor(climate_metrics$site, levels = wet_dry_order)
 
 ggplot(climate_metrics, aes(x = site, y = R2)) +
   geom_col(fill = "violet") +
@@ -307,7 +300,7 @@ ggplot(climate_metrics, aes(x = site, y = R2)) +
   labs(
     x = "Site",
     y = expression(R^2),
-    title = "Predictability of GPP across OzFlux sites (high cv to low cv)"
+    title = "Predictability of GPP across OzFlux sites (dry to wet)"
   ) +
   theme_minimal()
 
@@ -316,7 +309,7 @@ ggplot(climate_metrics, aes(x = site, y = R2)) +
 Seems to be trend of declining R-squared from high precipitation coefficient of variation to low coefficient of variation. 
 
 ```{r}
-#Model 2 - climate and VPD
+#Model 2 - climate (temp, precip, SW rad) and VPD
 
 fit_gam_and_metrics <- function(train_data, test_data) {
   
@@ -371,6 +364,7 @@ ggplot(climate_vpd_metrics, aes(x = site, y = R2)) +
   ) +
   theme_minimal()
 ```
+
 ```{r}
 #compare the no VPD and climate + VPD model
 
@@ -413,8 +407,9 @@ ggplot(gam_comparison, aes(x = site, y = delta_R2_VPD)) +
   )
 
 ```
+
 ```{r}
-#Model 3 - climate and VPD + lags
+#Model 3 - climate (temp, SW rad, precip), VPD, + lags (3 days)
 
 fit_gam_and_metrics <- function(train_data, test_data) {
   
@@ -438,7 +433,7 @@ fit_gam_and_metrics <- function(train_data, test_data) {
 
 # Run GAM for all sites and combine results
 
-lag_metrics <- bind_rows(
+lag3_metrics <- bind_rows(
   lapply(aus_sites, function(site) {
     fit_gam_and_metrics(
       get(paste0(site, "_train")),
@@ -457,9 +452,9 @@ wet_dry_order <- c("Rob", "How", "Wac", "Das", "Fog", "Dap", "Ade", "Dry", "Stp"
 #most to least variable
 precip_variability_order <- c("Gww", "TTE", "Asm", "Cpr", "Ync", "Lox", "Emr","Whr", "Wom", "Tum", "Rig", "Wac", "Stp", "Dry", "Gin", "Cum", "Fog", "Das", "Rob", "Rdf", "Dap", "How", "Ade")
 
-lag_metrics$site <- factor(lag_metrics$site, levels = wet_dry_order)
+lag3_metrics$site <- factor(lag3_metrics$site, levels = wet_dry_order)
 
-ggplot(lag_metrics, aes(x = site, y = R2)) +
+ggplot(lag3_metrics, aes(x = site, y = R2)) +
   geom_col(fill = "violet") +
   coord_flip() +
   labs(
@@ -469,6 +464,8 @@ ggplot(lag_metrics, aes(x = site, y = R2)) +
   ) +
   theme_minimal()
 ```
+
+
 ```{r}
 
 library(dplyr)
@@ -478,7 +475,7 @@ gam_comparison <- climate_vpd_metrics %>%
   rename(R2_no_lags = R2) %>%
   
   inner_join(
-    lag_metrics %>%
+    lag3_metrics %>%
       select(site, R2) %>%
       rename(R2_lag = R2),
     by = "site"
@@ -497,6 +494,7 @@ gam_comparison <- gam_comparison %>%
 
 gam_comparison
 ```
+
 ```{r}
 ggplot(gam_comparison, aes(x = site, y = delta_R2_lag)) +
   geom_col(fill = "firebrick") +
@@ -505,17 +503,19 @@ ggplot(gam_comparison, aes(x = site, y = delta_R2_lag)) +
   labs(
     x = "Site (Wet -> Dry)",
     y = expression(Delta*R^2),
-    title = "Extra explanatory power of climate lags across OzFlux sites"
+    title = "Extra explanatory power of 3 day climate lags across OzFlux sites"
   )
 
 ```
+
+
 ```{r}
-#Model 4 - climate and VPD + lags and cumulative water deficit
+#Model 4 - climate + VPD + climate lags 5 days
 
 fit_gam_and_metrics <- function(train_data, test_data) {
   
   model <- gam(
-    GPP ~ s(Tair) + s(SW_rad) + s(Precip) + s(VPD) + s(VPD_lag3) + s(Tair_lag3) + s(cumulative_cwd_7day),
+    GPP ~ s(Tair) + s(SW_rad) + s(Precip) + s(VPD) + s(VPD_lag5) + s(Tair_lag5),
     data = train_data,
     method = "REML"
   )
@@ -534,7 +534,7 @@ fit_gam_and_metrics <- function(train_data, test_data) {
 
 # Run GAM for all sites and combine results
 
-cwd_metrics <- bind_rows(
+lag5_metrics <- bind_rows(
   lapply(aus_sites, function(site) {
     fit_gam_and_metrics(
       get(paste0(site, "_train")),
@@ -553,9 +553,9 @@ wet_dry_order <- c("Rob", "How", "Wac", "Das", "Fog", "Dap", "Ade", "Dry", "Stp"
 #most to least variable
 precip_variability_order <- c("Gww", "TTE", "Asm", "Cpr", "Ync", "Lox", "Emr","Whr", "Wom", "Tum", "Rig", "Wac", "Stp", "Dry", "Gin", "Cum", "Fog", "Das", "Rob", "Rdf", "Dap", "How", "Ade")
 
-cwd_metrics$site <- factor(cwd_metrics$site, levels = wet_dry_order)
+lag5_metrics$site <- factor(lag5_metrics$site, levels = wet_dry_order)
 
-ggplot(cwd_metrics, aes(x = site, y = R2)) +
+ggplot(lag5_metrics, aes(x = site, y = R2)) +
   geom_col(fill = "violet") +
   coord_flip() +
   labs(
@@ -565,10 +565,60 @@ ggplot(cwd_metrics, aes(x = site, y = R2)) +
   ) +
   theme_minimal()
 ```
-To do:
-- lcc model
-- GAMs across PFTs
-- GAMs across precipitation gradients
+```{r}
+#Compare no lags and lags with 5 days
+
+gam_comparison <- climate_vpd_metrics %>%
+  select(site, R2) %>%
+  rename(R2_no_lags = R2) %>%
+  
+  inner_join(
+    lag5_metrics %>%
+      select(site, R2) %>%
+      rename(R2_lag = R2),
+    by = "site"
+  ) %>%
+  
+  mutate(
+    delta_R2_lag = R2_lag - R2_no_lags
+  )
+
+
+wet_dry_order <- c("Wac", "Rob","How", "Das", "Fog", "Rdf", "Dap", "Ade", "Tum", "Wom", "Dry", "Stp", "Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "Cpr", "TTE", "Lox")
+
+gam_comparison <- gam_comparison %>%
+  mutate(site = factor(site, levels = wet_dry_order)) %>%
+  arrange(site)
+
+gam_comparison
+```
+
+```{r}
+ggplot(gam_comparison, aes(x = site, y = delta_R2_lag)) +
+  geom_col(fill = "firebrick") +
+  coord_flip() +
+  theme_minimal(base_size = 14) +
+  labs(
+    x = "Site (Wet -> Dry)",
+    y = expression(Delta*R^2),
+    title = "Extra explanatory power of 5 day climate lags across OzFlux sites"
+  )
+
+```
+
+```{r}
+#Model 5 - climate + VPD + 7 day climate lags
+
+
+```
+
+
+
+
+
+
+
+
 
 ----------------------------------------------------------------------------------------
 
