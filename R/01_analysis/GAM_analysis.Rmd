@@ -10,22 +10,17 @@ knitr::opts_chunk$set(echo = TRUE)
 
 How does predictability vary across ecosystems in Australia, how does VPD affect predictability?
 
-Workflow:
-- Model (climate)
-- Model (climate + VPD)
-- Model (climate + VPD + lags)
-- Model (climate + VPD + lags + LCC)
+**1. Sequential order**
+M1: Climate (precip, Tair, SW rad)
+M2: Climate + VPD
+M3a: Climate + VPD + lags 3
+M3b: Climate + VPD + lags 5
+M3c: Climate + VPD + lags 7
+M4: Climate + VPD + best lag + cwd7
+M5: Climate + VPD + best lag + cwd7 + LCC
 
-
-Across different scales:
-- Sites
-- PFTs
-- Mean annual precipitation gradient
-- Daily precipitation variability
-
-1. Firstly start off training and testing within site
-2. Train outside of site - how well do these models generalise
-3. Hold some sites back - maybe 1 from each PFT/Precip regime
+**2. Directly compare**
+- Model 1 + Model 2 (unique contribution of VPD)
 
 Load in water stress component
 ```{r}
@@ -391,9 +386,10 @@ ggplot(gam_comparison, aes(x = site, y = delta_R2_VPD)) +
   )
 
 ```
+Potentially here, we have the difference between wet sites and dry sites. In the wetter sites, current VPD improved model R-squared much more than drier sites. Could it be that lags matter more in dry sites? Cumulative water stress? Perhaps in wet sites, plants respond rapidly to VPD, explaining a lot more variation than in drier sites.
 
 ```{r}
-#Model 3 - climate (temp, SW rad, precip), VPD, + lags (3 days)
+#Model 3a - climate (temp, SW rad, precip), VPD, + lags (3 days)
 
 fit_gam_and_metrics <- function(train_data, test_data) {
   
@@ -430,11 +426,6 @@ lag3_metrics <- bind_rows(
 ```
 
 ```{r}
-# Define wet to dry order
-wet_dry_order <- c("Rob", "How", "Wac", "Das", "Fog", "Dap", "Ade", "Dry", "Stp", "Wom", "Rdf", "Tum", "Gin", "Emr", "Cum", "Gww", "Rig", "Asm", "Cpr", "Whr", "TTE", "Ync", "Lox")
-
-#most to least variable
-precip_variability_order <- c("Gww", "TTE", "Asm", "Cpr", "Ync", "Lox", "Emr","Whr", "Wom", "Tum", "Rig", "Wac", "Stp", "Dry", "Gin", "Cum", "Fog", "Das", "Rob", "Rdf", "Dap", "How", "Ade")
 
 lag3_metrics$site <- factor(lag3_metrics$site, levels = wet_dry_order)
 
@@ -494,7 +485,7 @@ ggplot(gam_comparison, aes(x = site, y = delta_R2_lag)) +
 
 
 ```{r}
-#Model 4 - climate + VPD + climate lags 5 days
+#Model 3b - climate + VPD + climate lags 5 days
 
 fit_gam_and_metrics <- function(train_data, test_data) {
   
@@ -531,11 +522,6 @@ lag5_metrics <- bind_rows(
 ```
 
 ```{r}
-# Define wet to dry order
-wet_dry_order <- c("Rob", "How", "Wac", "Das", "Fog", "Dap", "Ade", "Dry", "Stp", "Wom", "Rdf", "Tum", "Gin", "Emr", "Cum", "Gww", "Rig", "Asm", "Cpr", "Whr", "TTE", "Ync", "Lox")
-
-#most to least variable
-precip_variability_order <- c("Gww", "TTE", "Asm", "Cpr", "Ync", "Lox", "Emr","Whr", "Wom", "Tum", "Rig", "Wac", "Stp", "Dry", "Gin", "Cum", "Fog", "Das", "Rob", "Rdf", "Dap", "How", "Ade")
 
 lag5_metrics$site <- factor(lag5_metrics$site, levels = wet_dry_order)
 
@@ -591,7 +577,7 @@ ggplot(gam_comparison, aes(x = site, y = delta_R2_lag)) +
 ```
 
 ```{r}
-#Model 5 - climate + VPD + 7 day climate lags
+#Model 3c - climate + VPD + 7 day climate lags
 
 fit_gam_and_metrics <- function(train_data, test_data) {
   
@@ -643,7 +629,7 @@ ggplot(lag7_metrics, aes(x = site, y = R2)) +
   theme_minimal()
 ```
 ```{r}
-#compare no lags with 7 day lags
+#compare no lags, 3 day lags, 5 day and 7 day (Model 3a, b, c):
 
 gam_comparison <- climate_vpd_metrics %>%
   select(site, R2) %>%
@@ -652,12 +638,28 @@ gam_comparison <- climate_vpd_metrics %>%
   inner_join(
     lag7_metrics %>%
       select(site, R2) %>%
-      rename(R2_lag = R2),
+      rename(R2_lag7 = R2),
+    by = "site"
+  ) %>%
+  
+  inner_join(
+    lag5_metrics %>%
+      select(site, R2) %>%
+      rename(R2_lag5 = R2),
+    by = "site"
+  ) %>%
+  
+  inner_join(
+    lag3_metrics %>%
+      select(site, R2) %>%
+      rename(R2_lag3 = R2),
     by = "site"
   ) %>%
   
   mutate(
-    delta_R2_lag = R2_lag - R2_no_lags
+    delta_R2_lag3 = R2_lag3 - R2_no_lags,
+    delta_R2_lag5 = R2_lag5 - R2_no_lags,
+    delta_R2_lag7 = R2_lag7 - R2_no_lags
   )
 
 
@@ -671,447 +673,253 @@ gam_comparison
 ```
 
 ```{r}
-ggplot(gam_comparison, aes(x = site, y = delta_R2_lag)) +
-  geom_col(fill = "firebrick") +
-  coord_flip() +
+# Calculate mean improvement for each lag
+lag_summary <- gam_comparison %>%
+  summarise(
+    mean_lag3 = mean(delta_R2_lag3, na.rm = TRUE),
+    mean_lag5 = mean(delta_R2_lag5, na.rm = TRUE),
+    mean_lag7 = mean(delta_R2_lag7, na.rm = TRUE)
+  )
+
+print(lag_summary)
+
+# Then plot with reference lines
+gam_comparison %>%
+  pivot_longer(
+    cols = c(delta_R2_lag3, delta_R2_lag5, delta_R2_lag7),
+    names_to = "lag_type",
+    values_to = "delta_R2"
+  ) %>%
+  mutate(
+    lag_type = factor(lag_type, 
+                     levels = c("delta_R2_lag3", "delta_R2_lag5", "delta_R2_lag7"),
+                     labels = c("3-day", "5-day", "7-day"))
+  ) %>%
+  ggplot(aes(x = lag_type, y = delta_R2)) +
+  geom_boxplot(fill = "firebrick", alpha = 0.6) +
+  geom_jitter(width = 0.2, alpha = 0.5) +
   theme_minimal(base_size = 14) +
   labs(
-    x = "Site (Wet -> Dry)",
+    x = "Lag window",
     y = expression(Delta*R^2),
-    title = "Extra explanatory power of 7 day climate lags across OzFlux sites"
-  )
-```
-```{r}
-#Model 6: Climate + cwd + lags + VPD
-
-
-```
-
-
-
-```{r}
-#Model 7: Climate + cwd + lags + VPD + LCC
-
-
-```
-
-
-
-
-----------------------------------------------------------------------------------------
-
-
-
-
-Not sure if there is any pattern here. 
-TTE - interestingly VPD reduces site predictability. 
-*Explore this further*. - think this could be interesting
-Could be interesting to add in LAI to this, so there can be some sort of mechanistic interpretation of these results. 
-
-2. Separate sites into PFT to visualize trends:
-
-WSA (woody savanna) - Ade, Gin, How, Rdf
-SAV (savanna) - DaS, Dry, Gww, Asm, Cpr
-EBF (evergreen broadleaf forest) - Cum, Rob, Wac, Whr, Wom, Tum
-GRA (grassland) - Dap, Emr, Rig, Stp, TTE, Ync
-WET (permanent wetland) - Fog
-DBF (deciduous broadleaf forest) - Lox
-
-```{r}
-#Add in site identifier to each site (did this earlier, need to improve this)
-
-Ade_gs <- Ade_gs %>% mutate(site = "Ade")
-Gin_gs <- Gin_gs %>% mutate(site = "Gin")
-How_gs <- How_gs %>% mutate(site = "How")
-Rdf_gs <- Rdf_gs %>% mutate(site = "Rdf")
-Das_gs <- Das_gs %>% mutate(site = "Das")
-Dry_gs <- Dry_gs %>% mutate(site = "Dry")
-Gww_gs <- Gww_gs %>% mutate(site = "Gww")
-Asm_gs <- Asm_gs %>% mutate(site = "Asm")
-Cum_gs <- Cum_gs %>% mutate(site = "Cum")
-Rob_gs <- Rob_gs %>% mutate(site = "Rob")
-Wac_gs <- Wac_gs %>% mutate(site = "Wac")
-Whr_gs <- Whr_gs %>% mutate(site = "Whr")
-Wom_gs <- Wom_gs %>% mutate(site = "Wom")
-Dap_gs <- Dap_gs %>% mutate(site = "Dap")
-Emr_gs <- Emr_gs %>% mutate(site = "Emr")
-Rig_gs <- Rig_gs %>% mutate(site = "Rig")
-Stp_gs <- Stp_gs %>% mutate(site = "Stp")
-TTE_gs <- TTE_gs %>% mutate(site = "TTE")
-Ync_gs <- Ync_gs %>% mutate(site = "Ync")
-Fog_gs <- Fog_gs %>% mutate(site = "Fog")
-Lox_gs <- Lox_gs %>% mutate(site = "Lox")
-Tum_gs <- Tum_gs %>% mutate(site = "Tum")
-Cpr_gs <- Cpr_gs %>% mutate(site = "Cpr")
-```
-
-```{r}
-WSA <- bind_rows(Ade_gs, Gin_gs, How_gs, Rdf_gs) %>% group_by(site)
-
-SAV <- bind_rows(Das_gs, Dry_gs, Gww_gs, Asm_gs, Cpr_gs) %>% group_by(site)
-
-EBF <- bind_rows(Cum_gs, Rob_gs, Wac_gs, Whr_gs, Wom_gs, Tum_gs) %>% group_by(site)
-
-GRA <- bind_rows(Dap_gs, Emr_gs, Rig_gs, Stp_gs, TTE_gs, Ync_gs) %>% group_by(site)
-
-WET <- Fog_gs %>% group_by(site)
-
-DBF <- Lox_gs %>% group_by(site)
-
-```
-
-```{r}
-WSA$PFT <- "WSA"
-SAV$PFT <- "SAV"
-EBF$PFT <- "EBF"
-GRA$PFT <- "GRA"
-WET$PFT <- "WET"
-DBF$PFT <- "DBF"
-
-```
-
-```{r}
-PFT_all <- bind_rows(WSA, SAV, EBF, GRA, WET, DBF)
-
-```
-
-
-```{r}
-library(ggplot2)
-
-ggplot(PFT_all, aes(x = VPD, y = GPP, colour = PFT)) +
-
-  geom_point(alpha = 0.05) +
-
-  geom_smooth(method = "gam",
-              formula = y ~ s(x, k = 10),
-              se = FALSE,
-              linewidth = 1.2) +
-
-  theme_minimal(base_size = 14) +
-
-  labs(
-    x = "VPD",
-    y = "GPP",
-    colour = "PFT",
-    title = "GPP–VPD relationships across PFTs"
+    title = "Distribution of lag window performance across all sites"
   )
 
 ```
-Mean functional response of PFT to atmospheric drying using GAM to characterise non-linear responses of GPP to VPD. 
-
-**Need to bin VPD because these lines look too smooth**
-
-
-Fit GAM for each PFT
-1. No VPD
-2. VPD only
-3. Full with VPD
-
-What is the additive predictive value of VPD across plant functional groups in Australia?
-
+Let's use lag 7 - similar performances. 7 days aligns with typical plant physiological memory and maintains consistency with the cumulative water deficit over 7 days.
 
 ```{r}
-PFT_groups <- c("WSA", "SAV", "EBF", "GRA", "WET", "DBF")
+#Model 4: Climate + cwd + lags + VPD
 
-```
-
-Create train/test within each PFT
-
-```{r}
-for(group in PFT_groups){
+fit_gam_and_metrics <- function(train_data, test_data) {
   
-  df <- get(group)
+  model <- gam(
+    GPP ~ s(Tair) + s(SW_rad) + s(Precip) + s(VPD) + s(VPD_lag7) + s(Tair_lag7) +s(cumulative_cwd_7day),
+    data = train_data,
+    method = "REML"
+  )
   
-  idx <- createDataPartition(df$GPP, p = 0.8, list = FALSE)
-  train <- df[idx, ]
-  test  <- df[-idx, ]
+  preds <- predict(model, newdata = test_data)
   
-  test <- test %>% drop_na()
+  rmse <- sqrt(mean((test_data$GPP - preds)^2))
+  rsq  <- cor(test_data$GPP, preds)^2
   
-  train$cumulative_cwd_7day <- rollapply(train$cwd, width = 7, FUN = sum,
-                                         align = "right", fill = NA, na.rm = TRUE)
-  test$cumulative_cwd_7day  <- rollapply(test$cwd, width = 7, FUN = sum,
-                                         align = "right", fill = NA, na.rm = TRUE)
-  
-  train <- train %>% drop_na()
-  test  <- test %>% drop_na()
-  
-  train <- train %>%
-    mutate(
-      Tair_lag3 = lag(Tair, 3),
-      VPD_lag3  = lag(VPD, 3)
-    ) %>%
-    drop_na()
-  
-  test <- test %>%
-    mutate(
-      Tair_lag3 = lag(Tair, 3),
-      VPD_lag3  = lag(VPD, 3)
-    ) %>%
-    drop_na()
-  
-  assign(paste0(group, "_train"), train, envir = .GlobalEnv)
-  assign(paste0(group, "_test"),  test,  envir = .GlobalEnv)
+  tibble(
+    RMSE = rmse,
+    R2   = rsq
+  )
 }
 
 
-```
+# Run GAM for all sites and combine results
 
-```{r}
-PFT_all <- c("GRA", "EBF", "SAV", "WSA", "WET", "DBF")
+cwd7_metrics <- bind_rows(
+  lapply(aus_sites, function(site) {
+    fit_gam_and_metrics(
+      get(paste0(site, "_train")),
+      get(paste0(site, "_test"))
+    ) %>%
+      mutate(site = site)
+  })
+)
 
-all_metrics <- map_dfr(PFT_all, function(PFT) {
-  
-  train_data <- get(paste0(PFT, "_train"))
-  test_data  <- get(paste0(PFT, "_test"))
-  
-  fit_gam_models(train_data, test_data) %>%
-    mutate(PFT = PFT)
-})
-
-```
-
-
-
-```{r}
-all_metrics %>%
-  pivot_wider(names_from = Model, values_from = R2) %>%
-  mutate(
-    VPD_additive = Full_VPD - No_VPD
-  )
 
 ```
 
 ```{r}
-library(tidyr)
-library(dplyr)
+cwd7_metrics$site <- factor(cwd7_metrics$site, levels = wet_dry_order)
 
-vpd_additive <- all_metrics %>%
-  pivot_wider(names_from = Model, values_from = c(R2, RMSE)) %>%
-  mutate(
-    R2_gain_VPD = R2_Full_VPD - R2_No_VPD,
-    RMSE_drop_VPD = RMSE_No_VPD - RMSE_Full_VPD
-  )
-
-```
-
-```{r}
-library(ggplot2)
-
-ggplot(vpd_additive, aes(x = PFT, y = R2_gain_VPD, fill = PFT)) +
-  geom_col() +
-  theme_minimal(base_size = 14) +
-  labs(
-    y = "R² gain from VPD",
-    x = "Plant Functional Type",
-    title = "Additive predictive value of VPD on GPP"
-  )
-
-```
-
-```{r}
-ggplot(all_metrics %>% filter(Model %in% c("No_VPD", "Full_VPD")),
-       aes(x = PFT, y = R2, colour = Model)) +
-  geom_point(size = 3, position = position_dodge(width = 0.5)) +
-  theme_minimal(base_size = 14) +
-  labs(
-    y = "R²",
-    x = "Plant Functional Type",
-    title = "Predictive value of VPD across PFTs"
-  )
-
-```
-```{r}
-full_model_only <- all_metrics %>%
-  filter(Model == "Full_VPD")
-```
-
-```{r}
-library(ggplot2)
-
-ggplot(full_model_only, aes(x = PFT, y = R2)) +
-  geom_col(fill = "steelblue") +
-  theme_minimal(base_size = 14) +
-  labs(
-    x = "Plant Functional Type",
-    y = expression(R^2),
-    title = "Full GAM predictability of GPP across PFTs"
-  )
-
-```
-**Predictability decreases when sites are grouped by PFT**
-- PFTs are heterogeneous in their GPP-VPD sensitivity
-- Plant functional groups do not behave as single functional units 
-
-Predictive performance decreased when sites were aggregated by plant functional type, reflecting the substantial within-PFT heterogeneity in GPP responses to atmospheric and hydrological drivers. This suggests that PFT-level grouping conceals site-specific controls.
-
-This supports emerging literature that PFTs are perhaps too broad - model fit was particularly low compared to site-specific GAMs. 
-
-What if we grouped sites based on their annual precipitation?
-
-Separate sites into very wet, wet, dry, and very dry? Is this better than separating into PFT in terms of predictability?
-
-```{r}
-#Look at annual precip again
-annual_summary <- annual_precip %>%
-  group_by(site) %>%
-  summarise(mean_precip = mean(Precip, na.rm = TRUE))
-
-annual_summary <- annual_summary %>%
-  arrange(desc(mean_precip)) %>%
-  mutate(site = factor(site, levels = site))
-
-ggplot(annual_summary, aes(x = site, y = mean_precip)) +
-  geom_col() +
+ggplot(cwd7_metrics, aes(x = site, y = R2)) +
+  geom_col(fill = "violet") +
   coord_flip() +
-  theme_minimal(base_size = 14) +
   labs(
-    x = "OzFlux site",
-    y = "Mean annual precipitation (mm)",
-    title = "Mean annual precipitation across Australian Fluxnet sites"
+    x = "Site",
+    y = expression(R^2),
+    title = "Predictability of GPP across OzFlux sites (dry to wet)"
+  ) +
+  theme_minimal()
+```
+
+
+```{r}
+#Model 5: Climate + cwd + lags + VPD + LCC
+
+
+fit_gam_and_metrics <- function(train_data, test_data) {
+  
+  model <- gam(
+    GPP ~ s(Tair) + s(SW_rad) + s(Precip) + s(VPD) + s(VPD_lag7) + s(Tair_lag7) +s(cumulative_cwd_7day) + s(LCC_daily),
+    data = train_data,
+    method = "REML"
   )
-```
-23 sites 
-4 groups, very wet, wet, dry and very dry
-Grouped into 4 groups based on quantile to make it even (although a bit arbitrary), could improve this by finding reference in the literature for what is considered 'wet', 'dry' etc
-
-```{r}
-#Separate into quantiles of annual precipitation
-site_precip_class <- annual_summary %>%
-  mutate(
-    precip_quantile = ntile(annual_summary, 4),
-    precip_class = case_when(
-      precip_quantile == 1 ~ "Very wet",
-      precip_quantile == 2 ~ "Wet",
-      precip_quantile == 3 ~ "Dry",
-      precip_quantile == 4 ~ "Very Dry"
-    )
+  
+  preds <- predict(model, newdata = test_data)
+  
+  rmse <- sqrt(mean((test_data$GPP - preds)^2))
+  rsq  <- cor(test_data$GPP, preds)^2
+  
+  tibble(
+    RMSE = rmse,
+    R2   = rsq
   )
-
-```
-
-```{r}
-Very_wet <- bind_rows(Wac, Rob, How, Das, Fog, Rdf)
-Wet <- bind_rows(Dap, Ade, Tum, Wom, Dry, Stp)
-Dry <- bind_rows(Ync, Emr, Gin, Cum, Rig, Asm)
-Very_dry <- bind_rows(Whr, Gww, Cpr, TTE, Lox)
-```
-
-```{r}
-precip_groups <- c("Very_dry", "Dry", "Wet", "Very_wet")
-```
-
-
-```{r}
-#Add in cumulative water deficit and lagged climate variables for each precipitation class
-for(group in precip_groups){
-  
-  df <- get(group)
-  
-  idx <- createDataPartition(df$GPP, p = 0.8, list = FALSE)
-  train <- df[idx, ]
-  test  <- df[-idx, ]
-  
-  test <- test %>% drop_na()
-  
-  train$cumulative_cwd_7day <- rollapply(train$cwd, width = 7, FUN = sum,
-                                         align = "right", fill = NA, na.rm = TRUE)
-  test$cumulative_cwd_7day  <- rollapply(test$cwd, width = 7, FUN = sum,
-                                         align = "right", fill = NA, na.rm = TRUE)
-  
-  train <- train %>% drop_na()
-  test  <- test %>% drop_na()
-  
-  train <- train %>%
-    mutate(
-      Tair_lag3 = lag(Tair, 3),
-      VPD_lag3  = lag(VPD, 3)
-    ) %>%
-    drop_na()
-  
-  test <- test %>%
-    mutate(
-      Tair_lag3 = lag(Tair, 3),
-      VPD_lag3  = lag(VPD, 3)
-    ) %>%
-    drop_na()
-  
-  assign(paste0(group, "_train"), train, envir = .GlobalEnv)
-  assign(paste0(group, "_test"),  test,  envir = .GlobalEnv)
 }
 
 
-```
+# Run GAM for all sites and combine results
 
-Fit GAMs for each precip class
-```{r}
-all_metrics_precip <- map_dfr(precip_groups, function(group) {
-  
-  train_data <- get(paste0(group, "_train"))
-  test_data  <- get(paste0(group, "_test"))
-  
-  fit_gam_models(train_data, test_data) %>%
-    mutate(precip_class = group)
-})
+lcc7_metrics <- bind_rows(
+  lapply(aus_sites, function(site) {
+    fit_gam_and_metrics(
+      get(paste0(site, "_train")),
+      get(paste0(site, "_test"))
+    ) %>%
+      mutate(site = site)
+  })
+)
 
-```
-
-```{r}
-vpd_additive_precip <- all_metrics_precip %>%
-  pivot_wider(names_from = Model, values_from = R2) %>%
-  mutate(
-    VPD_additive = Full_VPD - No_VPD
-  )
 
 ```
 
 ```{r}
-all_metrics_precip %>%
-  filter(Model == "Full_VPD") %>%
-  ggplot(aes(x = precip_class, y = R2)) +
-  geom_col(fill = "steelblue") +
-  theme_minimal(base_size = 14) +
+lcc7_metrics$site <- factor(lcc7_metrics$site, levels = wet_dry_order)
+
+ggplot(lcc7_metrics, aes(x = site, y = R2)) +
+  geom_col(fill = "violet") +
+  coord_flip() +
   labs(
-    x = "Precipitation regime",
+    x = "Site",
     y = expression(R^2),
-    title = "Full GAM predictability across precipitation classes"
-  )
-
+    title = "Predictability of GPP across OzFlux sites (dry to wet)"
+  ) +
+  theme_minimal()
 ```
-Full model predictability is better for precipitation classes than for plant functional groups, however, it is not as good as site-level sensitivity. 
-
-VPD additive value:
 
 ```{r}
-vpd_additive_precip <- all_metrics_precip %>%
-  select(precip_class, Model, R2) %>%
-  pivot_wider(names_from = Model, values_from = R2) %>%
-  mutate(
-    VPD_additive = Full_VPD - No_VPD
-  )
+#table of all models R-squared 
 
-ggplot(vpd_additive_precip,
-       aes(x = precip_class, y = VPD_additive)) +
-  geom_col(fill = "firebrick") +
-  theme_minimal(base_size = 14) +
-  labs(
-    x = "Precipitation class",
-    y = expression(Delta*R^2~"(VPD contribution)"),
-    title = "Additive contribution of VPD to GPP predictability"
-  )
+final_comparison <- climate_vpd_metrics %>%
+  select(site, R2) %>%
+  rename(model_2 = R2) %>%
+  
+  inner_join(
+    lag7_metrics %>%
+      select(site, R2) %>%
+      rename(model_3c = R2),
+    by = "site"
+  ) %>%
+  
+  inner_join(
+    lag5_metrics %>%
+      select(site, R2) %>%
+      rename(model_3b = R2),
+    by = "site"
+  ) %>%
+  
+  inner_join(
+    lag3_metrics %>%
+      select(site, R2) %>%
+      rename(model_3a = R2),
+    by = "site"
+  ) %>%
+  
+   inner_join(
+    climate_metrics %>%
+      select(site, R2) %>%
+      rename(model_1 = R2),
+    by = "site"
+  ) %>%
+  
+   inner_join(
+    lcc7_metrics %>%
+      select(site, R2) %>%
+      rename(model_5 = R2),
+    by = "site"
+  ) %>%
+  
+   inner_join(
+    cwd7_metrics %>%
+      select(site, R2) %>%
+      rename(model_4 = R2),
+    by = "site"
+  ) 
 
+
+wet_dry_order <- c("Wac", "Rob","How", "Das", "Fog", "Rdf", "Dap", "Ade", "Tum", "Wom", "Dry", "Stp", "Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "Cpr", "TTE", "Lox")
+
+final_comparison <- final_comparison %>%
+  mutate(site = factor(site, levels = wet_dry_order)) %>%
+  arrange(site)
+
+final_comparison
 ```
-The addition of VPD improved model fit for all precipitation classes, more in dry classes than in wet classes. 
 
-VPD improves predictability more on a wider, climate scale than at an individual site or PFT level scale. PFTs assume all forests/savannas/woody savannas behave similarly, however, within PFTs VPD-GPP relationships are heterogenous.
+```{r}
+final_comparison %>%
+  pivot_longer(
+    cols = starts_with("model_"),
+    names_to = "model",
+    values_to = "R2"
+  ) %>%
+  mutate(
+    model = factor(model,
+                   levels = c("model_1", "model_2", "model_3a", 
+                             "model_3b", "model_3c", "model_4", "model_5"),
+                   labels = c("Climate", "+VPD", "+Lag3", "+Lag5", 
+                             "+Lag7", "+CWD", "+LCC"))
+  ) %>%
+  ggplot(aes(x = model, y = site, fill = R2)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  scale_fill_viridis_c(option = "plasma", direction = -1) +
+  theme_minimal(base_size = 12) +
+  labs(
+    x = "Model",
+    y = "Site (Wet → Dry)",
+    fill = expression(R^2),
+    title = "Model performance across sites and complexity"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+```{r}
+# Create a figure showing best model per site
+final_comparison %>%
+  pivot_longer(cols = starts_with("model_"), 
+               names_to = "model", values_to = "R2") %>%
+  group_by(site) %>%
+  slice_max(R2, n = 1) %>%
+  mutate(
+    moisture = case_when(
+      site %in% c("Rob", "Wac", "How", "Das", "Fog", "Rdf", "Dap", "Ade") ~ "Wet",
+      site %in% c("Rig", "Asm", "Whr", "Gww", "Cpr", "TTE", "Lox") ~ "Dry",
+      TRUE ~ "Medium"
+    )
+  ) %>%
+  ggplot(aes(x = site, y = model, fill = R2)) +
+  geom_tile() +
+  facet_grid(~moisture, scales = "free_x", space = "free_x") +
+  scale_fill_viridis_c() +
+  labs(title = "Best-performing model varies by moisture regime")
+```
 
-Precipitation class performs nearly as well as site-specific GAMS, highlighting the importance of hydrological footprint on ecosystem functioning and response. 
 
-Summary:
-- VPD needs to be binned before plotting
-- site, PFT and precipitation class predictability across Australia
-- PFT models perform worse than precip class models 
-- VPD has greater additional value in precip class models than PFT and site-level models
 
 
