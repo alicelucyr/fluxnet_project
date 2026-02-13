@@ -191,55 +191,39 @@ library(mgcv)
 
 set.seed(123)  # for reproducibility
 
-
 # List all sites
 aus_sites <- c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm",
                "Cum", "Emr", "Fog", "Gin", "Gww", "Lox",
                "Rdf", "Rig", "Rob", "TTE", "Wac", "Whr",
                "Wom", "Ync", "Cpr", "Tum")
 
-
 # Split, rolling CWD, lagged variables
 for(site in aus_sites){
   
-  df <- get(paste0(site, "_HH_daily"))
+  df <- get(paste0(site, "_HH_daily")) %>%
+    arrange(date)  # ensure temporal order
   
-  # Split into train/test
-  idx <- createDataPartition(df$GPP, p=0.8, list=FALSE)
-  train <- df[idx, ]
-  test  <- df[-idx, ]
-  
-  # Drop NA in test
-  test <- test %>% drop_na()
-  
-  # 7-day rolling cumulative CWD
-  train$cumulative_cwd_5day <- rollapply(train$cwd, width=5, FUN=sum, 
-                                         align="right", fill=NA, na.rm=TRUE)
-  test$cumulative_cwd_5day  <- rollapply(test$cwd, width=5, FUN=sum, 
-                                         align="right", fill=NA, na.rm=TRUE)
-  
-  # Drop NA after rolling
-  train <- train %>% drop_na()
-  test  <- test %>% drop_na()
-  
-  # Add 7-day lag variables
-  train <- train %>%
+  # Create lagged variables BEFORE splitting
+  df <- df %>%
     mutate(
+      Tair_lag3 = lag(Tair, 3),
+      Tair_lag5 = lag(Tair, 5),
       Tair_lag7 = lag(Tair, 7),
-      VPD_lag7  = lag(VPD, 7)
+      VPD_lag3 = lag(VPD, 3),
+      VPD_lag5 = lag(VPD, 5),
+      VPD_lag7 = lag(VPD, 7),
+      cumulative_cwd_7day = rollapply(cwd, 7, sum, align="right", fill = NA)
     ) %>%
     drop_na()
   
-  test <- test %>%
-    mutate(
-      Tair_lag7 = lag(Tair, 7),
-      VPD_lag7  = lag(VPD, 7)
-    ) %>%
-    drop_na()
+  # Temporal split: 80% train, 20% test
+  n_train <- floor(0.8 * nrow(df))
+  train <- df[1:n_train, ]
+  test <- df[(n_train+1):nrow(df), ]
   
-  # Save back to global environment
+  # Save to global environment
   assign(paste0(site, "_train"), train, envir = .GlobalEnv)
-  assign(paste0(site, "_test"),  test,  envir = .GlobalEnv)
+  assign(paste0(site, "_test"), test, envir = .GlobalEnv)
 }
 
 ```
@@ -698,14 +682,18 @@ ggplot(gam_comparison, aes(x = site, y = delta_R2_lag)) +
   )
 ```
 ```{r}
-#Model 6: Climate + cwd 
+#Model 6: Climate + cwd + lags + VPD
 
 
 ```
 
 
 
+```{r}
+#Model 7: Climate + cwd + lags + VPD + LCC
 
+
+```
 
 
 
