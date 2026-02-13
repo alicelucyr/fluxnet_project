@@ -225,15 +225,15 @@ for(site in aus_sites){
   # Add 7-day lag variables
   train <- train %>%
     mutate(
-      Tair_lag5 = lag(Tair, 5),
-      VPD_lag5  = lag(VPD, 5)
+      Tair_lag7 = lag(Tair, 7),
+      VPD_lag7  = lag(VPD, 7)
     ) %>%
     drop_na()
   
   test <- test %>%
     mutate(
-      Tair_lag5 = lag(Tair, 5),
-      VPD_lag5  = lag(VPD, 5)
+      Tair_lag7 = lag(Tair, 7),
+      VPD_lag7  = lag(VPD, 7)
     ) %>%
     drop_na()
   
@@ -609,9 +609,99 @@ ggplot(gam_comparison, aes(x = site, y = delta_R2_lag)) +
 ```{r}
 #Model 5 - climate + VPD + 7 day climate lags
 
+fit_gam_and_metrics <- function(train_data, test_data) {
+  
+  model <- gam(
+    GPP ~ s(Tair) + s(SW_rad) + s(Precip) + s(VPD) + s(VPD_lag7) + s(Tair_lag7),
+    data = train_data,
+    method = "REML"
+  )
+  
+  preds <- predict(model, newdata = test_data)
+  
+  rmse <- sqrt(mean((test_data$GPP - preds)^2))
+  rsq  <- cor(test_data$GPP, preds)^2
+  
+  tibble(
+    RMSE = rmse,
+    R2   = rsq
+  )
+}
+
+
+# Run GAM for all sites and combine results
+
+lag7_metrics <- bind_rows(
+  lapply(aus_sites, function(site) {
+    fit_gam_and_metrics(
+      get(paste0(site, "_train")),
+      get(paste0(site, "_test"))
+    ) %>%
+      mutate(site = site)
+  })
+)
+
 
 ```
 
+```{r}
+
+lag7_metrics$site <- factor(lag7_metrics$site, levels = wet_dry_order)
+
+ggplot(lag7_metrics, aes(x = site, y = R2)) +
+  geom_col(fill = "violet") +
+  coord_flip() +
+  labs(
+    x = "Site",
+    y = expression(R^2),
+    title = "Predictability of GPP across OzFlux sites (dry to wet)"
+  ) +
+  theme_minimal()
+```
+```{r}
+#compare no lags with 7 day lags
+
+gam_comparison <- climate_vpd_metrics %>%
+  select(site, R2) %>%
+  rename(R2_no_lags = R2) %>%
+  
+  inner_join(
+    lag7_metrics %>%
+      select(site, R2) %>%
+      rename(R2_lag = R2),
+    by = "site"
+  ) %>%
+  
+  mutate(
+    delta_R2_lag = R2_lag - R2_no_lags
+  )
+
+
+wet_dry_order <- c("Wac", "Rob","How", "Das", "Fog", "Rdf", "Dap", "Ade", "Tum", "Wom", "Dry", "Stp", "Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "Cpr", "TTE", "Lox")
+
+gam_comparison <- gam_comparison %>%
+  mutate(site = factor(site, levels = wet_dry_order)) %>%
+  arrange(site)
+
+gam_comparison
+```
+
+```{r}
+ggplot(gam_comparison, aes(x = site, y = delta_R2_lag)) +
+  geom_col(fill = "firebrick") +
+  coord_flip() +
+  theme_minimal(base_size = 14) +
+  labs(
+    x = "Site (Wet -> Dry)",
+    y = expression(Delta*R^2),
+    title = "Extra explanatory power of 7 day climate lags across OzFlux sites"
+  )
+```
+```{r}
+#Model 6: Climate + cwd 
+
+
+```
 
 
 
