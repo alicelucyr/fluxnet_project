@@ -13,11 +13,6 @@ knitr::opts_chunk$set(echo = TRUE)
 - Scale differences 
 - Nonlinear responses
 
-1. Hexbin plot with data density
-
-```{r}
-install.packages("hexbin")
-```
 
 
 ```{r}
@@ -47,6 +42,8 @@ aus_sites <- c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm",
                "Rdf", "Rig", "Rob", "TTE", "Wac", "Whr",
                "Wom", "Ync", "Cpr", "Tum")
 ```
+
+1. Hexbin plot
 
 ```{r}
 library(tidyverse)
@@ -112,8 +109,6 @@ plots_hexbin <- list(
 
 grid.arrange(grobs = plots_hexbin, ncol = 2)
 ```
-
-
 
 2. Truncate at data thresholds
 
@@ -232,7 +227,6 @@ all_sites_normalized %>%
   theme_minimal(base_size = 12) +
   theme(legend.position = "bottom")
 ```
-
 
 4. Binned means with sample sizes
 
