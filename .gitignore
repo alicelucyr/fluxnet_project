@@ -65,3 +65,11 @@ flux/
 .DS_Store
 **/.DS-Store
 
+# Ignore all image files
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+
