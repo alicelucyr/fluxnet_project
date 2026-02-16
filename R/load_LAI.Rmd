@@ -311,7 +311,13 @@ Das_HH_daily <- Das_HH_daily %>%
   left_join(Das_lai %>% select(date, LAI, LAI_filled), 
             by = "date")
 
+```
+
+Now we can put all of the sites into a list for reproducibility, remember here that some of the sites have LAI and some do not
+```{r}
+names <- c("How_HH_daily", "Ade_HH_daily", "Das_HH_daily", "Dap_HH_daily", "Dry_HH_daily", "Stp_HH_daily", "Asm_HH_daily", "Cum_HH_daily", "Emr_HH_daily", "Fog_HH_daily", "Gin_HH_daily", "Gww_HH_daily", "Lox_HH_daily", "Rdf_HH_daily", "Rig_HH_daily", "Rob_HH_daily", "TTE_HH_daily", "Wac_HH_daily", "Whr_HH_daily", "Wom_HH_daily", "Ync_HH_daily", "Cpr_HH_daily", "Tum_HH_daily")
 
 
+sites_final <- mget(names)
 ```
 

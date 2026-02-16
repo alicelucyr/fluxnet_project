@@ -1,0 +1,17 @@
+---
+title: "01_driver_importance"
+output: html_document
+date: "2026-02-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Subsection 1: VPD across Australia
+- **Driver importance across sites**
+- GAMs - predictability
+- GPP~VPD responses
+
+Fit Random Forests to determine the importance of explanatory variables of GPP across Australian flux sites
+
