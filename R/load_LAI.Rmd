@@ -15,6 +15,7 @@ Daly River
 Dry River
 Alice Springs
 Tumbarumba 
+TTE
 Wombat
 
 Every 4 days
@@ -273,6 +274,44 @@ Asm - SAV
 plot(TTE_lai$VPD, TTE_lai$LAI)
 ```
 
+Now let's add the LAI data back into the "_HH"daily" dataframes so I can use them for analysis:
+
+```{r}
+# Add LAI and LAI_filled columns from TTE_lai to TTE_HH_daily
+
+TTE_HH_daily <- TTE_HH_daily %>%
+  left_join(TTE_lai %>% select(date, LAI, LAI_filled), 
+            by = "date")
+
+How_HH_daily <- How_HH_daily %>%
+  left_join(How_lai %>% select(date, LAI, LAI_filled), 
+            by = "date")
+
+Stp_HH_daily <- Stp_HH_daily %>%
+  left_join(Stp_lai %>% select(date, LAI, LAI_filled), 
+            by = "date")
+
+Dry_HH_daily <- Dry_HH_daily %>%
+  left_join(Dry_lai %>% select(date, LAI, LAI_filled), 
+            by = "date")
+
+Asm_HH_daily <- Asm_HH_daily %>%
+  left_join(Asm_lai %>% select(date, LAI, LAI_filled), 
+            by = "date")
+
+Tum_HH_daily <- Tum_HH_daily %>%
+  left_join(Tum_lai %>% select(date, LAI, LAI_filled), 
+            by = "date")
+
+Wom_HH_daily <- Wom_HH_daily %>%
+  left_join(Wom_lai %>% select(date, LAI, LAI_filled), 
+            by = "date")
+
+Das_HH_daily <- Das_HH_daily %>%
+  left_join(Das_lai %>% select(date, LAI, LAI_filled), 
+            by = "date")
 
 
+
+```
 
