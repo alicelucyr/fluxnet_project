@@ -13,5 +13,199 @@ Subsection 1: VPD across Australia
 - GAMs - predictability
 - GPP~VPD responses
 
-Fit Random Forests to determine the importance of explanatory variables of GPP across Australian flux sites
+Fit Random Forests to determine the importance of explanatory variables of GPP across Australian flux
+- Compare random forests with GAM analysis
+
+```{r}
+####
+##  Fit a random forest to predict GPP, here we're testing the use of lags
+##
+##  author: Martin De Kauwe
+##  date: 27th February, 2025
+##  email: mdekauwe@gmail.com
+####
+
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(zoo)
+library(mgcv)
+
+#standardise function
+standardise <- function(df, vars_to_scale) {
+  df_scaled <- df
+  df_scaled[vars_to_scale] <- scale(df[vars_to_scale])
+  
+  return(df_scaled)
+}
+
+#Function to run RF
+
+run_rf_for_site <- function(df, site_name) {
+  
+  #Drop NAs
+  df <- df %>% drop_na()
+  
+  #check you have enough data
+   if (nrow(df) < 100) {
+    warning(paste("Site", site_name, "has insufficient data"))
+    return(NULL)
+   }
+  
+  #lagged variables before splitting the data
+   df <- df %>%
+    arrange(date) %>%  # Ensure data is sorted by date
+    mutate(
+      # 7-day cumulative CWD
+      cumulative_cwd_7day = rollapply(cwd, width=7, FUN=sum, 
+                                      align="right", fill=NA, na.rm=TRUE),
+      # Temperature lags
+      Tair_lag1 = lag(Tair, 1),
+      Tair_lag2 = lag(Tair, 2),
+      Tair_lag3 = lag(Tair, 3),
+      # VPD lags
+      VPD_lag1 = lag(VPD, 1),
+      VPD_lag2 = lag(VPD, 2),
+      VPD_lag3 = lag(VPD, 3)
+    ) %>%
+    drop_na()
+   
+   #Now split into train/test
+   set.seed(123)
+  idx <- createDataPartition(df$GPP, p=0.8, list=FALSE)
+  train_data <- df[idx, ]
+  test_data <- df[-idx, ]
+  
+  # Standardise predictors
+  predictors <- c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day",
+                  "Tair_lag1", "Tair_lag2", "Tair_lag3", 
+                  "VPD_lag1", "VPD_lag2", "VPD_lag3")
+  
+  train_data <- standardise(train_data, predictors)
+  test_data <- standardise(test_data, predictors)
+  
+  #train random forest
+   model <- randomForest(GPP ~ Tair + SW_rad + VPD + cumulative_cwd_7day + 
+                          Tair_lag1 + Tair_lag2 + Tair_lag3 + 
+                          VPD_lag1 + VPD_lag2 + VPD_lag3, 
+                        data=train_data, ntree=500, mtry=3)
+   
+   #now predict
+    predictions <- predict(model, test_data)
+  results <- data.frame(Observed=test_data$GPP, Predicted=predictions)
+  
+  #calculate metrics
+  rmse <- sqrt(mean((results$Observed - results$Predicted)^2))
+  rsq <- cor(results$Observed, results$Predicted)^2
+  mean_observed <- mean(results$Observed)
+  nse <- (1 - sum((results$Observed - results$Predicted)^2) / 
+            sum((results$Observed - mean_observed)^2))
+  
+  #get variable importance
+  
+importance_df <- data.frame(
+    variable = rownames(importance(model)),
+    importance = importance(model)[,1]
+  )
+
+#return results
+return(list(
+    site = site_name,
+    model = model,
+    metrics = data.frame(site=site_name, RMSE=rmse, R2=rsq, NSE=nse),
+    importance = importance_df %>% mutate(site = site_name),
+    predictions = results %>% mutate(site = site_name)
+  ))
+
+}
+
+# Apply to all sites in the list
+rf_results <- map2(sites_daily, names(sites_daily), run_rf_for_site)
+
+# Extract metrics for all sites
+all_metrics <- map_df(rf_results, ~.x$metrics)
+print(all_metrics)
+
+# Extract importance for all sites
+all_importance <- map_df(rf_results, ~.x$importance)
+
+```
+
+```{r}
+site_names <- unique(all_importance$site)
+n_groups <- ceiling(length(site_names) / 6)
+
+for(i in 1:n_groups) {
+  start_idx <- (i-1)*6 + 1
+  end_idx <- min(i*6, length(site_names))
+  sites_subset <- site_names[start_idx:end_idx]
+  
+  p <- ggplot(all_importance %>% filter(site %in% sites_subset), 
+              aes(x=reorder(variable, importance), y=importance)) +
+    geom_col(fill="steelblue") +
+    facet_wrap(~site, scales="free_x", ncol=3) +
+    coord_flip() +
+    theme_minimal() +
+    theme(
+      strip.text = element_text(size=10),
+      axis.text = element_text(size=8)
+    ) +
+    labs(title=paste("Variable Importance - Group", i), 
+         x="Variable", y="Importance")
+  
+  print(p)
+  ggsave(paste0("importance_group_", i, ".png"), width=12, height=8, dpi=300)
+}
+```
+
+```{r}
+install.packages("tidytext")
+```
+
+Random forest:
+Predictors - VPD lag1, lag2, lag3, cwd 7 day, VPD, SW_rad, Tair, Tair lag 1, Tair lag 2, Tair lag 3
+
+
+```{r}
+# Loop through each site and create individual plots
+for(site_name in unique(all_importance$site)) {
+  
+  plot_data <- all_importance %>%
+    filter(site == site_name) %>%
+    arrange(desc(importance)) %>%
+    mutate(rank = row_number(),
+           variable = paste0(rank, ". ", variable))
+  
+  p <- ggplot(plot_data, aes(x=importance, y=reorder(variable, importance))) +
+    geom_col(fill="steelblue") +
+    theme_minimal() +
+    theme(text = element_text(size=12)) +
+    labs(title=paste("Variable Importance -", site_name),
+         x="Importance (%IncMSE)", 
+         y="")
+  
+  print(p)
+  ggsave(paste0("importance_", site_name, ".png"), width=8, height=6, dpi=300)
+}
+```
+Drier sites
+- cwd in top predictor, water-limited environments
+
+VPD lags more important at intermediate sites
+
+Wet sites:
+- SW rad and VPD dominate
+
+EBF consistently show SW radiation as their most important predictor with VPD 2-3, water abundant so energy and atmospheric demand control photosynthesis
+
+Fog (wettest site) - only VPD lags matter
+
+Grasslands = strong CWD control + temp lag effects
+Savannas - mixed cwd and vpd
+EBF - consistently SW radiation then VPD then cwd
+WSA - mixed
+DBF - SW radiaion
+
+
+
 

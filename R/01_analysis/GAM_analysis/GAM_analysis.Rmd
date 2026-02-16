@@ -535,6 +535,7 @@ ggplot(lag5_metrics, aes(x = site, y = R2)) +
   ) +
   theme_minimal()
 ```
+
 ```{r}
 #Compare no lags and lags with 5 days
 
@@ -862,6 +863,7 @@ final_comparison <- climate_vpd_metrics %>%
       rename(model_4 = R2),
     by = "site"
   ) 
+  
 
 
 wet_dry_order <- c("Wac", "Rob","How", "Das", "Fog", "Rdf", "Dap", "Ade", "Tum", "Wom", "Dry", "Stp", "Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "Cpr", "TTE", "Lox")
@@ -899,6 +901,7 @@ final_comparison %>%
   ) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
+
 ```{r}
 # Create a figure showing best model per site
 final_comparison %>%
