@@ -29,7 +29,6 @@ Load in data
 library(tidyverse)
 ```
 
-
 ```{r}
 lai_data <- read.csv("/Users/alicerolfe/year_4_project/fluxnet_project/Data/LAI_2.csv")
 ```
@@ -49,7 +48,6 @@ lai_data <- lai_data %>%
   filter(!site %in% c("Litchfield", "Ti Tree East"))
 ```
 
-
 Merge data for:
 Howard Springs
 Sturt plains
@@ -59,6 +57,7 @@ Alice Springs
 Tumbarumba 
 Wombat
 
+Make corresponding names from LAI data and Flux data
 ```{r}
 site_mapping <- data.frame(
   flux_site = c("How", "Stp", "Das", "Dry", "Asm", "Tum", "Wom"),
@@ -66,6 +65,7 @@ site_mapping <- data.frame(
 )
 ```
 
+Quickly add in site names to flux data
 ```{r}
 How_HH_daily <- How_HH_daily %>%
   mutate(site = "How")
@@ -89,7 +89,7 @@ Wom_HH_daily <- Wom_HH_daily %>%
   mutate(site = "Wom")
 ```
 
-
+Convert flux data date to match the format of the lai data
 ```{r}
 # Convert flux data date to Date format (remove time component)
 How_HH_daily <- How_HH_daily %>%
@@ -103,7 +103,7 @@ head(How_HH_daily$date)
 ```
 
 ```{r}
-# Now do the merge again
+# Now merge dataframes
 How_lai <- How_HH_daily %>%
   left_join(site_mapping, by = c("site" = "flux_site")) %>%
   left_join(lai_data %>% select(date, site, mean),
@@ -115,7 +115,7 @@ summary(How_lai_merge$LAI)
 
 ```
 
-
+Apply to rest of sites:
 ```{r}
 Stp_HH_daily <- Stp_HH_daily %>% mutate(date = as.Date(date))
 Das_HH_daily <- Das_HH_daily %>% mutate(date = as.Date(date))
@@ -171,9 +171,7 @@ Going to use linear interpolation - assumes gradual change between measurements.
 library(zoo)
 ```
 
-
 ```{r}
-# Calculate max gap in terms of number of rows (if daily data, 4 days = 4 rows)
 How_lai_merge <- How_lai_merge %>%
   mutate(LAI_interpolated = approx(date, LAI, xout = date, rule = 2)$y)
 ```
@@ -234,5 +232,6 @@ Wom_lai<- Wom_lai%>%
 ```{r}
 plot(Tum_lai$LAI_filled)
 plot(Asm_lai$LAI_filled)
+plot(Dry_lai$LAI_filled)
 ```
 
