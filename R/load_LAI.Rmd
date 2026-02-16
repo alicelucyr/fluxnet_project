@@ -1,0 +1,238 @@
+---
+title: "load_LAI"
+output: html_document
+date: "2026-02-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load in LAI data
+Howard Springs
+Sturt plains
+Daly River
+Dry River
+Alice Springs
+Tumbarumba 
+Wombat
+
+Every 4 days
+1 measurements a day per site
+
+1. Convert date column into proper date column
+2. Somehow attach the corresponding date from the LAI to the one I have in the flux data - every 4 days?
+
+Load in data
+
+```{r}
+library(tidyverse)
+```
+
+
+```{r}
+lai_data <- read.csv("/Users/alicerolfe/year_4_project/fluxnet_project/Data/LAI_2.csv")
+```
+
+Convert date to proper date format
+```{r}
+lai_data <- lai_data %>%
+  mutate(date = as.Date(date, format = "%Y-%m-%dT%H:%M:%S"))
+```
+
+```{r}
+head(lai_data)
+```
+Remove unwanted sites 
+```{r}
+lai_data <- lai_data %>%
+  filter(!site %in% c("Litchfield", "Ti Tree East"))
+```
+
+
+Merge data for:
+Howard Springs
+Sturt plains
+Daly River
+Dry River
+Alice Springs
+Tumbarumba 
+Wombat
+
+```{r}
+site_mapping <- data.frame(
+  flux_site = c("How", "Stp", "Das", "Dry", "Asm", "Tum", "Wom"),
+  lai_site = c("Howard Springs", "Sturt Plains", "Daly River Uncleared", "Dry River", "Alice Springs", "Tumbarumba", "Wombat")
+)
+```
+
+```{r}
+How_HH_daily <- How_HH_daily %>%
+  mutate(site = "How")
+
+Stp_HH_daily <- Stp_HH_daily %>%
+  mutate(site = "Stp")
+
+Das_HH_daily <- Das_HH_daily %>%
+  mutate(site = "Das")
+
+Dry_HH_daily <- Dry_HH_daily %>%
+  mutate(site = "Dry")
+
+Asm_HH_daily <- Asm_HH_daily %>%
+  mutate(site = "Asm")
+
+Tum_HH_daily <- Tum_HH_daily %>%
+  mutate(site = "Tum")
+
+Wom_HH_daily <- Wom_HH_daily %>%
+  mutate(site = "Wom")
+```
+
+
+```{r}
+# Convert flux data date to Date format (remove time component)
+How_HH_daily <- How_HH_daily %>%
+  mutate(date = as.Date(date))
+```
+
+```{r}
+# Check it worked
+class(How_HH_daily$date)
+head(How_HH_daily$date)
+```
+
+```{r}
+# Now do the merge again
+How_lai <- How_HH_daily %>%
+  left_join(site_mapping, by = c("site" = "flux_site")) %>%
+  left_join(lai_data %>% select(date, site, mean),
+            by = c("date" = "date", "lai_site" = "site")) %>%
+  rename(LAI = mean)
+
+# Check if it worked
+summary(How_lai_merge$LAI)
+
+```
+
+
+```{r}
+Stp_HH_daily <- Stp_HH_daily %>% mutate(date = as.Date(date))
+Das_HH_daily <- Das_HH_daily %>% mutate(date = as.Date(date))
+Dry_HH_daily <- Dry_HH_daily %>% mutate(date = as.Date(date))
+Asm_HH_daily <- Asm_HH_daily %>% mutate(date = as.Date(date))
+Tum_HH_daily <- Tum_HH_daily %>% mutate(date = as.Date(date))
+Wom_HH_daily <- Wom_HH_daily %>% mutate(date = as.Date(date))
+```
+
+```{r}
+Stp_lai <- Stp_HH_daily %>%
+  left_join(site_mapping, by = c("site" = "flux_site")) %>%
+  left_join(lai_data %>% select(date, site, mean),
+            by = c("date" = "date", "lai_site" = "site")) %>%
+  rename(LAI = mean)
+
+Das_lai <- Das_HH_daily %>%
+  left_join(site_mapping, by = c("site" = "flux_site")) %>%
+  left_join(lai_data %>% select(date, site, mean),
+            by = c("date" = "date", "lai_site" = "site")) %>%
+  rename(LAI = mean)
+
+Dry_lai <- Dry_HH_daily %>%
+  left_join(site_mapping, by = c("site" = "flux_site")) %>%
+  left_join(lai_data %>% select(date, site, mean),
+            by = c("date" = "date", "lai_site" = "site")) %>%
+  rename(LAI = mean)
+
+Asm_lai <- Asm_HH_daily %>%
+  left_join(site_mapping, by = c("site" = "flux_site")) %>%
+  left_join(lai_data %>% select(date, site, mean),
+            by = c("date" = "date", "lai_site" = "site")) %>%
+  rename(LAI = mean)
+
+Tum_lai <- Tum_HH_daily %>%
+  left_join(site_mapping, by = c("site" = "flux_site")) %>%
+  left_join(lai_data %>% select(date, site, mean),
+            by = c("date" = "date", "lai_site" = "site")) %>%
+  rename(LAI = mean)
+
+Wom_lai <- Wom_HH_daily %>%
+  left_join(site_mapping, by = c("site" = "flux_site")) %>%
+  left_join(lai_data %>% select(date, site, mean),
+            by = c("date" = "date", "lai_site" = "site")) %>%
+  rename(LAI = mean)
+
+```
+
+Fill in missing days:
+Going to use linear interpolation - assumes gradual change between measurements. 
+
+```{r}
+library(zoo)
+```
+
+
+```{r}
+# Calculate max gap in terms of number of rows (if daily data, 4 days = 4 rows)
+How_lai_merge <- How_lai_merge %>%
+  mutate(LAI_interpolated = approx(date, LAI, xout = date, rule = 2)$y)
+```
+
+```{r}
+Stp_lai <- Stp_lai %>%
+  mutate(LAI_interpolated = approx(date, LAI, xout = date, rule = 2)$y)
+
+Das_lai <- Das_lai %>%
+  mutate(LAI_interpolated = approx(date, LAI, xout = date, rule = 2)$y)
+
+Dry_lai<- Dry_lai %>%
+  mutate(LAI_interpolated = approx(date, LAI, xout = date, rule = 2)$y)
+
+Asm_lai <- Asm_lai %>%
+  mutate(LAI_interpolated = approx(date, LAI, xout = date, rule = 2)$y)
+
+Tum_lai<- Tum_lai %>%
+  mutate(LAI_interpolated = approx(date, LAI, xout = date, rule = 2)$y)
+
+Wom_lai <- Wom_lai %>%
+  mutate(LAI_interpolated = approx(date, LAI, xout = date, rule = 2)$y)
+```
+
+Create filter - max gap parameter tells it to only interpolate gaps of 4 or fewer observations. 4 days = 4 rows
+
+```{r}
+How_lai_merge <- How_lai_merge%>%
+  arrange(date) %>%
+  mutate(LAI_filled = na.approx(LAI, maxgap = 4, na.rm = FALSE))
+
+Stp_lai<- Stp_lai%>%
+  arrange(date) %>%
+  mutate(LAI_filled = na.approx(LAI, maxgap = 4, na.rm = FALSE))
+
+Das_lai<- Das_lai%>%
+  arrange(date) %>%
+  mutate(LAI_filled = na.approx(LAI, maxgap = 4, na.rm = FALSE))
+
+Dry_lai<- Dry_lai%>%
+  arrange(date) %>%
+  mutate(LAI_filled = na.approx(LAI, maxgap = 4, na.rm = FALSE))
+
+Asm_lai<- Asm_lai%>%
+  arrange(date) %>%
+  mutate(LAI_filled = na.approx(LAI, maxgap = 4, na.rm = FALSE))
+
+Tum_lai<- Tum_lai%>%
+  arrange(date) %>%
+  mutate(LAI_filled = na.approx(LAI, maxgap = 4, na.rm = FALSE))
+
+Wom_lai<- Wom_lai%>%
+  arrange(date) %>%
+  mutate(LAI_filled = na.approx(LAI, maxgap = 4, na.rm = FALSE))
+
+```
+
+```{r}
+plot(Tum_lai$LAI_filled)
+plot(Asm_lai$LAI_filled)
+```
+
