@@ -334,8 +334,153 @@ Check variables look normal:
 ```{r}
 plot(sites_daily$How_HH$Precip)
 ```
+Add in water stress component and leaf chlorophyll content
 ```{r}
-#export back to environment
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(zoo)
+library(mgcv)
+library(lattice)
+
+priestley_taylor_pet <- function(Rn, Tair, P) {
+  
+  alpha = 1.26      # PT constant
+  cp <- 1.013e-3    # Specific heat of air (MJ/kg°C)
+  epsilon <- 0.622  # Ratio of molecular weights of water vapor to dry air
+  lambda <- 2.45    # Latent heat of vaporization (MJ/kg)
+  G = 0             # Going to assume no ground heat flux on daily timescales
+  
+  # Psychrometric constant (kPa/°C)
+  gamma <- (cp * P) / (epsilon * lambda)
+  
+  # Saturation vapor pressure (kPa)
+  es <- 0.6108 * exp((17.27 * Tair) / (Tair + 237.3))
+  
+  # Slope of saturation vapor pressure curve (kPa/°C)
+  delta <- (4098 * es) / ((Tair+ 237.3)^2)
+  
+  # Priestley-Taylor PET calculation (mm/day)
+  pet <- alpha * (delta / (delta + gamma)) * ((Rn - G) / (lambda * 1e6)) * 86400
+
+  return(pet)
+}
+
+sites_daily <- sites_daily %>%
+  map(~ .x %>%
+        mutate(
+          pet = priestley_taylor_pet(Rn, Tair, Pa),
+          cwd = pet - ET
+        ))
+ 
+```
+
+```{r}
+library(dplyr)
+library(lubridate)
+
+# Define a function to add year and day-of-year
+add_year_doy <- function(df) {
+  df %>%
+    mutate(
+      year = year(date),
+      doy  = yday(date)
+    )
+}
+
+sites_daily <- sites_daily %>%
+  map(add_year_doy)
+```
+
+```{r}
+library(dplyr)
+library(lubridate)
+library(purrr)
+library(terra)
+library(ncdf4)
+
+gome_file <- "/Users/alicerolfe/year_4_project/fluxnet_project/Data/GOME2_VcmaxTg_05deg.tif"
+vcmax_raster <- rast(gome_file)
+
+lcc_nc <- "/Users/alicerolfe/year_4_project/fluxnet_project/Chl_2003_2011_weeklyAll_01Deg_sf100.nc"
+
+# --- 1. Functions to get VCmax and daily LCC ---
+get_vcmax <- function(lat, lon, vcmax_raster) {
+  coords <- data.frame(lon = lon, lat = lat)
+  vcmax <- terra::extract(vcmax_raster, coords)
+  as.numeric(vcmax[1,2])
+}
+
+latlon_to_line_sample <- function(lat, lon, nlines = 1800, nsamples = 3600) {
+  lat_res <- 180 / nlines  
+  line <- round((90 - lat) / lat_res)
+  lon_res <- 360 / nsamples
+  sample <- round((lon + 180) / lon_res)
+  list(
+    line   = pmin(pmax(line, 1), nlines),
+    sample = pmin(pmax(sample, 1), nsamples)
+  )
+}
+
+get_daily_LCC <- function(lcc_nc, lat, lon) {
+  nc <- nc_open(lcc_nc)
+  coords <- latlon_to_line_sample(lat, lon)
+  
+  pixel <- ncvar_get(nc, "chl_all",
+                     start = c(coords$line, coords$sample, 1, 1),
+                     count = c(1, 1, -1, -1))
+  
+  fillvalue <- ncatt_get(nc, "chl_all", "_FillValue")$value
+  pixel[pixel == fillvalue] <- NA
+  nc_close(nc)
+  
+  LCC <- pixel / 100
+  weekly_clim <- rowMeans(LCC, na.rm = TRUE)
+  
+  weeks <- 1:length(weekly_clim)
+  daily_weeks <- seq(1, max(weeks), by = 1/7)
+  approx(weeks, weekly_clim, xout = daily_weeks)$y
+}
+
+# --- 2. Function to attach VCmax and LCC to a site dataframe ---
+attach_site_data <- function(df, lat, lon, vcmax_raster, lcc_nc) {
+  
+  vcmax_val <- get_vcmax(lat, lon, vcmax_raster)
+  daily_LCC <- get_daily_LCC(lcc_nc, lat, lon)
+  daily_LCC_full <- rep(daily_LCC, length.out = nrow(df))
+  
+  df %>%
+    mutate(
+      vcmax      = vcmax_val,
+      LCC_daily  = daily_LCC_full,
+      year       = year(date),
+      doy        = yday(date)
+    )
+}
+
+# --- 3. Map over sites_daily using site metadata ---
+site_meta <- tibble(
+  name = names(sites_daily),
+  lat  = c(-12.4943, -13.0769, -14.1593, -14.0633, -15.2588, -17.1507, -22.283, -33.6152, -23.8587,
+           -12.5452, -31.3764, -30.1913, -34.4704, -14.5636, -36.6499, -17.1175, -22.287, -37.4259,
+           -36.6732, -37.4222, -34.9893, -34.0021, -35.6566),
+  lon  = c(131.1523, 131.1178, 131.3881, 131.3181, 132.3706, 133.3502, 133.2490, 150.7236, 148.4746,
+           131.3072, 115.7138, 120.6541, 140.6551, 132.4776, 145.5759, 145.6301, 133.64, 145.1878,
+           145.0294, 144.0944, 146.2907, 140.5891, 148.1517)
+)
+
+sites_daily <- pmap(
+  list(sites_daily, site_meta$lat, site_meta$lon),
+  function(df, lat, lon) attach_site_data(df, lat, lon, vcmax_raster, lcc_nc)
+)
+
+```
+
+
+
+
+```{r}
+#export back to environment (would recommend not doing this)
 
 names(sites_daily) <- paste0(names(sites_daily), "_daily")
 list2env(sites_daily, envir = .GlobalEnv)
