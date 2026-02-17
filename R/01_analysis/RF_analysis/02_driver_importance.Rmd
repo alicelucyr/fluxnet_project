@@ -10,8 +10,188 @@ knitr::opts_chunk$set(echo = TRUE)
 
 Subsection 1: VPD across Australia
 - **Driver importance across sites**
-- GAMs - predictability
+- **GAMs - predictability**
 - GPP~VPD responses
 
-Going to compare the RF with a GAM:
+Within site RF to get predictor rankings
+Compare to a within site GAM 
+
+```{r}
+####
+##  Fit a GAM and a Random Forest to predict flux GPP across multiple sites
+##
+##  Assumes: site_daily is a named list of daily dataframes, already loaded
+##
+##  Fixes vs original:
+##    - trainData typo -> train_data
+##    - rolling CWD now computed BEFORE train/test split
+##    - standardise() now uses training-set params to scale test data (no leakage)
+##    - SW_rad added to GAM (was missing in original)
+##    - loops over all sites in site_daily
+####
+
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(zoo)
+library(mgcv)
+library(RColorBrewer)
+
+# Standardise using means/sds from a *reference* dataframe (avoids data leakage)
+standardise <- function(df, vars_to_scale, ref_df = NULL) {
+  df_scaled <- df
+  if (is.null(ref_df)) ref_df <- df
+  for (v in vars_to_scale) {
+    m  <- mean(ref_df[[v]], na.rm = TRUE)
+    s  <- sd(ref_df[[v]],   na.rm = TRUE)
+    df_scaled[[v]] <- (df[[v]] - m) / s
+  }
+  return(df_scaled)
+}
+
+calc_metrics <- function(obs, pred) {
+  rmse <- sqrt(mean((obs - pred)^2, na.rm = TRUE))
+  rsq  <- cor(obs, pred, use = "complete.obs")^2
+  nse  <- 1 - sum((obs - pred)^2, na.rm = TRUE) /
+              sum((obs - mean(obs, na.rm = TRUE))^2, na.rm = TRUE)
+  data.frame(RMSE = rmse, Rsq = rsq, NSE = nse)
+}
+
+
+predictors <- c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day")
+
+results_list    <- list()
+metrics_list    <- list()
+importance_list <- list()
+
+set.seed(123)
+
+# Main loop over sites
+
+for (site_names in names(sites_daily)) {
+  
+  cat("\n---", site_names, "---\n")
+  df <- sites_daily[[site_names]]
+  
+  df <- df %>%
+    filter(if_all(everything(), ~ . >= -9000)) %>%
+    drop_na()
+  
+  if (nrow(df) < 100) {
+    cat("  Skipping - too few rows after cleaning\n")
+    next
+  }
+  
+  df$cumulative_cwd_7day <- rollapply(
+    df$cwd, width = 7, FUN = sum,
+    align = "right", fill = NA, na.rm = TRUE
+  )
+  df <- df %>% drop_na()
+  
+  idx        <- createDataPartition(df$GPP, p = 0.8, list = FALSE)
+  train_data <- df[idx, ]
+  test_data  <- df[-idx, ]
+  
+  train_data <- standardise(train_data, predictors)
+  test_data  <- standardise(test_data,  predictors, ref_df = train_data)
+  
+  rf_model <- randomForest(
+    GPP ~ Tair + SW_rad + VPD + cumulative_cwd_7day,
+    data  = train_data,
+    ntree = 500,
+    mtry  = 3
+  )
+  
+  pred_rf    <- predict(rf_model, test_data)
+  metrics_rf <- calc_metrics(test_data$GPP, pred_rf)
+  cat("  RF  -> RMSE:", round(metrics_rf$RMSE, 3),
+      " R2:", round(metrics_rf$Rsq, 3),
+      " NSE:", round(metrics_rf$NSE, 3), "\n")
+  
+  # Fixed: site_name -> site_names (both lines)
+  imp          <- as.data.frame(importance(rf_model))
+  imp$variable <- rownames(imp)
+  imp$site     <- site_names
+  importance_list[[site_names]] <- imp
+  
+  gam_model <- gam(
+    GPP ~ s(Tair) + s(SW_rad) + s(VPD) + s(cumulative_cwd_7day),
+    data   = train_data,
+    method = "REML"
+  )
+  
+  pred_gam    <- predict(gam_model, newdata = test_data)
+  metrics_gam <- calc_metrics(test_data$GPP, pred_gam)
+  cat("  GAM -> RMSE:", round(metrics_gam$RMSE, 3),
+      " R2:", round(metrics_gam$Rsq, 3),
+      " NSE:", round(metrics_gam$NSE, 3), "\n")
+  
+  results_list[[site_names]] <- data.frame(
+    site          = site_names,
+    date          = as.Date(test_data$date),
+    Observed      = test_data$GPP,
+    Predicted_RF  = pred_rf,
+    Predicted_GAM = as.numeric(pred_gam)
+  )
+  
+  metrics_list[[site_names]] <- data.frame(
+    site  = site_names,
+    model = c("RF", "GAM"),
+    RMSE  = c(metrics_rf$RMSE,  metrics_gam$RMSE),
+    Rsq   = c(metrics_rf$Rsq,   metrics_gam$Rsq),
+    NSE   = c(metrics_rf$NSE,   metrics_gam$NSE)
+  )
+}
+
+
+# Combine
+
+results_all    <- bind_rows(results_list)
+metrics_all    <- bind_rows(metrics_list)
+importance_all <- bind_rows(importance_list)
+
+print(metrics_all)
+
+```
+
+```{r}
+
+# 1. Observed vs Predicted scatter, faceted by site
+results_all %>%
+  pivot_longer(cols = c(Predicted_RF, Predicted_GAM),
+               names_to = "model", values_to = "Predicted") %>%
+  mutate(model = recode(model,
+                        Predicted_RF  = "Random Forest",
+                        Predicted_GAM = "GAM")) %>%
+  ggplot(aes(x = Observed, y = Predicted, colour = model)) +
+  geom_point(alpha = 0.3, size = 0.8) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", colour = "grey30") +
+  facet_wrap(~ site) +
+  scale_colour_manual(values = brewer.pal(3, "Set2")[1:2]) +
+  labs(x = expression("Observed GPP" ~ ("g C" ~ m^{-2} ~ d^{-1})),
+       y = expression("Predicted GPP" ~ ("g C" ~ m^{-2} ~ d^{-1})),
+       colour = NULL) +
+  theme_classic() +
+  theme(legend.position  = "top",
+        strip.background = element_blank())
+
+# 2. R² by site and model
+ggplot(metrics_all, aes(x = reorder(site, Rsq), y = Rsq, fill = model)) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = brewer.pal(3, "Set2")[1:2]) +
+  coord_flip() +
+  labs(x = NULL, y = expression(R^2), fill = NULL) +
+  theme_classic() +
+  theme(legend.position = "top")
+
+# 3. RF variable importance across sites
+importance_all %>%
+  ggplot(aes(x = reorder(variable, IncNodePurity),
+             y = IncNodePurity, fill = site)) +
+  geom_col(position = "dodge") +
+  coord_flip() +
+  labs(x = NULL, y = "Increase in Node Purity", fill = "Site") +
+  theme_classic() +
+  theme(legend.position = "right")
+```
 
