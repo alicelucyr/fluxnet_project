@@ -1,0 +1,17 @@
+---
+title: "02_driver_importance"
+output: html_document
+date: "2026-02-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Subsection 1: VPD across Australia
+- **Driver importance across sites**
+- GAMs - predictability
+- GPP~VPD responses
+
+Going to compare the RF with a GAM:
+
