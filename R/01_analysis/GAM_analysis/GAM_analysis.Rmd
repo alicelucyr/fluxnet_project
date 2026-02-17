@@ -262,6 +262,9 @@ climate_metrics <- bind_rows(
 
 ```
 
+```{r}
+mean(climate_metrics$RMSE)
+```
 
 
 ```{r}
@@ -343,6 +346,11 @@ ggplot(climate_vpd_metrics, aes(x = site, y = R2)) +
   ) +
   theme_minimal()
 ```
+
+```{r}
+mean(climate_vpd_metrics$RMSE)
+```
+
 
 ```{r}
 #compare the no VPD and climate + VPD model
@@ -439,6 +447,9 @@ ggplot(lag3_metrics, aes(x = site, y = R2)) +
   ) +
   theme_minimal()
 ```
+```{r}
+mean(lag3_metrics$RMSE)
+```
 
 
 ```{r}
@@ -520,6 +531,11 @@ lag5_metrics <- bind_rows(
 )
 
 ```
+
+```{r}
+mean(lag5_metrics$RMSE)
+```
+
 
 ```{r}
 
@@ -614,6 +630,11 @@ lag7_metrics <- bind_rows(
 
 
 ```
+
+```{r}
+mean(lag7_metrics$RMSE)
+```
+
 
 ```{r}
 
@@ -748,6 +769,11 @@ cwd7_metrics <- bind_rows(
 ```
 
 ```{r}
+mean(cwd7_metrics$RMSE)
+```
+
+
+```{r}
 cwd7_metrics$site <- factor(cwd7_metrics$site, levels = wet_dry_order)
 
 ggplot(cwd7_metrics, aes(x = site, y = R2)) +
@@ -800,6 +826,11 @@ lcc7_metrics <- bind_rows(
 
 
 ```
+
+```{r}
+mean(lcc7_metrics$RMSE)
+```
+
 
 ```{r}
 lcc7_metrics$site <- factor(lcc7_metrics$site, levels = wet_dry_order)

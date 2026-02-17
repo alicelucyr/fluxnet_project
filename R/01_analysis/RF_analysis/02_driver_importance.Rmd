@@ -194,4 +194,5 @@ importance_all %>%
   theme_classic() +
   theme(legend.position = "right")
 ```
-
+Results:
+- GAM versus RF R-squared 

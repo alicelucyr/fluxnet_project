@@ -355,13 +355,32 @@ ggplot(loso_wide, aes(x = held_out_site, y = R2_Simple)) +
   geom_col(fill = "violet") +
   coord_flip() +
   labs(
-    x = "Site",
+    x = "Site (most to least variability in precip CV)",
     y = expression(R^2),
     title = "Predictability of GPP across OzFlux sites"
   ) +
   theme_minimal()
 ```
 
+```{r}
+ggplot(loso_wide, aes(x = held_out_site, y = R2_Complex)) +
+  geom_col(fill = "violet") +
+  coord_flip() +
+  labs(
+    x = "Site (most to least variable precipitation CV)",
+    y = expression(R^2),
+    title = "Predictability of GPP across OzFlux sites"
+  ) +
+  theme_minimal()
+```
+
+These plots confirm that site predictability and generalisability is controlled by precipitation variability. 
+
+Next steps:
+- Look at wet/dry season
+- 7 day cwd might be too short for high precipitation variability sites
+- interaction terms?
+- Identify 3 highest CV sites and 3 lowest CV sites, plot actual versus predicted GPP time series - am i missing pulses? overestimating during drought?
 
 
 

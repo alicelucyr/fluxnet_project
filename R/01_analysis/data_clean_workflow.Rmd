@@ -477,8 +477,6 @@ sites_daily <- pmap(
 ```
 
 
-
-
 ```{r}
 #export back to environment (would recommend not doing this)
 
