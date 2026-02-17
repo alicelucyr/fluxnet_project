@@ -206,6 +206,271 @@ EBF - consistently SW radiation then VPD then cwd
 WSA - mixed
 DBF - SW radiaion
 
+2. Random forest updated to predict GPP
+- %IncMSE (permutation) - instead of IncNodePurity
+- Boruta package for selecting variables
+- Test VPD importance via R2 change in held-out test data
+
+```{r}
+install.packages("Boruta")
+```
+
+
+```{r}
+####
+##  Fit a random forest to predict GPP with lags
+##  - %IncMSE permutation importance
+##  - Boruta variable selection  
+##  - Explicit VPD importance test via R2 drop
+####
+
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(zoo)
+library(mgcv)
+library(Boruta)
+library(RColorBrewer)
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+standardise <- function(df, vars_to_scale, ref_df = NULL) {
+  df_scaled <- df
+  if (is.null(ref_df)) ref_df <- df
+  for (v in vars_to_scale) {
+    m <- mean(ref_df[[v]], na.rm = TRUE)
+    s <- sd(ref_df[[v]],   na.rm = TRUE)
+    df_scaled[[v]] <- (df[[v]] - m) / s
+  }
+  return(df_scaled)
+}
+
+calc_metrics <- function(obs, pred) {
+  rmse <- sqrt(mean((obs - pred)^2, na.rm = TRUE))
+  rsq  <- cor(obs, pred, use = "complete.obs")^2
+  nse  <- 1 - sum((obs - pred)^2, na.rm = TRUE) /
+              sum((obs - mean(obs, na.rm = TRUE))^2, na.rm = TRUE)
+  data.frame(RMSE = rmse, R2 = rsq, NSE = nse)
+}
+
+# ---------------------------------------------------------------------------
+# Main function
+# ---------------------------------------------------------------------------
+
+run_rf_for_site <- function(df, site_name) {
+  
+  df <- df %>% drop_na()
+  
+  if (nrow(df) < 100) {
+    warning(paste("Site", site_name, "has insufficient data"))
+    return(NULL)
+  }
+  
+  # Lags BEFORE splitting
+  df <- df %>%
+    arrange(date) %>%
+    mutate(
+      cumulative_cwd_7day = rollapply(cwd, width = 7, FUN = sum,
+                                      align = "right", fill = NA, na.rm = TRUE),
+      Tair_lag1 = lag(Tair, 1),
+      Tair_lag2 = lag(Tair, 2),
+      Tair_lag3 = lag(Tair, 3),
+      VPD_lag1  = lag(VPD, 1),
+      VPD_lag2  = lag(VPD, 2),
+      VPD_lag3  = lag(VPD, 3)
+    ) %>%
+    drop_na()
+  
+  predictors <- c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day",
+                  "Tair_lag1", "Tair_lag2", "Tair_lag3",
+                  "VPD_lag1",  "VPD_lag2",  "VPD_lag3")
+  
+  # Train / test split
+  set.seed(123)
+  idx        <- createDataPartition(df$GPP, p = 0.8, list = FALSE)
+  train_data <- df[idx, ]
+  test_data  <- df[-idx, ]
+  
+  # Scale test data using training params only
+  train_data <- standardise(train_data, predictors)
+  test_data  <- standardise(test_data,  predictors, ref_df = train_data)
+  
+  # =========================================================================
+  # 1. BORUTA
+  # =========================================================================
+  
+  cat("\n", site_name, "- Running Boruta...\n")
+  
+  boruta_result <- Boruta(
+    GPP ~ Tair + SW_rad + VPD + cumulative_cwd_7day +
+          Tair_lag1 + Tair_lag2 + Tair_lag3 +
+          VPD_lag1  + VPD_lag2  + VPD_lag3,
+    data    = train_data,
+    doTrace = 0,
+    maxRuns = 100
+  )
+  
+  boruta_final   <- TentativeRoughFix(boruta_result)
+  boruta_summary <- attStats(boruta_final) %>%
+    rownames_to_column("variable") %>%
+    mutate(site = site_name)
+  
+  confirmed_vars <- getSelectedAttributes(boruta_final, withTentative = FALSE)
+  cat("  Confirmed variables:", paste(confirmed_vars, collapse = ", "), "\n")
+  
+  # =========================================================================
+  # 2. FULL RF with permutation importance (%IncMSE)
+  # =========================================================================
+  
+  full_formula <- as.formula(
+    paste("GPP ~", paste(predictors, collapse = " + "))
+  )
+  
+  rf_full <- randomForest(
+    full_formula,
+    data       = train_data,
+    ntree      = 500,
+    mtry       = 3,
+    importance = TRUE
+  )
+  
+  pred_full    <- predict(rf_full, test_data)
+  metrics_full <- calc_metrics(test_data$GPP, pred_full)
+  cat("  Full RF R2:", round(metrics_full$R2, 3), "\n")
+  
+  # %IncMSE = permutation importance (use this, not IncNodePurity)
+  importance_df <- data.frame(
+    variable      = rownames(importance(rf_full)),
+    pct_IncMSE    = importance(rf_full)[, "%IncMSE"],
+    IncNodePurity = importance(rf_full)[, "IncNodePurity"],
+    site          = site_name
+  )
+  
+  # =========================================================================
+  # 3. VPD IMPORTANCE TEST - R2 drop when VPD removed
+  # =========================================================================
+  
+  predictors_no_vpd <- predictors[!grepl("VPD", predictors)]
+  
+  formula_no_vpd <- as.formula(
+    paste("GPP ~", paste(predictors_no_vpd, collapse = " + "))
+  )
+  
+  rf_no_vpd <- randomForest(
+    formula_no_vpd,
+    data       = train_data,
+    ntree      = 500,
+    mtry       = 3,
+    importance = TRUE
+  )
+  
+  # Use only columns this model needs to avoid NA issues (fixes Ade_HH, Asm_HH)
+  test_data_no_vpd <- test_data %>%
+    select(GPP, all_of(predictors_no_vpd)) %>%
+    drop_na()
+  
+  pred_no_vpd    <- predict(rf_no_vpd, test_data_no_vpd)
+  metrics_no_vpd <- calc_metrics(test_data_no_vpd$GPP, pred_no_vpd)
+  
+  vpd_r2_drop <- metrics_full$R2 - metrics_no_vpd$R2
+  cat("  R2 without VPD:", round(metrics_no_vpd$R2, 3),
+      "| VPD R2 contribution:", round(vpd_r2_drop, 3), "\n")
+  
+  vpd_importance <- data.frame(
+    site           = site_name,
+    R2_full        = metrics_full$R2,
+    R2_no_vpd      = metrics_no_vpd$R2,
+    VPD_R2_contrib = vpd_r2_drop
+  )
+  
+  # =========================================================================
+  # Return
+  # =========================================================================
+  
+  return(list(
+    site           = site_name,
+    model_full     = rf_full,
+    model_no_vpd   = rf_no_vpd,
+    metrics        = data.frame(site = site_name, metrics_full),
+    importance     = importance_df,
+    boruta         = boruta_summary,
+    boruta_raw     = boruta_final,
+    vpd_importance = vpd_importance,
+    predictions    = data.frame(
+                       site      = site_name,
+                       Observed  = test_data$GPP,
+                       Predicted = pred_full
+                     )
+  ))
+  
+}  # <-- closes run_rf_for_site
+
+# ---------------------------------------------------------------------------
+# Run across all sites
+# ---------------------------------------------------------------------------
+
+rf_results <- map2(sites_daily, names(sites_daily), run_rf_for_site) %>%
+  compact()
+
+# ---------------------------------------------------------------------------
+# Extract results
+# ---------------------------------------------------------------------------
+
+all_metrics    <- map_df(rf_results, ~ .x$metrics)
+all_importance <- map_df(rf_results, ~ .x$importance)
+all_boruta     <- map_df(rf_results, ~ .x$boruta)
+all_vpd        <- map_df(rf_results, ~ .x$vpd_importance)
+
+print(all_metrics)
+print(all_vpd)
+
+# ---------------------------------------------------------------------------
+# Plots
+# ---------------------------------------------------------------------------
+
+# 1. Permutation importance across sites
+all_importance %>%
+  ggplot(aes(x = reorder(variable, pct_IncMSE), y = pct_IncMSE, fill = site)) +
+  geom_col(position = "dodge") +
+  coord_flip() +
+  labs(x = NULL, y = "% Increase in MSE (permutation importance)", fill = "Site") +
+  theme_classic()
+
+# 2. Boruta decisions across sites
+all_boruta %>%
+  ggplot(aes(x = reorder(variable, meanImp), y = meanImp, colour = decision)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = minImp, ymax = maxImp), width = 0.2) +
+  facet_wrap(~ site) +
+  coord_flip() +
+  scale_colour_manual(values = c(Confirmed = "#2ca25f",
+                                 Rejected  = "#e34a33",
+                                 Tentative = "#fdbb84")) +
+  labs(x = NULL, y = "Boruta importance (mean ± range)", colour = NULL) +
+  theme_classic() +
+  theme(strip.background = element_blank())
+
+# 3. VPD R2 contribution across sites
+all_vpd %>%
+  pivot_longer(cols = c(R2_full, R2_no_vpd),
+               names_to = "model", values_to = "R2") %>%
+  mutate(model = recode(model,
+                        R2_full   = "Full model",
+                        R2_no_vpd = "Without VPD")) %>%
+  ggplot(aes(x = site, y = R2, fill = model)) +
+  geom_col(position = "dodge") +
+  geom_text(data = all_vpd,
+            aes(x = site, y = R2_full + 0.02,
+                label = paste0("\u0394", round(VPD_R2_contrib, 2))),
+            inherit.aes = FALSE, size = 3.5) +
+  scale_fill_manual(values = brewer.pal(3, "Set2")[1:2]) +
+  labs(x = NULL, y = expression(R^2), fill = NULL,
+       title = "VPD contribution to GPP predictability") +
+  theme_classic() +
+  theme(legend.position = "top")
+```
 
 
 
