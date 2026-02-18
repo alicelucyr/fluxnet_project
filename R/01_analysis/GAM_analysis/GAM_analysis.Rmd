@@ -274,7 +274,7 @@ wet_dry_order <- c("Rob", "How", "Wac", "Das", "Fog", "Dap", "Ade", "Dry", "Stp"
 #most to least variable
 precip_variability_order <- c("Gww", "TTE", "Asm", "Cpr", "Ync", "Lox", "Emr","Whr", "Wom", "Tum", "Rig", "Wac", "Stp", "Dry", "Gin", "Cum", "Fog", "Das", "Rob", "Rdf", "Dap", "How", "Ade")
 
-climate_metrics$site <- factor(climate_metrics$site, levels = wet_dry_order)
+climate_metrics$site <- factor(climate_metrics$site, levels = precip_variability_order)
 
 ggplot(climate_metrics, aes(x = site, y = R2)) +
   geom_col(fill = "violet") +
@@ -282,7 +282,7 @@ ggplot(climate_metrics, aes(x = site, y = R2)) +
   labs(
     x = "Site",
     y = expression(R^2),
-    title = "Predictability of GPP across OzFlux sites (dry to wet)"
+    title = "Predictability of GPP across OzFlux sites (least to most daily precip variability)"
   ) +
   theme_minimal()
 
@@ -334,7 +334,7 @@ wet_dry_order <- c("Rob", "How", "Wac", "Das", "Fog", "Dap", "Ade", "Dry", "Stp"
 #most to least variable
 precip_variability_order <- c("Gww", "TTE", "Asm", "Cpr", "Ync", "Lox", "Emr","Whr", "Wom", "Tum", "Rig", "Wac", "Stp", "Dry", "Gin", "Cum", "Fog", "Das", "Rob", "Rdf", "Dap", "How", "Ade")
 
-climate_vpd_metrics$site <- factor(climate_vpd_metrics$site, levels = wet_dry_order)
+climate_vpd_metrics$site <- factor(climate_vpd_metrics$site, levels = precip_variability_order)
 
 ggplot(climate_vpd_metrics, aes(x = site, y = R2)) +
   geom_col(fill = "violet") +
@@ -342,7 +342,7 @@ ggplot(climate_vpd_metrics, aes(x = site, y = R2)) +
   labs(
     x = "Site",
     y = expression(R^2),
-    title = "Predictability of GPP across OzFlux sites (dry to wet)"
+    title = "Predictability of GPP across OzFlux sites (least to most precip variability)"
   ) +
   theme_minimal()
 ```
@@ -694,40 +694,6 @@ gam_comparison <- gam_comparison %>%
 gam_comparison
 ```
 
-```{r}
-# Calculate mean improvement for each lag
-lag_summary <- gam_comparison %>%
-  summarise(
-    mean_lag3 = mean(delta_R2_lag3, na.rm = TRUE),
-    mean_lag5 = mean(delta_R2_lag5, na.rm = TRUE),
-    mean_lag7 = mean(delta_R2_lag7, na.rm = TRUE)
-  )
-
-print(lag_summary)
-
-# Then plot with reference lines
-gam_comparison %>%
-  pivot_longer(
-    cols = c(delta_R2_lag3, delta_R2_lag5, delta_R2_lag7),
-    names_to = "lag_type",
-    values_to = "delta_R2"
-  ) %>%
-  mutate(
-    lag_type = factor(lag_type, 
-                     levels = c("delta_R2_lag3", "delta_R2_lag5", "delta_R2_lag7"),
-                     labels = c("3-day", "5-day", "7-day"))
-  ) %>%
-  ggplot(aes(x = lag_type, y = delta_R2)) +
-  geom_boxplot(fill = "firebrick", alpha = 0.6) +
-  geom_jitter(width = 0.2, alpha = 0.5) +
-  theme_minimal(base_size = 14) +
-  labs(
-    x = "Lag window",
-    y = expression(Delta*R^2),
-    title = "Distribution of lag window performance across all sites"
-  )
-
-```
 Let's use lag 7 - similar performances. 7 days aligns with typical plant physiological memory and maintains consistency with the cumulative water deficit over 7 days.
 
 ```{r}
