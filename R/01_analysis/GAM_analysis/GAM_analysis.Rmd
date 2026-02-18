@@ -287,6 +287,16 @@ ggplot(climate_metrics, aes(x = site, y = R2)) +
   theme_minimal()
 
 ```
+```{r}
+plot(Gww_HH_daily$Precip)
+```
+
+
+
+
+
+
+
 
 Seems to be trend of declining R-squared from high precipitation coefficient of variation to low coefficient of variation. 
 
