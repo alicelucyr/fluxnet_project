@@ -24,13 +24,15 @@ site_meta <- tibble(
                 "Cum", "Emr", "Fog", "Gin", "Gww", "Lox",
                 "Rdf", "Rig", "Rob", "TTE", "Wac", "Whr",
                 "Wom", "Ync", "Cpr", "Tum"),
+  
   PFT = c("WSA", "WSA", "SAV", "GRA", "SAV", "GRA", "SAV",
           "EBF", "GRA", "WET", "WSA", "SAV", "DBF",
           "WSA", "GRA", "EBF", "GRA", "EBF", "EBF",
           "EBF", "GRA", "SAV", "EBF"),
+  
   moisture = c("Wet", "Wet", "Wet", "Wet", "Medium", "Medium", "Dry",
                "Medium", "Medium", "Wet", "Medium", "Dry", "Dry",
-               "Wet", "Dry", "Wet", "Dry", "Wet", "Dry",
+               "Medium", "Dry", "Wet", "Dry", "Wet", "Dry",
                "Medium", "Dry", "Dry", "Medium")
 )
 
@@ -96,6 +98,9 @@ plot_vpd_gpp_hexbin <- function(site_code) {
 plot_vpd_gpp_hexbin("TTE")
 plot_vpd_gpp_hexbin("Rob")
 plot_vpd_gpp_hexbin("Whr")
+plot_vpd_gpp_hexbin("Gin")
+plot_vpd_gpp_hexbin("Rdf")
+plot_vpd_gpp_hexbin("Cpr")
 
 # Multi-panel figure
 plots_hexbin <- list(
