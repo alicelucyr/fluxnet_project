@@ -59,6 +59,7 @@ for(site in aus_sites){
       VPD_lag7 = lag(VPD, 7),
       cumulative_cwd_7day = rollapply(cwd, 7, sum, align="right", fill = NA)
     ) %>%
+    #Removed the drop_na() as it was removing lots and lots of rows 
   
   # Temporal split: 80% train, 20% test
   n_train <- floor(0.8 * nrow(df))
@@ -79,6 +80,7 @@ for(site in aus_sites){
 
 fit_gam_and_metrics <- function(train_data, test_data) {
   
+  #Drop NA only in the predictors of the model
   train_clean <- train_data %>% drop_na(GPP, Tair, SW_rad, Precip)
   test_clean <- test_data %>% drop_na(GPP, Tair, SW_rad, Precip)
   
@@ -114,33 +116,8 @@ climate_metrics <- bind_rows(
 
 ```
 
-```{r}
-mean(climate_metrics$RMSE)
-```
 
 
-```{r}
-# Define wet to dry order
-wet_dry_order <- c("Rob", "How", "Wac", "Das", "Fog", "Dap", "Ade", "Dry", "Stp", "Wom", "Rdf", "Tum", "Gin", "Emr", "Cum", "Gww", "Rig", "Asm", "Cpr", "Whr", "TTE", "Ync", "Lox")
-
-#most to least variable
-precip_variability_order <- c("Gww", "TTE", "Asm", "Cpr", "Ync", "Lox", "Emr","Whr", "Wom", "Tum", "Rig", "Wac", "Stp", "Dry", "Gin", "Cum", "Fog", "Das", "Rob", "Rdf", "Dap", "How", "Ade")
-
-climate_metrics$site <- factor(climate_metrics$site, levels = precip_variability_order)
-
-ggplot(climate_metrics, aes(x = site, y = R2)) +
-  geom_col(fill = "violet") +
-  coord_flip() +
-  labs(
-    x = "Site",
-    y = expression(R^2),
-    title = "Predictability of GPP across OzFlux sites (least to most daily precip variability)"
-  ) +
-  theme_minimal()
-
-```
-
-```{r}
 # Modified function to return predictions for both train and test data
 fit_gam_and_return_all_predictions <- function(train_data, test_data, site_name) {
   
@@ -171,7 +148,7 @@ fit_gam_and_return_all_predictions <- function(train_data, test_data, site_name)
 }
 
 # Get predictions for the three sites
-sites_to_plot <- "Emr"
+sites_to_plot <- "Gww"
 
 all_predictions_df <- bind_rows(
   lapply(sites_to_plot, function(site) {
@@ -183,41 +160,8 @@ all_predictions_df <- bind_rows(
   })
 )
 
-# Time series plot with training/testing periods distinguished
-library(ggplot2)
 
-ggplot(all_predictions_df, aes(x = date)) +  # adjust 'date' to your actual column name
-  geom_line(aes(y = GPP, color = "Observed"), linewidth = 0.7) +
-  geom_line(aes(y = predicted_GPP, color = "Predicted"), linewidth = 0.7, linetype = "dashed") +
-  geom_vline(
-    data = all_predictions_df %>% 
-      group_by(site) %>% 
-      filter(dataset == "Testing") %>% 
-      slice_min(date, n = 1),
-    aes(xintercept = date),
-    linetype = "dotted",
-    color = "black",
-    linewidth = 0.8
-  ) +
-  facet_wrap(~site, ncol = 1, scales = "free_y") +
-  scale_color_manual(
-    values = c("Observed" = "#2c5f2d", "Predicted" = "#e65100"),
-    name = ""
-  ) +
-  labs(
-    x = "Date",
-    y = "GPP",
-    title = "Observed vs Predicted GPP: Training and Testing Periods",
-    subtitle = "Dotted vertical line marks start of testing period"
-  ) +
-  theme_minimal() +
-  theme(
-    legend.position = "top",
-    strip.text = element_text(face = "bold", size = 11),
-    panel.grid.minor = element_blank()
-  )
-
-# Alternative: Use shading to show train/test periods
+# Shading to show train/test periods
 ggplot(all_predictions_df, aes(x = date)) +
   geom_rect(
     data = all_predictions_df %>% 
@@ -249,48 +193,35 @@ ggplot(all_predictions_df, aes(x = date)) +
     panel.grid.minor = element_blank()
   )
 
-# Residuals plot with train/test distinction
-ggplot(all_predictions_df, aes(x = date, y = GPP - predicted_GPP)) +
-  geom_rect(
-    data = all_predictions_df %>% 
-      group_by(site) %>%
-      summarise(
-        xmin = min(date[dataset == "Testing"]),
-        xmax = max(date[dataset == "Testing"])
-      ),
-    aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf),
-    fill = "gray90", alpha = 0.5, inherit.aes = FALSE
-  ) +
-  geom_line(aes(color = dataset), linewidth = 0.6) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
-  facet_wrap(~site, ncol = 1, scales = "free_y") +
-  scale_color_manual(
-    values = c("Training" = "#2c5f2d", "Testing" = "#e65100"),
-    name = "Dataset"
-  ) +
+
+
+```{r}
+# Define wet to dry order
+wet_dry_order <- c("Rob", "How", "Wac", "Das", "Fog", "Dap", "Ade", "Dry", "Stp", "Wom", "Rdf", "Tum", "Gin", "Emr", "Cum", "Gww", "Rig", "Asm", "Cpr", "Whr", "TTE", "Ync", "Lox")
+
+#most to least variable
+precip_variability_order <- c("Gww", "TTE", "Asm", "Cpr", "Ync", "Lox", "Emr","Whr", "Wom", "Tum", "Rig", "Wac", "Stp", "Dry", "Gin", "Cum", "Fog", "Das", "Rob", "Rdf", "Dap", "How", "Ade")
+
+climate_metrics$site <- factor(climate_metrics$site, levels = wet_dry_order)
+
+ggplot(climate_metrics, aes(x = site, y = R2)) +
+  geom_col(fill = "violet") +
+  coord_flip() +
   labs(
-    x = "Date",
-    y = "Residuals (Observed - Predicted)",
-    title = "GAM Residuals: Training vs Testing Performance"
+    x = "Site",
+    y = expression(R^2),
+    title = "Predictability of GPP across OzFlux sites (least to most daily precip variability)"
   ) +
-  theme_minimal() +
-  theme(
-    legend.position = "top",
-    strip.text = element_text(face = "bold", size = 11),
-    panel.grid.minor = element_blank()
-  )
-```
-```{r}
-install.packages("naniar")
+  theme_minimal()
+
 ```
 
-
 ```{r}
-# Or visualize NA patterns
+# visualise NA patterns
 library(naniar)
-vis_miss(Gww_HH_daily[, c("date", "GPP", "VPD", "Precip", "Tair", "SW_rad", "Rn")])
+vis_miss(TTE_HH_daily[, c("date", "GPP", "VPD", "Precip", "Tair", "SW_rad", "Rn")])
 ```
-
+- I was removing NA rows in all of the variables. This meant if there were loads of NA in Rn, it deleted entire rows even when VPD/Tair/SW_rad were complete. This is why Gww was not doing very well.
 
 
 Seems to be trend of declining R-squared from high precipitation coefficient of variation to low coefficient of variation. 
@@ -300,16 +231,20 @@ Seems to be trend of declining R-squared from high precipitation coefficient of 
 
 fit_gam_and_metrics <- function(train_data, test_data) {
   
+  #Drop NA only in the predictors of the model
+  train_clean <- train_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD)
+  test_clean <- test_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD)
+  
   model <- gam(
-    GPP ~ s(Tair) + s(SW_rad) + s(Precip) + s(VPD),
-    data = train_data,
+    GPP ~ s(Tair) + s(SW_rad) + s(Precip) +s(VPD),
+    data = train_clean,
     method = "REML"
   )
   
-  preds <- predict(model, newdata = test_data)
+  preds <- predict(model, newdata = test_clean)
   
-  rmse <- sqrt(mean((test_data$GPP - preds)^2))
-  rsq  <- cor(test_data$GPP, preds)^2
+  rmse <- sqrt(mean((test_clean$GPP - preds)^2))
+  rsq  <- cor(test_clean$GPP, preds)^2
   
   tibble(
     RMSE = rmse,
@@ -339,7 +274,7 @@ wet_dry_order <- c("Rob", "How", "Wac", "Das", "Fog", "Dap", "Ade", "Dry", "Stp"
 #most to least variable
 precip_variability_order <- c("Gww", "TTE", "Asm", "Cpr", "Ync", "Lox", "Emr","Whr", "Wom", "Tum", "Rig", "Wac", "Stp", "Dry", "Gin", "Cum", "Fog", "Das", "Rob", "Rdf", "Dap", "How", "Ade")
 
-climate_vpd_metrics$site <- factor(climate_vpd_metrics$site, levels = precip_variability_order)
+climate_vpd_metrics$site <- factor(climate_vpd_metrics$site, levels = wet_dry_order)
 
 ggplot(climate_vpd_metrics, aes(x = site, y = R2)) +
   geom_col(fill = "violet") +
@@ -401,21 +336,29 @@ ggplot(gam_comparison, aes(x = site, y = delta_R2_VPD)) +
 ```
 Potentially here, we have the difference between wet sites and dry sites. In the wetter sites, current VPD improved model R-squared much more than drier sites. Could it be that lags matter more in dry sites? Cumulative water stress? Perhaps in wet sites, plants respond rapidly to VPD, explaining a lot more variation than in drier sites.
 
+Seems to be a really mixed pattern here. 
+
+
+
 ```{r}
 #Model 3a - climate (temp, SW rad, precip), VPD, + lags (3 days)
 
 fit_gam_and_metrics <- function(train_data, test_data) {
   
+  #Drop NA only in the predictors of the model
+  train_clean <- train_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD, VPD_lag3, Tair_lag3)
+  test_clean <- test_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD, VPD_lag3, Tair_lag3)
+  
   model <- gam(
-    GPP ~ s(Tair) + s(SW_rad) + s(Precip) + s(VPD) + s(VPD_lag3) + s(Tair_lag3),
-    data = train_data,
+    GPP ~ s(Tair) + s(SW_rad) + s(Precip) +s(VPD) +s(VPD_lag3) +s(Tair_lag3),
+    data = train_clean,
     method = "REML"
   )
   
-  preds <- predict(model, newdata = test_data)
+  preds <- predict(model, newdata = test_clean)
   
-  rmse <- sqrt(mean((test_data$GPP - preds)^2))
-  rsq  <- cor(test_data$GPP, preds)^2
+  rmse <- sqrt(mean((test_clean$GPP - preds)^2))
+  rsq  <- cor(test_clean$GPP, preds)^2
   
   tibble(
     RMSE = rmse,
@@ -436,6 +379,7 @@ lag3_metrics <- bind_rows(
   })
 )
 
+
 ```
 
 ```{r}
@@ -452,10 +396,6 @@ ggplot(lag3_metrics, aes(x = site, y = R2)) +
   ) +
   theme_minimal()
 ```
-```{r}
-mean(lag3_metrics$RMSE)
-```
-
 
 ```{r}
 
@@ -505,16 +445,20 @@ ggplot(gam_comparison, aes(x = site, y = delta_R2_lag)) +
 
 fit_gam_and_metrics <- function(train_data, test_data) {
   
+  #Drop NA only in the predictors of the model
+  train_clean <- train_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD, VPD_lag5, Tair_lag5)
+  test_clean <- test_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD, VPD_lag5, Tair_lag5)
+  
   model <- gam(
-    GPP ~ s(Tair) + s(SW_rad) + s(Precip) + s(VPD) + s(VPD_lag5) + s(Tair_lag5),
-    data = train_data,
+    GPP ~ s(Tair) + s(SW_rad) + s(Precip) +s(VPD) +s(VPD_lag5) + s(Tair_lag5),
+    data = train_clean,
     method = "REML"
   )
   
-  preds <- predict(model, newdata = test_data)
+  preds <- predict(model, newdata = test_clean)
   
-  rmse <- sqrt(mean((test_data$GPP - preds)^2))
-  rsq  <- cor(test_data$GPP, preds)^2
+  rmse <- sqrt(mean((test_clean$GPP - preds)^2))
+  rsq  <- cor(test_clean$GPP, preds)^2
   
   tibble(
     RMSE = rmse,
@@ -535,10 +479,6 @@ lag5_metrics <- bind_rows(
   })
 )
 
-```
-
-```{r}
-mean(lag5_metrics$RMSE)
 ```
 
 
@@ -603,16 +543,20 @@ ggplot(gam_comparison, aes(x = site, y = delta_R2_lag)) +
 
 fit_gam_and_metrics <- function(train_data, test_data) {
   
+  #Drop NA only in the predictors of the model
+  train_clean <- train_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD, VPD_lag7, Tair_lag7)
+  test_clean <- test_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD, VPD_lag7, Tair_lag7)
+  
   model <- gam(
-    GPP ~ s(Tair) + s(SW_rad) + s(Precip) + s(VPD) + s(VPD_lag7) + s(Tair_lag7),
-    data = train_data,
+    GPP ~ s(Tair) + s(SW_rad) + s(Precip) +s(VPD) +s(VPD_lag7) + s(Tair_lag7),
+    data = train_clean,
     method = "REML"
   )
   
-  preds <- predict(model, newdata = test_data)
+  preds <- predict(model, newdata = test_clean)
   
-  rmse <- sqrt(mean((test_data$GPP - preds)^2))
-  rsq  <- cor(test_data$GPP, preds)^2
+  rmse <- sqrt(mean((test_clean$GPP - preds)^2))
+  rsq  <- cor(test_clean$GPP, preds)^2
   
   tibble(
     RMSE = rmse,
@@ -636,10 +580,6 @@ lag7_metrics <- bind_rows(
 
 ```
 
-```{r}
-mean(lag7_metrics$RMSE)
-```
-
 
 ```{r}
 
@@ -655,6 +595,7 @@ ggplot(lag7_metrics, aes(x = site, y = R2)) +
   ) +
   theme_minimal()
 ```
+
 ```{r}
 #compare no lags, 3 day lags, 5 day and 7 day (Model 3a, b, c):
 
@@ -706,16 +647,20 @@ Let's use lag 7 - similar performances. 7 days aligns with typical plant physiol
 
 fit_gam_and_metrics <- function(train_data, test_data) {
   
+  #Drop NA only in the predictors of the model
+  train_clean <- train_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD, VPD_lag7, cumulative_cwd_7day, Tair_lag7)
+  test_clean <- test_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD, VPD_lag7, cumulative_cwd_7day, Tair_lag7)
+  
   model <- gam(
-    GPP ~ s(Tair) + s(SW_rad) + s(Precip) + s(VPD) + s(VPD_lag7) + s(Tair_lag7) +s(cumulative_cwd_7day),
-    data = train_data,
+    GPP ~ s(Tair) + s(SW_rad) + s(Precip) +s(VPD) + s(VPD) +s(VPD_lag7) +s(Tair_lag7) + s(cumulative_cwd_7day),
+    data = train_clean,
     method = "REML"
   )
   
-  preds <- predict(model, newdata = test_data)
+  preds <- predict(model, newdata = test_clean)
   
-  rmse <- sqrt(mean((test_data$GPP - preds)^2))
-  rsq  <- cor(test_data$GPP, preds)^2
+  rmse <- sqrt(mean((test_clean$GPP - preds)^2))
+  rsq  <- cor(test_clean$GPP, preds)^2
   
   tibble(
     RMSE = rmse,
@@ -736,11 +681,6 @@ cwd7_metrics <- bind_rows(
   })
 )
 
-
-```
-
-```{r}
-mean(cwd7_metrics$RMSE)
 ```
 
 
@@ -762,19 +702,22 @@ ggplot(cwd7_metrics, aes(x = site, y = R2)) +
 ```{r}
 #Model 5: Climate + cwd + lags + VPD + LCC
 
-
 fit_gam_and_metrics <- function(train_data, test_data) {
   
+  #Drop NA only in the predictors of the model
+  train_clean <- train_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD, VPD_lag7, cumulative_cwd_7day, Tair_lag7, LCC_daily)
+  test_clean <- test_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD, VPD_lag7, cumulative_cwd_7day, Tair_lag7, LCC_daily)
+  
   model <- gam(
-    GPP ~ s(Tair) + s(SW_rad) + s(Precip) + s(VPD) + s(VPD_lag7) + s(Tair_lag7) +s(cumulative_cwd_7day) + s(LCC_daily),
-    data = train_data,
+    GPP ~ s(Tair) + s(SW_rad) + s(Precip) +s(VPD) + s(VPD) +s(VPD_lag7) +s(Tair_lag7) + s(cumulative_cwd_7day) +s(LCC_daily),
+    data = train_clean,
     method = "REML"
   )
   
-  preds <- predict(model, newdata = test_data)
+  preds <- predict(model, newdata = test_clean)
   
-  rmse <- sqrt(mean((test_data$GPP - preds)^2))
-  rsq  <- cor(test_data$GPP, preds)^2
+  rmse <- sqrt(mean((test_clean$GPP - preds)^2))
+  rsq  <- cor(test_clean$GPP, preds)^2
   
   tibble(
     RMSE = rmse,
@@ -796,10 +739,6 @@ lcc7_metrics <- bind_rows(
 )
 
 
-```
-
-```{r}
-mean(lcc7_metrics$RMSE)
 ```
 
 
