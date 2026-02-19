@@ -62,6 +62,9 @@ wet_dry_order <- c("Rob", "How", "Wac", "Das", "Fog", "Dap", "Ade", "Dry",
 #     named e.g. How_HH_daily, Ade_HH_daily, etc., with lagged variables
 #     and cumulative_cwd_7day already computed as in your existing pipeline)
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# 1. Combine all site data - NO drop_na() here!
+# -----------------------------------------------------------------------------
 
 all_sites_df <- bind_rows(
   lapply(aus_sites, function(site) {
@@ -76,16 +79,11 @@ all_sites_df <- bind_rows(
         VPD_lag7            = lag(VPD, 7),
         cumulative_cwd_7day = zoo::rollapply(cwd, 7, sum, align = "right", fill = NA)
       ) %>%
-      drop_na(GPP, Tair, SW_rad, Precip, VPD,
-              VPD_lag3, Tair_lag3,
-              cumulative_cwd_7day, LCC_daily) %>%
+      # NO drop_na() here! Keep all rows with any valid data
       mutate(site = site)
   })
 ) %>%
   left_join(pft_lookup, by = "site")
-
-cat("Total observations across all sites:", nrow(all_sites_df), "\n")
-cat("Sites with data:", n_distinct(all_sites_df$site), "\n\n")
 
 # -----------------------------------------------------------------------------
 # 2. Model formula definitions
@@ -94,21 +92,27 @@ cat("Sites with data:", n_distinct(all_sites_df$site), "\n\n")
 formula_simple <- GPP ~ s(Tair) + s(SW_rad) + s(VPD)
 
 formula_complex <- GPP ~ s(Tair) + s(SW_rad) + s(Precip) +
-  s(VPD) + s(VPD_lag3) + s(Tair_lag3) +
+  s(VPD) + s(VPD_lag7) + s(Tair_lag7) +
   s(cumulative_cwd_7day) + s(LCC_daily)
 
 # -----------------------------------------------------------------------------
-# 3. LOSO cross-validation function
+# 3. LOSO with model-specific NA removal
 # -----------------------------------------------------------------------------
 
-run_loso <- function(data, formula, model_name) {
+run_loso <- function(data, formula, model_name, required_vars) {
 
   sites <- unique(data$site)
 
   results <- map_dfr(sites, function(held_out) {
 
-    train <- data %>% filter(site != held_out)
-    test  <- data %>% filter(site == held_out)
+    # Filter NAs only for variables needed by THIS model
+    train <- data %>% 
+      filter(site != held_out) %>%
+      drop_na(all_of(required_vars))
+    
+    test  <- data %>% 
+      filter(site == held_out) %>%
+      drop_na(all_of(required_vars))
 
     # Fit on all other sites
     model <- tryCatch(
@@ -148,14 +152,20 @@ run_loso <- function(data, formula, model_name) {
 }
 
 # -----------------------------------------------------------------------------
-# 4. Run LOSO for both models
+# 4. Run LOSO with specific variable lists for each model
 # -----------------------------------------------------------------------------
 
+# Define required variables for each model
+vars_simple <- c("GPP", "Tair", "SW_rad", "VPD")
+
+vars_complex <- c("GPP", "Tair", "SW_rad", "Precip", "VPD", 
+                  "VPD_lag7", "Tair_lag7", "cumulative_cwd_7day", "LCC_daily")
+
 cat("Running LOSO for simple model...\n")
-loso_simple  <- run_loso(all_sites_df, formula_simple,  "Simple")
+loso_simple  <- run_loso(all_sites_df, formula_simple, "Simple", vars_simple)
 
 cat("Running LOSO for complex model...\n")
-loso_complex <- run_loso(all_sites_df, formula_complex, "Complex")
+loso_complex <- run_loso(all_sites_df, formula_complex, "Complex", vars_complex)
 
 loso_results <- bind_rows(loso_simple, loso_complex) %>%
   left_join(pft_lookup, by = c("held_out_site" = "site")) %>%
