@@ -174,62 +174,94 @@ plot_vpd_gpp_truncated("Asm")
 3. Normalise GPP for comparison
 
 ```{r}
-# Function to normalize GPP
-normalize_gpp <- function(data) {
-  data %>%
-    mutate(
-      GPP_norm = (GPP - min(GPP, na.rm = TRUE)) / 
-                 (max(GPP, na.rm = TRUE) - min(GPP, na.rm = TRUE))
-    )
-}
-
-# Combine all sites with normalized GPP
-all_sites_normalized <- aus_sites %>%
-  map_dfr(~ {
-    data <- get(paste0(.x, "_HH_daily")) %>%
-      drop_na(VPD, GPP) %>%
-      normalize_gpp() %>%
-      select(VPD, GPP_norm) %>%
-      mutate(site = .x)
-    data
-  }) %>%
-  left_join(site_meta, by = c("site" = "site_code"))
-
-# Plot all sites together with normalized GPP
+# Plot each site's individual VPD-GPP response curve
 all_sites_normalized %>%
-  ggplot(aes(x = VPD, y = GPP_norm, group = site, color = moisture)) +
+  ggplot(aes(x = VPD, y = GPP_norm, color = moisture)) +
+  geom_point(alpha = 0.1, size = 0.5) +  # Show raw data points
   geom_smooth(method = "gam", formula = y ~ s(x, k = 4), 
-              se = FALSE, linewidth = 1, alpha = 0.7) +
-  facet_wrap(~PFT, ncol = 3) +
+              se = TRUE, linewidth = 1) +
+  facet_wrap(~site, ncol = 5) +  # Each site gets its own panel
   scale_color_manual(values = c("Wet" = "dodgerblue", 
                                  "Medium" = "purple", 
                                  "Dry" = "firebrick")) +
   labs(
     x = "VPD (kPa)",
     y = "Normalized GPP (0-1)",
-    title = "VPD-GPP response curves across Australian ecosystems",
-    subtitle = "Grouped by plant functional type",
+    title = "Individual site VPD sensitivity across Australian ecosystems",
+    subtitle = "Each site normalized to its own 0-1 range",
     color = "Moisture regime"
   ) +
-  theme_minimal(base_size = 12) +
+  theme_minimal(base_size = 10) +
   theme(legend.position = "bottom")
 
-# Alternative: facet by moisture regime instead
+# Alternative: Color by PFT instead
 all_sites_normalized %>%
-  ggplot(aes(x = VPD, y = GPP_norm, group = site, color = PFT)) +
+  ggplot(aes(x = VPD, y = GPP_norm, color = PFT)) +
+  geom_point(alpha = 0.1, size = 0.5) +
   geom_smooth(method = "gam", formula = y ~ s(x, k = 4), 
-              se = FALSE, linewidth = 1, alpha = 0.7) +
-  facet_wrap(~moisture, ncol = 3) +
+              se = TRUE, linewidth = 1) +
+  facet_wrap(~site, ncol = 5) +
   scale_color_brewer(palette = "Set2") +
   labs(
     x = "VPD (kPa)",
     y = "Normalized GPP (0-1)",
-    title = "VPD-GPP response curves by moisture regime",
+    title = "Individual site VPD sensitivity",
     color = "PFT"
   ) +
-  theme_minimal(base_size = 12) +
+  theme_minimal(base_size = 10) +
   theme(legend.position = "bottom")
+
+# Or arrange by moisture regime for easier comparison
+all_sites_normalized %>%
+  mutate(site = fct_reorder(site, as.numeric(factor(moisture)))) %>%
+  ggplot(aes(x = VPD, y = GPP_norm)) +
+  geom_point(alpha = 0.1, size = 0.5, aes(color = moisture)) +
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 4), 
+              se = TRUE, linewidth = 1, color = "black") +
+  facet_wrap(~site, ncol = 6) +
+  scale_color_manual(values = c("Wet" = "dodgerblue", 
+                                 "Medium" = "purple", 
+                                 "Dry" = "firebrick")) +
+  labs(
+    x = "VPD (kPa)",
+    y = "Normalized GPP (0-1)",
+    title = "VPD sensitivity by site (ordered by moisture regime)",
+    color = "Moisture"
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(legend.position = "bottom",
+        strip.text = element_text(size = 8))
 ```
+
+```{r}
+# Create a plot for each site and save them
+library(patchwork)
+
+for(site_name in aus_sites) {
+  
+  p <- all_sites_normalized %>%
+    filter(site == site_name) %>%
+    ggplot(aes(x = VPD, y = GPP_norm)) +
+    geom_point(alpha = 0.2, size = 1, color = "gray50") +
+    geom_smooth(method = "gam", formula = y ~ s(x, k = 4), 
+                se = TRUE, linewidth = 1.5, color = "dodgerblue") +
+    labs(
+      x = "VPD (kPa)",
+      y = "Normalized GPP (0-1)",
+      title = paste("Site:", site_name),
+      subtitle = paste("PFT:", unique(all_sites_normalized$PFT[all_sites_normalized$site == site_name]),
+                       "| Moisture:", unique(all_sites_normalized$moisture[all_sites_normalized$site == site_name]))
+    ) +
+    ylim(0, 1) +
+    theme_minimal(base_size = 14)
+  
+  print(p)
+  
+  # Optional: save each plot
+  # ggsave(paste0("VPD_sensitivity_", site_name, ".png"), p, width = 8, height = 6)
+}
+```
+
 Truncated to prevent the flicking up at the end:
 ```{r}
 # Truncate each site to its 95th percentile VPD before plotting
