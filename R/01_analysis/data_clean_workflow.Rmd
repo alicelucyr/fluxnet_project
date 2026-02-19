@@ -192,7 +192,7 @@ sites_clean <- sites_clean %>%
 
 Double checking variables:
 ```{r}
-plot(sites_clean$Tum_HH$Precip)
+plot(sites_clean$Gww_HH$date, sites_clean$Gww_HH$GPP)
 ```
 So all the cleaned AU_HH dataframes are in the object sites_clean. The external AU_HH in the environment is the raw data
 
@@ -305,6 +305,10 @@ sites_daily <- sites_clean %>%
 ```
 
 ```{r}
+plot(sites_daily$Gww_HH$date, sites_daily$Gww_HH$GPP)
+```
+
+```{r}
 #convert everything back to NA
 
 sites_daily <- sites_daily %>%
@@ -320,8 +324,6 @@ Growing season:
 filter_gs <- function(df) {
   df %>%
     filter(
-      Tair > 5,
-      SW_rad > 50,
       GPP > 0
     )
 }
@@ -478,7 +480,7 @@ sites_daily <- pmap(
 
 
 ```{r}
-#export back to environment (would recommend not doing this)
+#export back to environment 
 
 names(sites_daily) <- paste0(names(sites_daily), "_daily")
 list2env(sites_daily, envir = .GlobalEnv)
