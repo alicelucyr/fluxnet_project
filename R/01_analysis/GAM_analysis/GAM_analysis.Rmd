@@ -22,156 +22,6 @@ M5: Climate + VPD + best lag + cwd7 + LCC
 **2. Directly compare**
 - Model 1 + Model 2 (unique contribution of VPD)
 
-Load in water stress component
-```{r}
-library(tidyverse)
-library(caret)
-library(randomForest)
-library(zoo)
-library(mgcv)
-library(lattice)
-
-priestley_taylor_pet <- function(Rn, Tair, P) {
-  
-  alpha = 1.26      # PT constant
-  cp <- 1.013e-3    # Specific heat of air (MJ/kg°C)
-  epsilon <- 0.622  # Ratio of molecular weights of water vapor to dry air
-  lambda <- 2.45    # Latent heat of vaporization (MJ/kg)
-  G = 0             # Going to assume no ground heat flux on daily timescales
-  
-  # Psychrometric constant (kPa/°C)
-  gamma <- (cp * P) / (epsilon * lambda)
-  
-  # Saturation vapor pressure (kPa)
-  es <- 0.6108 * exp((17.27 * Tair) / (Tair + 237.3))
-  
-  # Slope of saturation vapor pressure curve (kPa/°C)
-  delta <- (4098 * es) / ((Tair+ 237.3)^2)
-  
-  # Priestley-Taylor PET calculation (mm/day)
-  pet <- alpha * (delta / (delta + gamma)) * ((Rn - G) / (lambda * 1e6)) * 86400
-
-  return(pet)
-}
-
-sites_daily <- sites_daily %>%
-  map(~ .x %>%
-        mutate(
-          pet = priestley_taylor_pet(Rn, Tair, Pa),
-          cwd = pet - ET
-        ))
- 
-```
-
-
-Add in day of year and year again for the LCC data:
-```{r}
-library(dplyr)
-library(lubridate)
-
-# Define a function to add year and day-of-year
-add_year_doy <- function(df) {
-  df %>%
-    mutate(
-      year = year(date),
-      doy  = yday(date)
-    )
-}
-
-sites_daily <- sites_daily %>%
-  map(add_year_doy)
-
-```
-
-```{r}
-library(dplyr)
-library(lubridate)
-library(purrr)
-library(terra)
-library(ncdf4)
-
-gome_file <- "/Users/alicerolfe/year_4_project/fluxnet_project/Data/GOME2_VcmaxTg_05deg.tif"
-vcmax_raster <- rast(gome_file)
-
-lcc_nc <- "/Users/alicerolfe/year_4_project/fluxnet_project/Chl_2003_2011_weeklyAll_01Deg_sf100.nc"
-
-# --- 1. Functions to get VCmax and daily LCC ---
-get_vcmax <- function(lat, lon, vcmax_raster) {
-  coords <- data.frame(lon = lon, lat = lat)
-  vcmax <- terra::extract(vcmax_raster, coords)
-  as.numeric(vcmax[1,2])
-}
-
-latlon_to_line_sample <- function(lat, lon, nlines = 1800, nsamples = 3600) {
-  lat_res <- 180 / nlines  
-  line <- round((90 - lat) / lat_res)
-  lon_res <- 360 / nsamples
-  sample <- round((lon + 180) / lon_res)
-  list(
-    line   = pmin(pmax(line, 1), nlines),
-    sample = pmin(pmax(sample, 1), nsamples)
-  )
-}
-
-get_daily_LCC <- function(lcc_nc, lat, lon) {
-  nc <- nc_open(lcc_nc)
-  coords <- latlon_to_line_sample(lat, lon)
-  
-  pixel <- ncvar_get(nc, "chl_all",
-                     start = c(coords$line, coords$sample, 1, 1),
-                     count = c(1, 1, -1, -1))
-  
-  fillvalue <- ncatt_get(nc, "chl_all", "_FillValue")$value
-  pixel[pixel == fillvalue] <- NA
-  nc_close(nc)
-  
-  LCC <- pixel / 100
-  weekly_clim <- rowMeans(LCC, na.rm = TRUE)
-  
-  weeks <- 1:length(weekly_clim)
-  daily_weeks <- seq(1, max(weeks), by = 1/7)
-  approx(weeks, weekly_clim, xout = daily_weeks)$y
-}
-
-# --- 2. Function to attach VCmax and LCC to a site dataframe ---
-attach_site_data <- function(df, lat, lon, vcmax_raster, lcc_nc) {
-  
-  vcmax_val <- get_vcmax(lat, lon, vcmax_raster)
-  daily_LCC <- get_daily_LCC(lcc_nc, lat, lon)
-  daily_LCC_full <- rep(daily_LCC, length.out = nrow(df))
-  
-  df %>%
-    mutate(
-      vcmax      = vcmax_val,
-      LCC_daily  = daily_LCC_full,
-      year       = year(date),
-      doy        = yday(date)
-    )
-}
-
-# --- 3. Map over sites_daily using site metadata ---
-site_meta <- tibble(
-  name = names(sites_daily),
-  lat  = c(-12.4943, -13.0769, -14.1593, -14.0633, -15.2588, -17.1507, -22.283, -33.6152, -23.8587,
-           -12.5452, -31.3764, -30.1913, -34.4704, -14.5636, -36.6499, -17.1175, -22.287, -37.4259,
-           -36.6732, -37.4222, -34.9893, -34.0021, -35.6566),
-  lon  = c(131.1523, 131.1178, 131.3881, 131.3181, 132.3706, 133.3502, 133.2490, 150.7236, 148.4746,
-           131.3072, 115.7138, 120.6541, 140.6551, 132.4776, 145.5759, 145.6301, 133.64, 145.1878,
-           145.0294, 144.0944, 146.2907, 140.5891, 148.1517)
-)
-
-sites_daily <- pmap(
-  list(sites_daily, site_meta$lat, site_meta$lon),
-  function(df, lat, lon) attach_site_data(df, lat, lon, vcmax_raster, lcc_nc)
-)
-
-```
-
-
-```{r}
-list2env(sites_daily, envir = .GlobalEnv)
-```
-
 
 Everything loaded in properly.
 
@@ -209,7 +59,6 @@ for(site in aus_sites){
       VPD_lag7 = lag(VPD, 7),
       cumulative_cwd_7day = rollapply(cwd, 7, sum, align="right", fill = NA)
     ) %>%
-    drop_na()
   
   # Temporal split: 80% train, 20% test
   n_train <- floor(0.8 * nrow(df))
@@ -230,16 +79,19 @@ for(site in aus_sites){
 
 fit_gam_and_metrics <- function(train_data, test_data) {
   
+  train_clean <- train_data %>% drop_na(GPP, Tair, SW_rad, Precip)
+  test_clean <- test_data %>% drop_na(GPP, Tair, SW_rad, Precip)
+  
   model <- gam(
     GPP ~ s(Tair) + s(SW_rad) + s(Precip),
-    data = train_data,
+    data = train_clean,
     method = "REML"
   )
   
-  preds <- predict(model, newdata = test_data)
+  preds <- predict(model, newdata = test_clean)
   
-  rmse <- sqrt(mean((test_data$GPP - preds)^2))
-  rsq  <- cor(test_data$GPP, preds)^2
+  rmse <- sqrt(mean((test_clean$GPP - preds)^2))
+  rsq  <- cor(test_clean$GPP, preds)^2
   
   tibble(
     RMSE = rmse,
@@ -287,14 +139,157 @@ ggplot(climate_metrics, aes(x = site, y = R2)) +
   theme_minimal()
 
 ```
+
 ```{r}
-plot(Gww_HH_daily$Precip)
+# Modified function to return predictions for both train and test data
+fit_gam_and_return_all_predictions <- function(train_data, test_data, site_name) {
+  
+  model <- gam(
+    GPP ~ s(Tair) + s(SW_rad) + s(Precip),
+    data = train_data,
+    method = "REML"
+  )
+  
+  # Predictions for training data
+  train_preds <- train_data %>%
+    mutate(
+      predicted_GPP = predict(model, newdata = train_data),
+      site = site_name,
+      dataset = "Training"
+    )
+  
+  # Predictions for test data
+  test_preds <- test_data %>%
+    mutate(
+      predicted_GPP = predict(model, newdata = test_data),
+      site = site_name,
+      dataset = "Testing"
+    )
+  
+  # Combine both
+  bind_rows(train_preds, test_preds)
+}
+
+# Get predictions for the three sites
+sites_to_plot <- "Emr"
+
+all_predictions_df <- bind_rows(
+  lapply(sites_to_plot, function(site) {
+    fit_gam_and_return_all_predictions(
+      get(paste0(site, "_train")),
+      get(paste0(site, "_test")),
+      site
+    )
+  })
+)
+
+# Time series plot with training/testing periods distinguished
+library(ggplot2)
+
+ggplot(all_predictions_df, aes(x = date)) +  # adjust 'date' to your actual column name
+  geom_line(aes(y = GPP, color = "Observed"), linewidth = 0.7) +
+  geom_line(aes(y = predicted_GPP, color = "Predicted"), linewidth = 0.7, linetype = "dashed") +
+  geom_vline(
+    data = all_predictions_df %>% 
+      group_by(site) %>% 
+      filter(dataset == "Testing") %>% 
+      slice_min(date, n = 1),
+    aes(xintercept = date),
+    linetype = "dotted",
+    color = "black",
+    linewidth = 0.8
+  ) +
+  facet_wrap(~site, ncol = 1, scales = "free_y") +
+  scale_color_manual(
+    values = c("Observed" = "#2c5f2d", "Predicted" = "#e65100"),
+    name = ""
+  ) +
+  labs(
+    x = "Date",
+    y = "GPP",
+    title = "Observed vs Predicted GPP: Training and Testing Periods",
+    subtitle = "Dotted vertical line marks start of testing period"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "top",
+    strip.text = element_text(face = "bold", size = 11),
+    panel.grid.minor = element_blank()
+  )
+
+# Alternative: Use shading to show train/test periods
+ggplot(all_predictions_df, aes(x = date)) +
+  geom_rect(
+    data = all_predictions_df %>% 
+      group_by(site) %>%
+      summarise(
+        xmin = min(date[dataset == "Testing"]),
+        xmax = max(date[dataset == "Testing"])
+      ),
+    aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf),
+    fill = "gray90", alpha = 0.5, inherit.aes = FALSE
+  ) +
+  geom_line(aes(y = GPP, color = "Observed"), linewidth = 0.7) +
+  geom_line(aes(y = predicted_GPP, color = "Predicted"), linewidth = 0.7, linetype = "dashed") +
+  facet_wrap(~site, ncol = 1, scales = "free_y") +
+  scale_color_manual(
+    values = c("Observed" = "#2c5f2d", "Predicted" = "#e65100"),
+    name = ""
+  ) +
+  labs(
+    x = "Date",
+    y = "GPP",
+    title = "Observed vs Predicted GPP: Training and Testing Periods",
+    subtitle = "Gray shading indicates testing period"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "top",
+    strip.text = element_text(face = "bold", size = 11),
+    panel.grid.minor = element_blank()
+  )
+
+# Residuals plot with train/test distinction
+ggplot(all_predictions_df, aes(x = date, y = GPP - predicted_GPP)) +
+  geom_rect(
+    data = all_predictions_df %>% 
+      group_by(site) %>%
+      summarise(
+        xmin = min(date[dataset == "Testing"]),
+        xmax = max(date[dataset == "Testing"])
+      ),
+    aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf),
+    fill = "gray90", alpha = 0.5, inherit.aes = FALSE
+  ) +
+  geom_line(aes(color = dataset), linewidth = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  facet_wrap(~site, ncol = 1, scales = "free_y") +
+  scale_color_manual(
+    values = c("Training" = "#2c5f2d", "Testing" = "#e65100"),
+    name = "Dataset"
+  ) +
+  labs(
+    x = "Date",
+    y = "Residuals (Observed - Predicted)",
+    title = "GAM Residuals: Training vs Testing Performance"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "top",
+    strip.text = element_text(face = "bold", size = 11),
+    panel.grid.minor = element_blank()
+  )
+```
+```{r}
+install.packages("naniar")
 ```
 
 
-
-
-
+```{r}
+# Or visualize NA patterns
+library(naniar)
+vis_miss(Gww_HH_daily[, c("date", "GPP", "VPD", "Precip", "Tair", "SW_rad", "Rn")])
+```
 
 
 
