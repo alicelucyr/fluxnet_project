@@ -334,7 +334,7 @@ sites_daily <- sites_daily %>%
 
 Check variables look normal:
 ```{r}
-plot(sites_daily$How_HH$GPP)
+plot(sites_daily$How_HH_daily$VPD, sites_daily$How_HH_daily$GPP)
 ```
 Add in water stress component and leaf chlorophyll content
 ```{r}
