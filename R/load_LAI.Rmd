@@ -9,15 +9,6 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 Load in LAI data
-Howard Springs
-Sturt plains
-Daly River
-Dry River
-Alice Springs
-Tumbarumba 
-TTE
-Wombat
-
 Every 4 days
 1 measurements a day per site
 
@@ -31,7 +22,11 @@ library(tidyverse)
 ```
 
 ```{r}
-lai_data <- read.csv("/Users/alicerolfe/year_4_project/fluxnet_project/Data/LAI_2.csv")
+lai_data <- read.csv("/Users/alicerolfe/year_4_project/fluxnet_project/Data/site_4day_LAI.csv")
+```
+
+```{r}
+lai_data <- lai_data %>% select(-.geo)
 ```
 
 Convert date to proper date format
@@ -43,21 +38,6 @@ lai_data <- lai_data %>%
 ```{r}
 head(lai_data)
 ```
-Remove unwanted sites 
-```{r}
-lai_data <- lai_data %>%
-  filter(!site %in% c("Litchfield"))
-```
-
-Merge data for:
-Howard Springs
-Sturt plains
-Daly River
-Dry River
-Alice Springs
-Tumbarumba 
-Wombat
-Ti Tree East
 
 Make corresponding names from LAI data and Flux data
 ```{r}
