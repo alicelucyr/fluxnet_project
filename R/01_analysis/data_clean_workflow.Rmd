@@ -192,7 +192,7 @@ sites_clean <- sites_clean %>%
 
 Double checking variables:
 ```{r}
-plot(sites_clean$Gww_HH$date, sites_clean$Gww_HH$GPP)
+plot(sites_clean$Gww_HH$GPP)
 ```
 So all the cleaned AU_HH dataframes are in the object sites_clean. The external AU_HH in the environment is the raw data
 
@@ -305,7 +305,7 @@ sites_daily <- sites_clean %>%
 ```
 
 ```{r}
-plot(sites_daily$Gww_HH$date, sites_daily$Gww_HH$GPP)
+plot(sites_daily$Gww_HH$GPP)
 ```
 
 ```{r}
@@ -334,7 +334,7 @@ sites_daily <- sites_daily %>%
 
 Check variables look normal:
 ```{r}
-plot(sites_daily$How_HH$Precip)
+plot(sites_daily$How_HH$GPP)
 ```
 Add in water stress component and leaf chlorophyll content
 ```{r}
