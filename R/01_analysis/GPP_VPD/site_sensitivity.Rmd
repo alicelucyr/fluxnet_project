@@ -44,43 +44,28 @@ ggplot(Ade_binned, aes(x = vpd_mid, y = gpp_norm)) +
        title = "Adelaide River - GPP~VPD sensitivity") +
   theme_classic()
 ```
+
 ```{r}
-library(tidyverse)
+df <- sites_daily[["Fog_HH_daily"]]
 
-drop_na(Asm_HH_daily)
+# check VPD range first
+summary(df$VPD)
 
-Asm_binned <- Asm_HH_daily %>%
-  mutate(vpd_bin = cut(VPD, breaks = seq(0, 6, by = 0.5))) %>%
-  group_by(vpd_bin) %>%
-  summarise(gpp_mean = mean(GPP, na.rm = TRUE),
-            vpd_mid = mean(VPD, na.rm = TRUE)) %>%
-  mutate(gpp_norm = gpp_mean / max(gpp_mean, na.rm = TRUE)) %>%
-  filter(vpd_mid >= vpd_mid[which.max(gpp_norm)])
-
-print(Asm_binned)
-
-lm(gpp_norm ~ vpd_mid, data = Asm_binned) %>% coef()
-```
-```{r}
-Asm_binned_full <- Asm_HH_daily %>%
+# then look at the binned data before any filtering
+df %>%
   mutate(vpd_bin = cut(VPD, breaks = seq(0, 6, by = 0.5))) %>%
   group_by(vpd_bin) %>%
   summarise(
     gpp_max = quantile(GPP, 0.95, na.rm = TRUE),
     vpd_mid = mean(VPD, na.rm = TRUE),
-    n = n()
+    n = n(),
+    .groups = "drop"
   ) %>%
-  filter(n >= 30) %>%  # drop sparse bins
-  mutate(gpp_norm = gpp_max / max(gpp_max, na.rm = TRUE)) %>%
-  filter(vpd_mid >= vpd_mid[which.max(gpp_norm)])  # descending limb only
-
-ggplot(Asm_binned_full, aes(x = vpd_mid, y = gpp_norm)) +
-  geom_point() + geom_line() + theme_classic()
-
-lm(gpp_norm ~ vpd_mid, data = Asm_binned_full) %>% coef()
-
-
+  print(n = Inf)
 ```
+
+
+
 ```{r}
 library(tidyverse)
 
@@ -89,7 +74,8 @@ site_slopes <- map_dfr(names(sites_daily), function(site) {
   df <- sites_daily[[site]]
   
   binned <- df %>%
-    mutate(vpd_bin = cut(VPD, breaks = seq(0, 6, by = 0.5))) %>%
+    drop_na(VPD, GPP) %>%
+    mutate(vpd_bin = cut(VPD, breaks = seq(0, 6, by = 0.2))) %>%
     group_by(vpd_bin) %>%
     summarise(
       gpp_max = quantile(GPP, 0.95, na.rm = TRUE),
@@ -97,7 +83,7 @@ site_slopes <- map_dfr(names(sites_daily), function(site) {
       n = n(),
       .groups = "drop"
     ) %>%
-    filter(n >= 10) %>%
+    filter(n >= 3) %>%
     mutate(gpp_norm = gpp_max / max(gpp_max, na.rm = TRUE)) %>%
     filter(vpd_mid >= vpd_mid[which.max(gpp_norm)])
   
@@ -121,7 +107,18 @@ print(site_slopes)
 ```
 
 ```{r}
-ggplot(site_slopes, aes(x = reorder(site, slope), y = slope)) +
+wet_dry_order <- c("Rob", "How", "Wac", "Das", "Fog", "Dap", "Ade", "Dry", "Stp", "Wom", "Rdf", "Tum", "Gin", "Emr", "Cum", "Gww", "Rig", "Asm", "Cpr", "Whr", "TTE", "Ync", "Lox")
+
+#highest mean LAI to lowest mean LAI
+lai_order <- c("Rob", "Tum", "Wom", "Wac", "Dap", "Rig", "How", "Fog", "Dry", "Cum", "Das", "Rdf", "Ade", "Whr", "Gin", "Emr", "Lox", "Stp", "Cpr", "Ync", "Gww", "TTE", "Asm" )
+
+site_slopes <- site_slopes %>%
+  mutate(site = str_remove(site, "_HH_daily"))
+
+site_slopes$site <- factor(site_slopes$site, levels = lai_order)
+
+
+ggplot(site_slopes, aes(x = site, y = slope)) +
   geom_point(size = 3) +
   geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
   coord_flip() +
@@ -129,4 +126,89 @@ ggplot(site_slopes, aes(x = reorder(site, slope), y = slope)) +
        title = "GPP sensitivity to VPD across sites") +
   theme_classic()
 ```
+Rob and Wom unsure 
+
+```{r}
+site_slopes <- site_slopes %>%
+  mutate(sensitivity_group = case_when(
+    slope < -0.4 ~ "high",
+    slope < -0.2 ~ "moderate",
+    TRUE ~ "low"
+  ))
+
+```
+
+Rob - artifact of 3 bins
+Wom - interesting as its on the wetter end
+
+High sensitivity - Ade (WSA), Dap (GRA), Fog (WET) (wetter more mesic sites)
+Moderate sensitivity - How (WSA), Das (SAV), Dry (SAV), Stp (GRA), Rdf (WSA), Rig (GRA), TTE (GRA), Wac (EBF), Ync (GRA)
+Low sensitivity - Cum (SAV), Emr (GRA), Gin (WSA), Gww (SAV), Lox (DBF), Whr (EBF), Wom (EBF), Cpr (SAV), Tum (EBF)
+
+Stomatal strategy gradient? Rather than simply a rainfall gradient? 
+
+Plant functional type does not seem to control VPD sensitivity
+
+
+```{r}
+# first generate binned data and fitted values for all sites
+all_binned <- map_dfr(names(sites_daily), function(site) {
+  
+  df <- sites_daily[[site]]
+  
+  binned_full <- df %>%
+    drop_na(VPD, GPP) %>%
+    mutate(vpd_bin = cut(VPD, breaks = seq(0, 6, by = 0.2))) %>%
+    group_by(vpd_bin) %>%
+    summarise(
+      gpp_max = quantile(GPP, 0.95, na.rm = TRUE),
+      vpd_mid = mean(VPD, na.rm = TRUE),
+      n = n(),
+      .groups = "drop"
+    ) %>%
+    filter(n >= 3) %>%
+    mutate(
+      gpp_norm = gpp_max / max(gpp_max, na.rm = TRUE),
+      site = site,
+      descending = vpd_mid >= vpd_mid[which.max(gpp_norm)]
+    )
+  
+  # fit model on descending limb only
+  descending <- filter(binned_full, descending)
+  
+  if (nrow(descending) >= 3) {
+    model <- lm(gpp_norm ~ vpd_mid, data = descending)
+    binned_full <- binned_full %>%
+      mutate(fitted = ifelse(descending, predict(model, newdata = binned_full), NA))
+  } else {
+    binned_full <- binned_full %>% mutate(fitted = NA)
+  }
+  
+  binned_full
+})
+
+# plot
+# split sites into groups of 6 for separate panels
+site_names <- unique(all_binned$site)
+n_per_panel <- 6
+site_groups <- split(site_names, ceiling(seq_along(site_names) / n_per_panel))
+
+plots <- map(site_groups, function(sites_subset) {
+  all_binned %>%
+    filter(site %in% sites_subset) %>%
+    ggplot(aes(x = vpd_mid, y = gpp_norm)) +
+    geom_line(alpha = 0.3) +
+    geom_point(size = 1.5) +
+    geom_line(aes(y = fitted), colour = "firebrick", linewidth = 1, na.rm = TRUE) +
+    facet_wrap(~ site, scales = "free_x", ncol = 2) +
+    labs(x = "VPD (kPa)", y = "Normalised GPP") +
+    theme_classic(base_size = 10) +
+    theme(strip.background = element_blank(),
+          strip.text = element_text(face = "bold"))
+})
+
+# print all panels
+walk(plots, print)
+```
+
 
