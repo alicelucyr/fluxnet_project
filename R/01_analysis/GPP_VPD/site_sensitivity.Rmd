@@ -1,0 +1,132 @@
+---
+title: "site_sensitivity"
+output: html_document
+date: "2026-02-23"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Straight line slope
+- Bin data and take the mean or max GPP value for a clean curve per site
+- Identify the VPD bin where GPP is maximum (start point)
+- Fit simple linear regression from start point - GPP normalised so slopes are comparable across sites
+- Slope per site to compare
+
+```{r}
+library(tidyverse)
+
+Ade_binned <- Ade_HH_daily %>%
+  mutate(vpd_bin = cut(VPD, breaks = seq(0, 6, by = 0.5))) %>%
+  group_by(vpd_bin) %>%
+  summarise(gpp_mean = mean(GPP, na.rm = TRUE),
+            vpd_mid = mean(VPD, na.rm = TRUE)) %>%
+  mutate(gpp_norm = gpp_mean / max(gpp_mean, na.rm = TRUE)) %>%
+  filter(vpd_mid >= vpd_mid[which.max(gpp_norm)])
+
+lm(gpp_norm ~ vpd_mid, data = Ade_binned) %>% coef()
+```
+
+```{r}
+# fit the model and get predictions
+model <- lm(gpp_norm ~ vpd_mid, data = Ade_binned)
+
+Ade_binned <- Ade_binned %>%
+  mutate(fitted = predict(model))
+
+# plot
+ggplot(Ade_binned, aes(x = vpd_mid, y = gpp_norm)) +
+  geom_point(size = 3) +
+  geom_line(alpha = 0.4) +  # connect the binned points
+  geom_line(aes(y = fitted), colour = "firebrick", linewidth = 1) +
+  labs(x = "VPD (kPa)", y = "Normalised GPP",
+       title = "Adelaide River - GPP~VPD sensitivity") +
+  theme_classic()
+```
+```{r}
+library(tidyverse)
+
+drop_na(Asm_HH_daily)
+
+Asm_binned <- Asm_HH_daily %>%
+  mutate(vpd_bin = cut(VPD, breaks = seq(0, 6, by = 0.5))) %>%
+  group_by(vpd_bin) %>%
+  summarise(gpp_mean = mean(GPP, na.rm = TRUE),
+            vpd_mid = mean(VPD, na.rm = TRUE)) %>%
+  mutate(gpp_norm = gpp_mean / max(gpp_mean, na.rm = TRUE)) %>%
+  filter(vpd_mid >= vpd_mid[which.max(gpp_norm)])
+
+print(Asm_binned)
+
+lm(gpp_norm ~ vpd_mid, data = Asm_binned) %>% coef()
+```
+```{r}
+Asm_binned_full <- Asm_HH_daily %>%
+  mutate(vpd_bin = cut(VPD, breaks = seq(0, 6, by = 0.5))) %>%
+  group_by(vpd_bin) %>%
+  summarise(
+    gpp_max = quantile(GPP, 0.95, na.rm = TRUE),
+    vpd_mid = mean(VPD, na.rm = TRUE),
+    n = n()
+  ) %>%
+  filter(n >= 30) %>%  # drop sparse bins
+  mutate(gpp_norm = gpp_max / max(gpp_max, na.rm = TRUE)) %>%
+  filter(vpd_mid >= vpd_mid[which.max(gpp_norm)])  # descending limb only
+
+ggplot(Asm_binned_full, aes(x = vpd_mid, y = gpp_norm)) +
+  geom_point() + geom_line() + theme_classic()
+
+lm(gpp_norm ~ vpd_mid, data = Asm_binned_full) %>% coef()
+
+
+```
+```{r}
+library(tidyverse)
+
+site_slopes <- map_dfr(names(sites_daily), function(site) {
+  
+  df <- sites_daily[[site]]
+  
+  binned <- df %>%
+    mutate(vpd_bin = cut(VPD, breaks = seq(0, 6, by = 0.5))) %>%
+    group_by(vpd_bin) %>%
+    summarise(
+      gpp_max = quantile(GPP, 0.95, na.rm = TRUE),
+      vpd_mid = mean(VPD, na.rm = TRUE),
+      n = n(),
+      .groups = "drop"
+    ) %>%
+    filter(n >= 10) %>%
+    mutate(gpp_norm = gpp_max / max(gpp_max, na.rm = TRUE)) %>%
+    filter(vpd_mid >= vpd_mid[which.max(gpp_norm)])
+  
+  # skip sites with too few bins to fit
+  if (nrow(binned) < 3) {
+    return(tibble(site = site, intercept = NA, slope = NA, n_bins = nrow(binned)))
+  }
+  
+  model <- lm(gpp_norm ~ vpd_mid, data = binned)
+  coefs <- coef(model)
+  
+  tibble(
+    site = site,
+    intercept = coefs[1],
+    slope = coefs[2],
+    n_bins = nrow(binned)
+  )
+})
+
+print(site_slopes)
+```
+
+```{r}
+ggplot(site_slopes, aes(x = reorder(site, slope), y = slope)) +
+  geom_point(size = 3) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+  coord_flip() +
+  labs(x = "Site", y = "GPP~VPD Slope", 
+       title = "GPP sensitivity to VPD across sites") +
+  theme_classic()
+```
+
