@@ -98,10 +98,10 @@ all_predictions <- map_dfr(names(sites_daily), function(site) {
   df <- sites_daily[[site]] %>%
     arrange(date) %>%
     drop_na(GPP, VPD, Tair, SW_rad, LAI_filled) %>%
-    mutate(precip_90day = rollsum(Precip, k = 90, fill = NA, align = "right"))
+    mutate(precip_90day = rollsum(Precip, k = 30, fill = NA, align = "right"))
   
-  wet_thresh <- quantile(df$precip_90day, 0.70, na.rm = TRUE)
-  dry_thresh  <- quantile(df$precip_90day, 0.30, na.rm = TRUE)
+  wet_thresh <- quantile(df$precip_90day, 0.80, na.rm = TRUE)
+  dry_thresh  <- quantile(df$precip_90day, 0.20, na.rm = TRUE)
   
   df <- df %>%
     mutate(season = case_when(
