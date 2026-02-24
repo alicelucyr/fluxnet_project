@@ -176,4 +176,54 @@ plots <- map(site_groups, function(sites_subset) {
 
 walk(plots, print)
 ```
+```{r}
+all_predictions %>%
+  group_by(site, season) %>%
+  summarise(n = n(), 
+            date_min = min(date), 
+            date_max = max(date),
+            .groups = "drop") %>%
+  filter(site %in% c("Ade", "Lox", "Rob", "Ync"))
+```
+So Ade, Lox, Rob and Ync look like that because they span only one year, not capturing multiple wet and dry seasons - should they be removed?
 
+```{r}
+# order sites by wet_dry gradient as before
+stress_results <- stress_results %>%
+  mutate(site = factor(site, levels = wet_dry_order))
+
+# mean residual
+ggplot(stress_results, aes(x = site, y = mean_residual_dry)) +
+  geom_point(size = 3) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+  coord_flip() +
+  labs(x = "Site", y = "Mean Residual (observed - predicted GPP)",
+       title = "Dry season GPP residual") +
+  theme_classic()
+
+# mean stress index
+ggplot(stress_results, aes(x = site, y = mean_stress_index_dry)) +
+  geom_point(size = 3) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+  coord_flip() +
+  labs(x = "Site", y = "Mean Stress Index (residual / predicted GPP)",
+       title = "Dry season GPP stress index") +
+  theme_classic()
+
+```
+In most sites, observed GPP is lower than the wet season model predicts, indicating moisture stress. The GAM over-predicts the GPP and the gap is the moisture stress signal
+
+```{r}
+library(patchwork)
+
+ggplot(stress_results, aes(x = site, y = r2_wet)) +
+  geom_point(size = 3) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+  coord_flip() +
+  labs(x = "Site", y = "R-squared of wet season model",
+       title = "Training model R-squared") +
+  theme_classic()
+
+
+```
+I may need to rethink how I define wet season/non-moisture stress period as I dont think it is working for some of the sites. Some sites showing positive values which doesn't rlly make sense.
