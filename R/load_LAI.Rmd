@@ -42,197 +42,62 @@ head(lai_data)
 Make corresponding names from LAI data and Flux data
 ```{r}
 site_mapping <- data.frame(
-  flux_site = c("How", "Stp", "Das", "Dry", "Asm", "Tum", "Wom", "TTE"),
-  lai_site = c("Howard Springs", "Sturt Plains", "Daly River Uncleared", "Dry River", "Alice Springs", "Tumbarumba", "Wombat", "Ti Tree East")
+  flux_site = c("How", "Stp", "Dry", "Das", "TTE", "Asm", "Tum", "Wom", "Ade", "Cpr", "Cum", "Dap", "Emr", "Fog", "Gin", "Gww", "Lox", "Rdf", "Rig", "Rob", "Wac", "Whr", "Ync"),
+  lai_site = c("How", "Stp", "Dry", "Das", "TTE", "Asm", "Tum", "Wom", "Ade", "Cpr", "Cum", "Dap", "Emr", "Fog", "Gin", "Gww", "Lox", "Rdf", "Rig", "Rob", "Wac", "Whr", "Ync")
 )
 ```
 
 Quickly add in site names to flux data
 ```{r}
-How_HH_daily <- How_HH_daily %>%
-  mutate(site = "How")
-
-Stp_HH_daily <- Stp_HH_daily %>%
-  mutate(site = "Stp")
-
-Das_HH_daily <- Das_HH_daily %>%
-  mutate(site = "Das")
-
-Dry_HH_daily <- Dry_HH_daily %>%
-  mutate(site = "Dry")
-
-Asm_HH_daily <- Asm_HH_daily %>%
-  mutate(site = "Asm")
-
-Tum_HH_daily <- Tum_HH_daily %>%
-  mutate(site = "Tum")
-
-Wom_HH_daily <- Wom_HH_daily %>%
-  mutate(site = "Wom")
-
-TTE_HH_daily <- TTE_HH_daily %>%
-  mutate(site = "TTE")
+sites_daily <- imap(sites_daily, function(df, name) {
+  site_code <- str_remove(name, "_HH_daily")
+  df %>% mutate(site = site_code)
+})
 ```
 
 Convert flux data date to match the format of the lai data
 ```{r}
-# Convert flux data date to Date format (remove time component)
-How_HH_daily <- How_HH_daily %>%
-  mutate(date = as.Date(date))
+sites_daily <- map(sites_daily, function(df) {
+  df %>% mutate(date = as.Date(date))
+})
 ```
 
+Join the LAI data onto the site data
 ```{r}
-# Check it worked
-class(How_HH_daily$date)
-head(How_HH_daily$date)
+sites_lai <- map(sites_daily, function(df) {
+  df %>%
+    left_join(site_mapping, by = c("site" = "flux_site")) %>%
+    left_join(lai_data %>% select(date, site, mean),
+              by = c("date" = "date", "lai_site" = "site")) %>%
+    rename(LAI = mean)
+})
 ```
 
-
-Apply to rest of sites:
-```{r}
-Stp_HH_daily <- Stp_HH_daily %>% mutate(date = as.Date(date))
-Das_HH_daily <- Das_HH_daily %>% mutate(date = as.Date(date))
-Dry_HH_daily <- Dry_HH_daily %>% mutate(date = as.Date(date))
-Asm_HH_daily <- Asm_HH_daily %>% mutate(date = as.Date(date))
-Tum_HH_daily <- Tum_HH_daily %>% mutate(date = as.Date(date))
-Wom_HH_daily <- Wom_HH_daily %>% mutate(date = as.Date(date))
-TTE_HH_daily <- TTE_HH_daily %>% mutate(date = as.Date(date))
-```
-
-```{r}
-How_lai <- How_HH_daily %>%
-  left_join(site_mapping, by = c("site" = "flux_site")) %>%
-  left_join(lai_data %>% select(date, site, mean),
-            by = c("date" = "date", "lai_site" = "site")) %>%
-  rename(LAI = mean)
-
-Stp_lai <- Stp_HH_daily %>%
-  left_join(site_mapping, by = c("site" = "flux_site")) %>%
-  left_join(lai_data %>% select(date, site, mean),
-            by = c("date" = "date", "lai_site" = "site")) %>%
-  rename(LAI = mean)
-
-Das_lai <- Das_HH_daily %>%
-  left_join(site_mapping, by = c("site" = "flux_site")) %>%
-  left_join(lai_data %>% select(date, site, mean),
-            by = c("date" = "date", "lai_site" = "site")) %>%
-  rename(LAI = mean)
-
-Dry_lai <- Dry_HH_daily %>%
-  left_join(site_mapping, by = c("site" = "flux_site")) %>%
-  left_join(lai_data %>% select(date, site, mean),
-            by = c("date" = "date", "lai_site" = "site")) %>%
-  rename(LAI = mean)
-
-Asm_lai <- Asm_HH_daily %>%
-  left_join(site_mapping, by = c("site" = "flux_site")) %>%
-  left_join(lai_data %>% select(date, site, mean),
-            by = c("date" = "date", "lai_site" = "site")) %>%
-  rename(LAI = mean)
-
-Tum_lai <- Tum_HH_daily %>%
-  left_join(site_mapping, by = c("site" = "flux_site")) %>%
-  left_join(lai_data %>% select(date, site, mean),
-            by = c("date" = "date", "lai_site" = "site")) %>%
-  rename(LAI = mean)
-
-Wom_lai <- Wom_HH_daily %>%
-  left_join(site_mapping, by = c("site" = "flux_site")) %>%
-  left_join(lai_data %>% select(date, site, mean),
-            by = c("date" = "date", "lai_site" = "site")) %>%
-  rename(LAI = mean)
-
-TTE_lai <- TTE_HH_daily %>%
-  left_join(site_mapping, by = c("site" = "flux_site")) %>%
-  left_join(lai_data %>% select(date, site, mean),
-            by = c("date" = "date", "lai_site" = "site")) %>%
-  rename(LAI = mean)
-
-
-```
 
 Fill in missing days:
 Going to use linear interpolation - assumes gradual change between measurements. 
 
 ```{r}
 library(zoo)
+
+sites_lai <- map(sites_lai, function(df) {
+  df %>%
+    mutate(LAI_interpolated = approx(date, LAI, xout = date, rule = 2)$y) %>%
+    arrange(date) %>%
+    mutate(LAI_filled = na.approx(LAI, maxgap = 4, na.rm = FALSE))
+})
 ```
 
 ```{r}
-How_lai <- How_lai %>%
-  mutate(LAI_interpolated = approx(date, LAI, xout = date, rule = 2)$y)
+walk(names(sites_lai), function(name) {
+  plot(sites_lai[[name]]$LAI_filled, main = name)
+})
 ```
 
 ```{r}
-Stp_lai <- Stp_lai %>%
-  mutate(LAI_interpolated = approx(date, LAI, xout = date, rule = 2)$y)
-
-Das_lai <- Das_lai %>%
-  mutate(LAI_interpolated = approx(date, LAI, xout = date, rule = 2)$y)
-
-Dry_lai<- Dry_lai %>%
-  mutate(LAI_interpolated = approx(date, LAI, xout = date, rule = 2)$y)
-
-Asm_lai <- Asm_lai %>%
-  mutate(LAI_interpolated = approx(date, LAI, xout = date, rule = 2)$y)
-
-Tum_lai<- Tum_lai %>%
-  mutate(LAI_interpolated = approx(date, LAI, xout = date, rule = 2)$y)
-
-Wom_lai <- Wom_lai %>%
-  mutate(LAI_interpolated = approx(date, LAI, xout = date, rule = 2)$y)
-
-TTE_lai <- TTE_lai %>%
-  mutate(LAI_interpolated = approx(date, LAI, xout = date, rule = 2)$y)
+plot(sites_lai$How_HH_daily$LAI)
 ```
 
-Create filter - max gap parameter tells it to only interpolate gaps of 4 or fewer observations. 4 days = 4 rows
-
-```{r}
-How_lai <- How_lai%>%
-  arrange(date) %>%
-  mutate(LAI_filled = na.approx(LAI, maxgap = 4, na.rm = FALSE))
-
-Stp_lai<- Stp_lai%>%
-  arrange(date) %>%
-  mutate(LAI_filled = na.approx(LAI, maxgap = 4, na.rm = FALSE))
-
-Das_lai<- Das_lai%>%
-  arrange(date) %>%
-  mutate(LAI_filled = na.approx(LAI, maxgap = 4, na.rm = FALSE))
-
-Dry_lai<- Dry_lai%>%
-  arrange(date) %>%
-  mutate(LAI_filled = na.approx(LAI, maxgap = 4, na.rm = FALSE))
-
-Asm_lai<- Asm_lai%>%
-  arrange(date) %>%
-  mutate(LAI_filled = na.approx(LAI, maxgap = 4, na.rm = FALSE))
-
-Tum_lai<- Tum_lai%>%
-  arrange(date) %>%
-  mutate(LAI_filled = na.approx(LAI, maxgap = 4, na.rm = FALSE))
-
-Wom_lai<- Wom_lai%>%
-  arrange(date) %>%
-  mutate(LAI_filled = na.approx(LAI, maxgap = 4, na.rm = FALSE))
-
-TTE_lai<- TTE_lai%>%
-  arrange(date) %>%
-  mutate(LAI_filled = na.approx(LAI, maxgap = 4, na.rm = FALSE))
-
-```
-
-```{r}
-plot(Tum_lai$LAI_filled)
-plot(Asm_lai$LAI_filled)
-plot(Dry_lai$LAI_filled)
-plot(TTE_lai$LAI_filled)
-plot(Das_lai$LAI_filled)
-plot(Stp_lai$LAI_filled)
-plot(Wom_lai$LAI_filled)
-plot(How_lai$LAI_filled)
-```
 
 How - Woody savanna
 Das - Savanna
@@ -257,47 +122,45 @@ plot(TTE_lai$VPD, TTE_lai$LAI)
 Now let's add the LAI data back into the "_HH"daily" dataframes so I can use them for analysis:
 
 ```{r}
-# Add LAI and LAI_filled columns from TTE_lai to TTE_HH_daily
-
-TTE_HH_daily <- TTE_HH_daily %>%
-  left_join(TTE_lai %>% select(date, LAI, LAI_filled), 
-            by = "date")
-
-How_HH_daily <- How_HH_daily %>%
-  left_join(How_lai %>% select(date, LAI, LAI_filled), 
-            by = "date")
-
-Stp_HH_daily <- Stp_HH_daily %>%
-  left_join(Stp_lai %>% select(date, LAI, LAI_filled), 
-            by = "date")
-
-Dry_HH_daily <- Dry_HH_daily %>%
-  left_join(Dry_lai %>% select(date, LAI, LAI_filled), 
-            by = "date")
-
-Asm_HH_daily <- Asm_HH_daily %>%
-  left_join(Asm_lai %>% select(date, LAI, LAI_filled), 
-            by = "date")
-
-Tum_HH_daily <- Tum_HH_daily %>%
-  left_join(Tum_lai %>% select(date, LAI, LAI_filled), 
-            by = "date")
-
-Wom_HH_daily <- Wom_HH_daily %>%
-  left_join(Wom_lai %>% select(date, LAI, LAI_filled), 
-            by = "date")
-
-Das_HH_daily <- Das_HH_daily %>%
-  left_join(Das_lai %>% select(date, LAI, LAI_filled), 
-            by = "date")
-
+sites_daily <- map2(sites_daily, sites_lai, function(hh_df, lai_df) {
+  hh_df %>%
+    left_join(lai_df %>% select(date, LAI, LAI_filled),
+              by = "date")
+})
 ```
 
-Now we can put all of the sites into a list for reproducibility, remember here that some of the sites have LAI and some do not
+Mean LAI per site from sites_daily
+
 ```{r}
-names <- c("How_HH_daily", "Ade_HH_daily", "Das_HH_daily", "Dap_HH_daily", "Dry_HH_daily", "Stp_HH_daily", "Asm_HH_daily", "Cum_HH_daily", "Emr_HH_daily", "Fog_HH_daily", "Gin_HH_daily", "Gww_HH_daily", "Lox_HH_daily", "Rdf_HH_daily", "Rig_HH_daily", "Rob_HH_daily", "TTE_HH_daily", "Wac_HH_daily", "Whr_HH_daily", "Wom_HH_daily", "Ync_HH_daily", "Cpr_HH_daily", "Tum_HH_daily")
+# get mean LAI per site from sites_daily
+canopy_order <- map_dfr(sites_daily, function(df) {
+  tibble(
+    site = unique(df$site),
+    mean_LAI = mean(df$LAI_filled, na.rm = TRUE)
+  )
+}) %>%
+  arrange(desc(mean_LAI))
+
+print(canopy_order)
+```
 
 
-sites_final <- mget(names)
+```{r}
+ggplot(canopy_order, aes(x = reorder(site, desc(mean_LAI)), y = mean_LAI)) +
+  geom_point(size = 3) +
+  coord_flip() +
+  labs(x = "Site", y = "Mean LAI") +
+  theme_classic()
+```
+
+```{r}
+all_sites <- bind_rows(sites_daily)
+
+ggplot(all_sites, aes(x = reorder(site, LAI_filled, FUN = median, na.rm = TRUE), 
+                      y = LAI_filled)) +
+  geom_boxplot() +
+  coord_flip() +
+  labs(x = "Site", y = "LAI") +
+  theme_classic()
 ```
 
