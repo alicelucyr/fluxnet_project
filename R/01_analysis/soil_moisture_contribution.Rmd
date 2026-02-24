@@ -17,7 +17,163 @@ knitr::opts_chunk$set(echo = TRUE)
 4. Predict on dry season and calculate residuals
 Check model actually fits wel, a low R-squared means the model isn't capturing GPP even under good conditions, so the dry season residuals won't actually be meaningful
 
-```{r}
+Wet/dry threshold
+- 90 day rolling precipitation
+- 70/30 split - top 70% unstressed and bottom 30% stressed periods
 
+```{r}
+library(mgcv)
+library(zoo)
+library(tidyverse)
+
+stress_results <- map_dfr(names(sites_daily), function(site) {
+  
+  df <- sites_daily[[site]] %>%
+    arrange(date) %>%
+    drop_na(GPP, VPD, Tair, SW_rad, LAI_filled) %>%
+    mutate(
+      precip_90day = rollsum(Precip, k = 90, fill = NA, align = "right")
+    )
+  
+  # site-specific percentile thresholds
+  wet_thresh <- quantile(df$precip_90day, 0.70, na.rm = TRUE)
+  dry_thresh  <- quantile(df$precip_90day, 0.30, na.rm = TRUE)
+  
+  df <- df %>%
+    mutate(season = case_when(
+      precip_90day >= wet_thresh ~ "wet",
+      precip_90day <= dry_thresh ~ "dry",
+      TRUE ~ "transition"
+    ))
+  
+  wet <- df %>% filter(season == "wet")
+  dry <- df %>% filter(season == "dry")
+  
+  if (nrow(wet) < 50 | nrow(dry) < 10) return(NULL)
+  
+  # fit GAM on wet season
+  model <- gam(GPP ~ s(VPD) + s(Tair) + s(SW_rad) + s(LAI_filled),
+               data = wet,
+               method = "REML")
+  
+  r2 <- summary(model)$r.sq
+  
+  # predict onto dry season
+  dry %>%
+    mutate(
+      site = str_remove(site, "_HH_daily"),
+      GPP_predicted = predict(model, newdata = dry),
+      GPP_residual = GPP - GPP_predicted,
+      stress_index = GPP_residual / GPP_predicted
+    ) %>%
+    group_by(site) %>%
+    summarise(
+      mean_residual = mean(GPP_residual, na.rm = TRUE),
+      mean_stress_index = mean(stress_index, na.rm = TRUE),
+      wet_season_r2 = r2,
+      n_wet_days = nrow(wet),
+      n_dry_days = nrow(dry),
+      wet_thresh_mm = wet_thresh,
+      dry_thresh_mm = dry_thresh,
+      .groups = "drop"
+    )
+})
+
+```
+
+stress_results
+- mean_residual - average difference between observed and predicted GPP in the dry season (moisture stress signal)
+- mean_stress_index - normalised by predicted GPP so comparable across sites
+- wet_season_r2 - how well the GAM fit during the wet season
+
+2. Add in R-squared for dry season and I want to plot the GAMs:
+```{r}
+library(mgcv)
+library(zoo)
+library(tidyverse)
+
+# store daily predictions separately
+all_predictions <- map_dfr(names(sites_daily), function(site) {
+  
+  df <- sites_daily[[site]] %>%
+    arrange(date) %>%
+    drop_na(GPP, VPD, Tair, SW_rad, LAI_filled) %>%
+    mutate(precip_90day = rollsum(Precip, k = 90, fill = NA, align = "right"))
+  
+  wet_thresh <- quantile(df$precip_90day, 0.70, na.rm = TRUE)
+  dry_thresh  <- quantile(df$precip_90day, 0.30, na.rm = TRUE)
+  
+  df <- df %>%
+    mutate(season = case_when(
+      precip_90day >= wet_thresh ~ "wet",
+      precip_90day <= dry_thresh ~ "dry",
+      TRUE ~ "transition"
+    ))
+  
+  wet <- df %>% filter(season == "wet")
+  dry <- df %>% filter(season == "dry")
+  
+  if (nrow(wet) < 50 | nrow(dry) < 10) return(NULL)
+  
+  model <- gam(GPP ~ s(VPD) + s(Tair) + s(SW_rad) + s(LAI_filled),
+               data = wet, method = "REML")
+  
+  # fitted values on wet season
+  wet_out <- wet %>%
+    mutate(
+      site = str_remove(site, "_HH_daily"),
+      GPP_predicted = fitted(model),
+      season = "wet"
+    )
+  
+  # predicted values on dry season
+  dry_out <- dry %>%
+    mutate(
+      site = str_remove(site, "_HH_daily"),
+      GPP_predicted = predict(model, newdata = dry),
+      season = "dry"
+    )
+  
+  bind_rows(wet_out, dry_out) %>%
+    select(site, date, season, GPP, GPP_predicted)
+})
+
+# now calculate summaries including dry season R²
+stress_results <- all_predictions %>%
+  group_by(site, season) %>%
+  summarise(
+    ss_res = sum((GPP - GPP_predicted)^2, na.rm = TRUE),
+    ss_tot = sum((GPP - mean(GPP, na.rm = TRUE))^2, na.rm = TRUE),
+    r2 = 1 - (ss_res / ss_tot),
+    mean_residual = mean(GPP - GPP_predicted, na.rm = TRUE),
+    mean_stress_index = mean((GPP - GPP_predicted) / GPP_predicted, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  pivot_wider(names_from = season, 
+              values_from = c(r2, mean_residual, mean_stress_index),
+              names_glue = "{.value}_{season}")
+```
+
+```{r}
+site_names <- unique(all_predictions$site)
+n_per_panel <- 6
+site_groups <- split(site_names, ceiling(seq_along(site_names) / n_per_panel))
+
+plots <- map(site_groups, function(sites_subset) {
+  all_predictions %>%
+    filter(site %in% sites_subset) %>%
+    ggplot(aes(x = date)) +
+    geom_line(aes(y = GPP), colour = "grey50", alpha = 0.6, linewidth = 0.3) +
+    geom_line(aes(y = GPP_predicted, colour = season), linewidth = 0.5) +
+    scale_colour_manual(values = c("wet" = "steelblue", "dry" = "firebrick")) +
+    facet_wrap(~ site, scales = "free_y", ncol = 2) +
+    labs(x = NULL, y = "GPP", colour = "Season",
+         title = "Observed vs GAM-predicted GPP") +
+    theme_classic(base_size = 9) +
+    theme(strip.background = element_blank(),
+          strip.text = element_text(face = "bold"))
+})
+
+walk(plots, print)
 ```
 
