@@ -67,8 +67,6 @@ df %>%
 
 
 ```{r}
-library(tidyverse)
-
 site_slopes <- map_dfr(names(sites_daily), function(site) {
   
   df <- sites_daily[[site]]
@@ -84,26 +82,29 @@ site_slopes <- map_dfr(names(sites_daily), function(site) {
       .groups = "drop"
     ) %>%
     filter(n >= 3) %>%
-    mutate(gpp_norm = gpp_max / max(gpp_max, na.rm = TRUE)) %>%
-    filter(vpd_mid >= vpd_mid[which.max(gpp_norm)])
+    mutate(gpp_norm = gpp_max / max(gpp_max, na.rm = TRUE))
   
-  # skip sites with too few bins to fit
-  if (nrow(binned) < 3) {
-    return(tibble(site = site, intercept = NA, slope = NA, n_bins = nrow(binned)))
+  vpd_at_peak <- binned$vpd_mid[which.max(binned$gpp_norm)]
+  
+  descending <- binned %>% filter(vpd_mid >= vpd_at_peak)
+  
+  if (nrow(descending) < 3) {
+    return(tibble(site = site, intercept = NA, slope = NA, 
+                  vpd_at_peak = NA, n_bins = nrow(descending)))
   }
   
-  model <- lm(gpp_norm ~ vpd_mid, data = binned)
+  model <- lm(gpp_norm ~ vpd_mid, data = descending)
   coefs <- coef(model)
   
   tibble(
     site = site,
     intercept = coefs[1],
     slope = coefs[2],
-    n_bins = nrow(binned)
+    vpd_at_peak = vpd_at_peak,
+    n_bins = nrow(descending)
   )
-})
-
-print(site_slopes)
+}) %>%
+  mutate(site = str_remove(site, "_HH_daily"))
 ```
 
 ```{r}
@@ -210,5 +211,90 @@ plots <- map(site_groups, function(sites_subset) {
 # print all panels
 walk(plots, print)
 ```
+Cluster analysis:
+- Based on the GPP ~ VPD response, which sites cluster together?
+
+1. Hierarchical clustering
+
+```{r}
+# prepare data
+slopes_mat <- site_slopes %>%
+  filter(!is.na(slope)) %>%
+  column_to_rownames("site") %>%
+  select(slope) %>%
+  scale()
+
+# hierarchical clustering
+dist_mat <- dist(slopes_mat, method = "euclidean")
+hclust_fit <- hclust(dist_mat, method = "ward.D2")
+
+# plot dendrogram
+plot(hclust_fit, 
+     main = "Site GPP~VPD sensitivity clusters",
+     xlab = "", sub = "", ylab = "Height")
+```
+```{r}
+site_slopes <- site_slopes %>%
+  filter(!is.na(slope)) %>%
+  mutate(cluster = factor(cutree(hclust_fit, k = 3)))
+
+ggplot(site_slopes, aes(x = site, y = slope, colour = cluster)) +
+  geom_point(size = 3) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+  coord_flip() +
+  labs(x = "Site", y = "GPP~VPD Slope", colour = "Cluster",
+       title = "GPP sensitivity clusters") +
+  theme_classic()
+```
+
+Cluster 1 - Asm, Gww, Stp, Cum, Emr, Gin, Lox, Rig, Wac, Whr, Wom, Ync, Cpr, Tum
+Cluster 2 - Ade, Das, Dap, Dry, Rdf, TTE
+Cluster 3 - Rob, Fog 
+
+2. Hierarchical clustering 2
+- slope
+- intercept
+- VPD when GPP is at its maximum
+
+```{r}
+slopes_mat <- site_slopes %>%
+  filter(!is.na(slope)) %>%
+  column_to_rownames("site") %>%
+  select(slope, intercept, vpd_at_peak) %>%
+  scale()
+
+dist_mat <- dist(slopes_mat, method = "euclidean")
+hclust_fit <- hclust(dist_mat, method = "ward.D2")
+
+plot(hclust_fit,
+     main = "Site GPP~VPD sensitivity clusters",
+     xlab = "", sub = "", ylab = "Height")
+
+site_slopes <- site_slopes %>%
+  filter(!is.na(slope)) %>%
+  mutate(cluster = factor(cutree(hclust_fit, k = 3)))
+```
+```{r}
+site_slopes <- site_slopes %>%
+  filter(!is.na(slope)) %>%
+  mutate(cluster = factor(cutree(hclust_fit, k = 3)))
+
+ggplot(site_slopes, aes(x = site, y = slope, colour = cluster)) +
+  geom_point(size = 3) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+  coord_flip() +
+  labs(x = "Site", y = "GPP~VPD Slope", colour = "Cluster",
+       title = "GPP sensitivity clusters") +
+  theme_classic()
+```
+Cluster 1 - How (WSA), Stp (GRA), Asm (SAV), Cum (EBF), Emr (GRA), Gin (WSA), Gww (SAV), Lox (DBF), Rig (GRA), Whr (EBF), Wom (EBF), Ync (GRA), Cpr (SAV), Tum (EBF)
+Cluster 2 - Ade (WSA), Dap (GRA), Fog (WET), Rob (EBF)
+Cluster 3 - Das (SAV), Dry (SAV), Rdf (WSA), TTE (GRA), Wac (EBF)
+
+
+
+
+
+
 
 
