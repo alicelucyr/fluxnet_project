@@ -95,8 +95,11 @@ walk(names(sites_lai), function(name) {
 ```
 
 ```{r}
-plot(sites_lai$How_HH_daily$LAI)
+plot(sites_daily$Rob_HH_daily$GPP)
+plot(sites_daily$Rob_HH_daily$LAI_filled)
 ```
+
+
 
 
 How - Woody savanna
