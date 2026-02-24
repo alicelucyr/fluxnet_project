@@ -1,0 +1,23 @@
+---
+title: "moisture_stress_contribution"
+output: html_document
+date: "2026-02-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+**Contribution of moisture stress** 
+- Train on non-moisture stress period and test on moisture stress period - the difference (residual) between the observed and predicted GPP is the effect that soil moisture stress has on predictability
+
+1. Define wet and dry seasons (precipitation threshold)
+2. Predictors - VPD, Tair, SW rad and LAI
+3. Train on unstressed period 
+4. Predict on dry season and calculate residuals
+Check model actually fits wel, a low R-squared means the model isn't capturing GPP even under good conditions, so the dry season residuals won't actually be meaningful
+
+```{r}
+
+```
+
