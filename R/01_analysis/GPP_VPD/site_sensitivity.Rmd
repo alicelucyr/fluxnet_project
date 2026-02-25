@@ -211,34 +211,51 @@ plots <- map(site_groups, function(sites_subset) {
 # print all panels
 walk(plots, print)
 ```
-Cluster analysis:
-- Based on the GPP ~ VPD response, which sites cluster together?
-
-1. Hierarchical clustering
 
 ```{r}
-# prepare data
-slopes_mat <- site_slopes %>%
-  filter(!is.na(slope)) %>%
-  column_to_rownames("site") %>%
-  select(slope) %>%
-  scale()
-
-# hierarchical clustering
-dist_mat <- dist(slopes_mat, method = "euclidean")
-hclust_fit <- hclust(dist_mat, method = "ward.D2")
-
-# plot dendrogram
-plot(hclust_fit, 
-     main = "Site GPP~VPD sensitivity clusters",
-     xlab = "", sub = "", ylab = "Height")
+plot(sites_daily$Rob_HH_daily$VPD)
+```
+```{r}
+plot(TTE_HH_daily$GPP)
 ```
 ```{r}
 site_slopes <- site_slopes %>%
   filter(!is.na(slope)) %>%
   mutate(cluster = factor(cutree(hclust_fit, k = 3)))
 
-ggplot(site_slopes, aes(x = site, y = slope, colour = cluster)) +
+ggplot(site_slopes, aes(x = site, y = slope, colour = sensitivity_group)) +
+  geom_point(size = 3) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+  coord_flip() +
+  labs(x = "Site", y = "GPP~VPD Slope", colour = "Cluster",
+       title = "GPP sensitivity clusters") +
+  theme_classic()
+```
+
+Cluster analysis:
+- Based on the GPP ~ VPD response, which sites cluster together?
+
+1. Hierarchical clustering (only slopes)
+
+```{r}
+slopes_mat_1 <- site_slopes %>%
+  filter(!is.na(slope)) %>%
+  column_to_rownames("site") %>%
+  select(slope) %>%
+  scale()
+
+hclust_fit_1 <- hclust(dist(slopes_mat_1, method = "euclidean"), method = "ward.D2")
+
+site_slopes <- site_slopes %>%
+  mutate(cluster_slope = factor(cutree(hclust_fit_1, k = 3)))
+```
+
+```{r}
+site_slopes <- site_slopes %>%
+  filter(!is.na(slope)) %>%
+  mutate(cluster = factor(cutree(hclust_fit, k = 3)))
+
+ggplot(site_slopes, aes(x = site, y = slope, colour = cluster_slope)) +
   geom_point(size = 3) +
   geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
   coord_flip() +
@@ -257,29 +274,24 @@ Cluster 3 - Rob, Fog
 - VPD when GPP is at its maximum
 
 ```{r}
-slopes_mat <- site_slopes %>%
+slopes_mat_2 <- site_slopes %>%
   filter(!is.na(slope)) %>%
   column_to_rownames("site") %>%
   select(slope, intercept, vpd_at_peak) %>%
   scale()
 
-dist_mat <- dist(slopes_mat, method = "euclidean")
-hclust_fit <- hclust(dist_mat, method = "ward.D2")
-
-plot(hclust_fit,
-     main = "Site GPP~VPD sensitivity clusters",
-     xlab = "", sub = "", ylab = "Height")
+hclust_fit_2 <- hclust(dist(slopes_mat_2, method = "euclidean"), method = "ward.D2")
 
 site_slopes <- site_slopes %>%
-  filter(!is.na(slope)) %>%
-  mutate(cluster = factor(cutree(hclust_fit, k = 3)))
+  mutate(cluster_multi = factor(cutree(hclust_fit_2, k = 3)))
 ```
+
 ```{r}
 site_slopes <- site_slopes %>%
   filter(!is.na(slope)) %>%
   mutate(cluster = factor(cutree(hclust_fit, k = 3)))
 
-ggplot(site_slopes, aes(x = site, y = slope, colour = cluster)) +
+ggplot(site_slopes, aes(x = site, y = slope, colour = cluster_multi)) +
   geom_point(size = 3) +
   geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
   coord_flip() +
