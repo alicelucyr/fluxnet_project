@@ -219,7 +219,7 @@ ggplot(climate_metrics, aes(x = site, y = R2)) +
 ```{r}
 # visualise NA patterns
 library(naniar)
-vis_miss(TTE_HH_daily[, c("date", "GPP", "VPD", "Precip", "Tair", "SW_rad", "Rn")])
+vis_miss(Gww_HH_daily[, c("date", "GPP", "VPD", "Precip", "Tair", "SW_rad", "Rn")])
 ```
 - I was removing NA rows in all of the variables. This meant if there were loads of NA in Rn, it deleted entire rows even when VPD/Tair/SW_rad were complete. This is why Gww was not doing very well.
 
