@@ -11,9 +11,8 @@ knitr::opts_chunk$set(echo = TRUE)
 Load in LAI data
 Every 4 days
 1 measurements a day per site
-
-1. Convert date column into proper date column
-2. Somehow attach the corresponding date from the LAI to the one I have in the flux data - every 4 days?
+2. Convert date column into proper date column
+3. Somehow attach the corresponding date from the LAI to the one I have in the flux data - every 4 days?
 
 Load in data
 
@@ -97,9 +96,10 @@ walk(names(sites_lai), function(name) {
 ```{r}
 plot(sites_daily$Rob_HH_daily$GPP)
 plot(sites_daily$Rob_HH_daily$LAI_filled)
+plot(sites_daily$Rob_HH_daily$LAI)
 ```
-
-
+1 year 
+Need to look at this linear interpolation
 
 
 How - Woody savanna
@@ -233,6 +233,7 @@ site_slopes <- site_slopes %>%
   left_join(site_climate, by = "site")
 ```
 
+My own arbritrary groupings:
 ```{r}
 ggplot(site_slopes, aes(x = map, y = mat, colour = sensitivity_group, label = site)) +
   geom_point(size = 3) +
@@ -241,6 +242,29 @@ ggplot(site_slopes, aes(x = map, y = mat, colour = sensitivity_group, label = si
        colour = "VPD sensitivity", title = "Climate space across sites") +
   theme_classic()
 ```
+
+Slope only clustering
+```{r}
+ggplot(site_slopes, aes(x = map, y = mat, colour = cluster_slope, label = site)) +
+  geom_point(size = 3) +
+  geom_text(nudge_y = 0.3, size = 3) +
+  labs(x = "Mean Annual Precipitation (mm)", y = "Mean Annual Temperature (°C)",
+       colour = "VPD sensitivity", title = "Climate space across sites") +
+  theme_classic()
+```
+Slope, intercept and threshold clustering
+
+```{r}
+ggplot(site_slopes, aes(x = map, y = mat, colour = cluster_multi, label = site)) +
+  geom_point(size = 3) +
+  geom_text(nudge_y = 0.3, size = 3) +
+  labs(x = "Mean Annual Precipitation (mm)", y = "Mean Annual Temperature (°C)",
+       colour = "VPD sensitivity", title = "Climate space across sites") +
+  theme_classic()
+```
+
+
+
 ```{r}
 ggplot(site_climate, aes(x = map, y = mal, label = site)) +
   geom_point(size = 3) +
@@ -249,8 +273,25 @@ ggplot(site_climate, aes(x = map, y = mal, label = site)) +
        title = "Mean annual LAI and precipitation") +
   theme_classic()
 ```
+
 ```{r}
 ggplot(site_slopes, aes(x = map, y = mal, colour = sensitivity_group, label = site)) +
+  geom_point(size = 3) +
+  geom_text(nudge_y = 0.3, size = 3) +
+  labs(x = "Mean Annual Precipitation (mm)", y = "Mean Annual LAI",
+       colour = "VPD sensitivity", title = "Mean annual LAI and precip") +
+  theme_classic()
+```
+```{r}
+ggplot(site_slopes, aes(x = map, y = mal, colour = cluster_slope, label = site)) +
+  geom_point(size = 3) +
+  geom_text(nudge_y = 0.3, size = 3) +
+  labs(x = "Mean Annual Precipitation (mm)", y = "Mean Annual LAI",
+       colour = "VPD sensitivity", title = "Mean annual LAI and precip") +
+  theme_classic()
+```
+```{r}
+ggplot(site_slopes, aes(x = map, y = mal, colour = cluster_multi, label = site)) +
   geom_point(size = 3) +
   geom_text(nudge_y = 0.3, size = 3) +
   labs(x = "Mean Annual Precipitation (mm)", y = "Mean Annual LAI",
