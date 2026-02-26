@@ -51,14 +51,10 @@ for(site in aus_sites){
   # Create lagged variables BEFORE splitting
   df <- df %>%
     mutate(
-      Tair_lag3 = lag(Tair, 3),
-      Tair_lag5 = lag(Tair, 5),
       Tair_lag7 = lag(Tair, 7),
-      VPD_lag3 = lag(VPD, 3),
-      VPD_lag5 = lag(VPD, 5),
       VPD_lag7 = lag(VPD, 7),
       cumulative_cwd_7day = rollapply(cwd, 7, sum, align="right", fill = NA)
-    ) %>%
+    ) 
     #Removed the drop_na() as it was removing lots and lots of rows 
   
   # Temporal split: 80% train, 20% test
@@ -78,11 +74,16 @@ for(site in aus_sites){
 
 #Model 1 - climate only (Air temp, Shortwave radiation, precipitation)
 
-fit_gam_and_metrics <- function(train_data, test_data) {
+fit_gam_m1 <- function(train_data, test_data) {
   
   #Drop NA only in the predictors of the model
   train_clean <- train_data %>% drop_na(GPP, Tair, SW_rad, Precip)
   test_clean <- test_data %>% drop_na(GPP, Tair, SW_rad, Precip)
+  
+  #Ade and Lox have very low test data - this prevents the GAM from crashing
+   if(nrow(train_clean) < 10 | nrow(test_clean) < 10) {
+    return(tibble(RMSE = NA, MAE = NA, R2 = NA))
+  }
   
   model <- gam(
     GPP ~ s(Tair) + s(SW_rad) + s(Precip),
@@ -91,22 +92,29 @@ fit_gam_and_metrics <- function(train_data, test_data) {
   )
   
   preds <- predict(model, newdata = test_clean)
+  s     <- summary(model)                      
+ resid <- test_clean$GPP - preds   
   
   rmse <- sqrt(mean((test_clean$GPP - preds)^2))
   rsq  <- cor(test_clean$GPP, preds)^2
+  mae <- mean(abs(resid))
+  R2_adj     = s$r.sq
+  
   
   tibble(
     RMSE = rmse,
-    R2   = rsq
+    R2   = rsq,
+    MAE = mae,
+    R2_adj_train = R2_adj
   )
 }
 
 
 # Run GAM for all sites and combine results
 
-climate_metrics <- bind_rows(
+model_1_results <- bind_rows(
   lapply(aus_sites, function(site) {
-    fit_gam_and_metrics(
+    fit_gam_m1(
       get(paste0(site, "_train")),
       get(paste0(site, "_test"))
     ) %>%
@@ -116,101 +124,40 @@ climate_metrics <- bind_rows(
 
 ```
 
-
-
-# Modified function to return predictions for both train and test data
-fit_gam_and_return_all_predictions <- function(train_data, test_data, site_name) {
+```{r}
+for(site in aus_sites) {
+  train <- get(paste0(site, "_train"))
+  test  <- get(paste0(site, "_test"))
   
-  model <- gam(
-    GPP ~ s(Tair) + s(SW_rad) + s(Precip),
-    data = train_data,
-    method = "REML"
-  )
+  train_clean <- train %>% drop_na(GPP, Tair, SW_rad, Precip)
+  test_clean  <- test  %>% drop_na(GPP, Tair, SW_rad, Precip)
   
-  # Predictions for training data
-  train_preds <- train_data %>%
-    mutate(
-      predicted_GPP = predict(model, newdata = train_data),
-      site = site_name,
-      dataset = "Training"
-    )
-  
-  # Predictions for test data
-  test_preds <- test_data %>%
-    mutate(
-      predicted_GPP = predict(model, newdata = test_data),
-      site = site_name,
-      dataset = "Testing"
-    )
-  
-  # Combine both
-  bind_rows(train_preds, test_preds)
+  cat(site, "- train rows:", nrow(train_clean), 
+             "test rows:", nrow(test_clean), "\n")
 }
-
-# Get predictions for the three sites
-sites_to_plot <- "Gww"
-
-all_predictions_df <- bind_rows(
-  lapply(sites_to_plot, function(site) {
-    fit_gam_and_return_all_predictions(
-      get(paste0(site, "_train")),
-      get(paste0(site, "_test")),
-      site
-    )
-  })
-)
-
-
-# Shading to show train/test periods
-ggplot(all_predictions_df, aes(x = date)) +
-  geom_rect(
-    data = all_predictions_df %>% 
-      group_by(site) %>%
-      summarise(
-        xmin = min(date[dataset == "Testing"]),
-        xmax = max(date[dataset == "Testing"])
-      ),
-    aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf),
-    fill = "gray90", alpha = 0.5, inherit.aes = FALSE
-  ) +
-  geom_line(aes(y = GPP, color = "Observed"), linewidth = 0.7) +
-  geom_line(aes(y = predicted_GPP, color = "Predicted"), linewidth = 0.7, linetype = "dashed") +
-  facet_wrap(~site, ncol = 1, scales = "free_y") +
-  scale_color_manual(
-    values = c("Observed" = "#2c5f2d", "Predicted" = "#e65100"),
-    name = ""
-  ) +
-  labs(
-    x = "Date",
-    y = "GPP",
-    title = "Observed vs Predicted GPP: Training and Testing Periods",
-    subtitle = "Gray shading indicates testing period"
-  ) +
-  theme_minimal() +
-  theme(
-    legend.position = "top",
-    strip.text = element_text(face = "bold", size = 11),
-    panel.grid.minor = element_blank()
-  )
-
+```
+```{r}
+lox_test <- get("Lox_test")
+colSums(is.na(lox_test[, c("GPP", "Tair", "SW_rad", "Precip")]))
+```
 
 
 ```{r}
 # Define wet to dry order
-wet_dry_order <- c("Rob", "How", "Wac", "Das", "Fog", "Dap", "Ade", "Dry", "Stp", "Wom", "Rdf", "Tum", "Gin", "Emr", "Cum", "Gww", "Rig", "Asm", "Cpr", "Whr", "TTE", "Ync", "Lox")
+wet_dry_order <- c("Wac", "Rob", "How", "Das", "Fog", "Ade", "Dap", "Rdf", "Wom", "Tum", "Dry", "Stp", "Gin", "Cum", "Emr", "Rig", "Whr", "Asm", "Gww", "Cpr", "Ync", "Lox", "TTE")
 
 #most to least variable
 precip_variability_order <- c("Gww", "TTE", "Asm", "Cpr", "Ync", "Lox", "Emr","Whr", "Wom", "Tum", "Rig", "Wac", "Stp", "Dry", "Gin", "Cum", "Fog", "Das", "Rob", "Rdf", "Dap", "How", "Ade")
 
-climate_metrics$site <- factor(climate_metrics$site, levels = wet_dry_order)
+model_1_results$site <- factor(model_1_results$site, levels = wet_dry_order)
 
-ggplot(climate_metrics, aes(x = site, y = R2)) +
+ggplot(model_1_results, aes(x = site, y = R2)) +
   geom_col(fill = "violet") +
   coord_flip() +
   labs(
-    x = "Site",
+    x = "Site (wet to dry)",
     y = expression(R^2),
-    title = "Predictability of GPP across OzFlux sites (least to most daily precip variability)"
+    title = "Predictability of GPP across OzFlux sites"
   ) +
   theme_minimal()
 
@@ -229,80 +176,80 @@ Seems to be trend of declining R-squared from high precipitation coefficient of 
 ```{r}
 #Model 2 - climate (temp, precip, SW rad) and VPD
 
-fit_gam_and_metrics <- function(train_data, test_data) {
+fit_gam_m2 <- function(train_data, test_data) {
   
   #Drop NA only in the predictors of the model
   train_clean <- train_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD)
   test_clean <- test_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD)
   
+  #Ade and Lox have very low test data - this prevents the GAM from crashing
+   if(nrow(train_clean) < 10 | nrow(test_clean) < 10) {
+    return(tibble(RMSE = NA, MAE = NA, R2 = NA))
+  }
+  
   model <- gam(
-    GPP ~ s(Tair) + s(SW_rad) + s(Precip) +s(VPD),
+    GPP ~ s(Tair) + s(SW_rad) + s(Precip) + s(VPD),
     data = train_clean,
     method = "REML"
   )
   
   preds <- predict(model, newdata = test_clean)
+  s     <- summary(model)                      
+ resid <- test_clean$GPP - preds   
   
   rmse <- sqrt(mean((test_clean$GPP - preds)^2))
   rsq  <- cor(test_clean$GPP, preds)^2
+  mae <- mean(abs(resid))
+  R2_adj     = s$r.sq
+  
   
   tibble(
     RMSE = rmse,
-    R2   = rsq
+    R2   = rsq,
+    MAE = mae,
+    R2_adj_train = R2_adj
   )
 }
 
 
 # Run GAM for all sites and combine results
 
-climate_vpd_metrics <- bind_rows(
+model_2_results <- bind_rows(
   lapply(aus_sites, function(site) {
-    fit_gam_and_metrics(
+    fit_gam_m2(
       get(paste0(site, "_train")),
       get(paste0(site, "_test"))
     ) %>%
       mutate(site = site)
   })
 )
-
 ```
 
 ```{r}
-# Define wet to dry order
-wet_dry_order <- c("Rob", "How", "Wac", "Das", "Fog", "Dap", "Ade", "Dry", "Stp", "Wom", "Rdf", "Tum", "Gin", "Emr", "Cum", "Gww", "Rig", "Asm", "Cpr", "Whr", "TTE", "Ync", "Lox")
+model_2_results$site <- factor(model_2_results$site, levels = wet_dry_order)
 
-#most to least variable
-precip_variability_order <- c("Gww", "TTE", "Asm", "Cpr", "Ync", "Lox", "Emr","Whr", "Wom", "Tum", "Rig", "Wac", "Stp", "Dry", "Gin", "Cum", "Fog", "Das", "Rob", "Rdf", "Dap", "How", "Ade")
-
-climate_vpd_metrics$site <- factor(climate_vpd_metrics$site, levels = wet_dry_order)
-
-ggplot(climate_vpd_metrics, aes(x = site, y = R2)) +
+ggplot(model_2_results, aes(x = site, y = R2)) +
   geom_col(fill = "violet") +
   coord_flip() +
   labs(
     x = "Site",
     y = expression(R^2),
-    title = "Predictability of GPP across OzFlux sites (least to most precip variability)"
+    title = "Predictability of GPP across OzFlux sites"
   ) +
   theme_minimal()
 ```
-
-```{r}
-mean(climate_vpd_metrics$RMSE)
-```
-
 
 ```{r}
 #compare the no VPD and climate + VPD model
 
 library(dplyr)
 
-gam_comparison <- climate_metrics %>%
+gam_comparison <- model_1_results %>%
   select(site, R2) %>%
   rename(R2_no_vpd = R2) %>%
   
   inner_join(
-    climate_vpd_metrics %>%
+    model_2_results %>%
       select(site, R2) %>%
       rename(R2_VPD = R2),
     by = "site"
@@ -311,9 +258,6 @@ gam_comparison <- climate_metrics %>%
   mutate(
     delta_R2_VPD = R2_VPD - R2_no_vpd
   )
-
-
-wet_dry_order <- c("Wac", "Rob","How", "Das", "Fog", "Rdf", "Dap", "Ade", "Tum", "Wom", "Dry", "Stp", "Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "Cpr", "TTE", "Lox")
 
 gam_comparison <- gam_comparison %>%
   mutate(site = factor(site, levels = wet_dry_order)) %>%
@@ -341,37 +285,49 @@ Seems to be a really mixed pattern here.
 
 
 ```{r}
-#Model 3a - climate (temp, SW rad, precip), VPD, + lags (3 days)
+#Model 3a - climate (temp, SW rad, precip), VPD, + lags (7 days)
 
-fit_gam_and_metrics <- function(train_data, test_data) {
+fit_gam_m3 <- function(train_data, test_data) {
   
   #Drop NA only in the predictors of the model
-  train_clean <- train_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD, VPD_lag3, Tair_lag3)
-  test_clean <- test_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD, VPD_lag3, Tair_lag3)
+  train_clean <- train_data %>% drop_na(GPP, Tair, SW_rad, Precip, Tair_lag7, VPD_lag7)
+  test_clean <- test_data %>% drop_na(GPP, Tair, SW_rad, Precip, Tair_lag7, VPD_lag7)
+  
+  #Ade and Lox have very low test data - this prevents the GAM from crashing
+   if(nrow(train_clean) < 10 | nrow(test_clean) < 10) {
+    return(tibble(RMSE = NA, MAE = NA, R2 = NA))
+  }
   
   model <- gam(
-    GPP ~ s(Tair) + s(SW_rad) + s(Precip) +s(VPD) +s(VPD_lag3) +s(Tair_lag3),
+    GPP ~ s(Tair) + s(SW_rad) + s(Precip) +s(VPD) + s(Tair_lag7) + s(VPD_lag7),
     data = train_clean,
     method = "REML"
   )
   
   preds <- predict(model, newdata = test_clean)
+  s     <- summary(model)                      
+ resid <- test_clean$GPP - preds   
   
   rmse <- sqrt(mean((test_clean$GPP - preds)^2))
   rsq  <- cor(test_clean$GPP, preds)^2
+  mae <- mean(abs(resid))
+  R2_adj     = s$r.sq
+  
   
   tibble(
     RMSE = rmse,
-    R2   = rsq
+    R2   = rsq,
+    MAE = mae,
+    R2_adj_train = R2_adj
   )
 }
 
 
 # Run GAM for all sites and combine results
 
-lag3_metrics <- bind_rows(
+model_3_results <- bind_rows(
   lapply(aus_sites, function(site) {
-    fit_gam_and_metrics(
+    fit_gam_m3(
       get(paste0(site, "_train")),
       get(paste0(site, "_test"))
     ) %>%
@@ -379,14 +335,13 @@ lag3_metrics <- bind_rows(
   })
 )
 
-
 ```
 
 ```{r}
 
-lag3_metrics$site <- factor(lag3_metrics$site, levels = wet_dry_order)
+model_3_results$site <- factor(model_3_results$site, levels = wet_dry_order)
 
-ggplot(lag3_metrics, aes(x = site, y = R2)) +
+ggplot(model_3_results, aes(x = site, y = R2)) +
   geom_col(fill = "violet") +
   coord_flip() +
   labs(
@@ -401,12 +356,12 @@ ggplot(lag3_metrics, aes(x = site, y = R2)) +
 
 library(dplyr)
 
-gam_comparison <- climate_vpd_metrics %>%
+lag_comparison <- model_1_results  %>%
   select(site, R2) %>%
   rename(R2_no_lags = R2) %>%
   
   inner_join(
-    lag3_metrics %>%
+    model_3_results %>%
       select(site, R2) %>%
       rename(R2_lag = R2),
     by = "site"
@@ -416,18 +371,15 @@ gam_comparison <- climate_vpd_metrics %>%
     delta_R2_lag = R2_lag - R2_no_lags
   )
 
-
-wet_dry_order <- c("Wac", "Rob","How", "Das", "Fog", "Rdf", "Dap", "Ade", "Tum", "Wom", "Dry", "Stp", "Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "Cpr", "TTE", "Lox")
-
-gam_comparison <- gam_comparison %>%
+lag_comparison <- lag_comparison %>%
   mutate(site = factor(site, levels = wet_dry_order)) %>%
   arrange(site)
 
-gam_comparison
+lag_comparison
 ```
 
 ```{r}
-ggplot(gam_comparison, aes(x = site, y = delta_R2_lag)) +
+ggplot(lag_comparison, aes(x = site, y = delta_R2_lag)) +
   geom_col(fill = "firebrick") +
   coord_flip() +
   theme_minimal(base_size = 14) +
@@ -438,9 +390,8 @@ ggplot(gam_comparison, aes(x = site, y = delta_R2_lag)) +
   )
 
 ```
+**For now only going to use Lag 7**
 
-
-```{r}
 #Model 3b - climate + VPD + climate lags 5 days
 
 fit_gam_and_metrics <- function(train_data, test_data) {
@@ -479,11 +430,6 @@ lag5_metrics <- bind_rows(
   })
 )
 
-```
-
-
-```{r}
-
 lag5_metrics$site <- factor(lag5_metrics$site, levels = wet_dry_order)
 
 ggplot(lag5_metrics, aes(x = site, y = R2)) +
@@ -495,9 +441,8 @@ ggplot(lag5_metrics, aes(x = site, y = R2)) +
     title = "Predictability of GPP across OzFlux sites (dry to wet)"
   ) +
   theme_minimal()
-```
 
-```{r}
+
 #Compare no lags and lags with 5 days
 
 gam_comparison <- climate_vpd_metrics %>%
@@ -523,9 +468,8 @@ gam_comparison <- gam_comparison %>%
   arrange(site)
 
 gam_comparison
-```
 
-```{r}
+
 ggplot(gam_comparison, aes(x = site, y = delta_R2_lag)) +
   geom_col(fill = "firebrick") +
   coord_flip() +
@@ -536,9 +480,6 @@ ggplot(gam_comparison, aes(x = site, y = delta_R2_lag)) +
     title = "Extra explanatory power of 5 day climate lags across OzFlux sites"
   )
 
-```
-
-```{r}
 #Model 3c - climate + VPD + 7 day climate lags
 
 fit_gam_and_metrics <- function(train_data, test_data) {
@@ -578,11 +519,6 @@ lag7_metrics <- bind_rows(
 )
 
 
-```
-
-
-```{r}
-
 lag7_metrics$site <- factor(lag7_metrics$site, levels = wet_dry_order)
 
 ggplot(lag7_metrics, aes(x = site, y = R2)) +
@@ -594,9 +530,7 @@ ggplot(lag7_metrics, aes(x = site, y = R2)) +
     title = "Predictability of GPP across OzFlux sites (dry to wet)"
   ) +
   theme_minimal()
-```
 
-```{r}
 #compare no lags, 3 day lags, 5 day and 7 day (Model 3a, b, c):
 
 gam_comparison <- climate_vpd_metrics %>%
@@ -638,42 +572,54 @@ gam_comparison <- gam_comparison %>%
   arrange(site)
 
 gam_comparison
-```
+
 
 Let's use lag 7 - similar performances. 7 days aligns with typical plant physiological memory and maintains consistency with the cumulative water deficit over 7 days.
 
 ```{r}
 #Model 4: Climate + cwd + lags + VPD
 
-fit_gam_and_metrics <- function(train_data, test_data) {
+fit_gam_m4 <- function(train_data, test_data) {
   
   #Drop NA only in the predictors of the model
-  train_clean <- train_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD, VPD_lag7, cumulative_cwd_7day, Tair_lag7)
-  test_clean <- test_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD, VPD_lag7, cumulative_cwd_7day, Tair_lag7)
+  train_clean <- train_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD, Tair_lag7, VPD_lag7, cumulative_cwd_7day)
+  test_clean <- test_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD, Tair_lag7, VPD_lag7, cumulative_cwd_7day)
+  
+  #Ade and Lox have very low test data - this prevents the GAM from crashing
+   if(nrow(train_clean) < 10 | nrow(test_clean) < 10) {
+    return(tibble(RMSE = NA, MAE = NA, R2 = NA))
+  }
   
   model <- gam(
-    GPP ~ s(Tair) + s(SW_rad) + s(Precip) +s(VPD) + s(VPD) +s(VPD_lag7) +s(Tair_lag7) + s(cumulative_cwd_7day),
+    GPP ~ s(Tair) + s(SW_rad) + s(Precip) + s(VPD) + s(VPD_lag7) + s(Tair_lag7) + s(cumulative_cwd_7day),
     data = train_clean,
     method = "REML"
   )
   
   preds <- predict(model, newdata = test_clean)
+  s     <- summary(model)                      
+ resid <- test_clean$GPP - preds   
   
   rmse <- sqrt(mean((test_clean$GPP - preds)^2))
   rsq  <- cor(test_clean$GPP, preds)^2
+  mae <- mean(abs(resid))
+  R2_adj     = s$r.sq
+  
   
   tibble(
     RMSE = rmse,
-    R2   = rsq
+    R2   = rsq,
+    MAE = mae,
+    R2_adj_train = R2_adj
   )
 }
 
 
 # Run GAM for all sites and combine results
 
-cwd7_metrics <- bind_rows(
+model_4_results <- bind_rows(
   lapply(aus_sites, function(site) {
-    fit_gam_and_metrics(
+    fit_gam_m4(
       get(paste0(site, "_train")),
       get(paste0(site, "_test"))
     ) %>%
@@ -681,13 +627,14 @@ cwd7_metrics <- bind_rows(
   })
 )
 
+
 ```
 
 
 ```{r}
-cwd7_metrics$site <- factor(cwd7_metrics$site, levels = wet_dry_order)
+model_4_results$site <- factor(model_4_results$site, levels = wet_dry_order)
 
-ggplot(cwd7_metrics, aes(x = site, y = R2)) +
+ggplot(model_4_results, aes(x = site, y = R2)) +
   geom_col(fill = "violet") +
   coord_flip() +
   labs(
@@ -702,35 +649,47 @@ ggplot(cwd7_metrics, aes(x = site, y = R2)) +
 ```{r}
 #Model 5: Climate + cwd + lags + VPD + LCC
 
-fit_gam_and_metrics <- function(train_data, test_data) {
+fit_gam_m5 <- function(train_data, test_data) {
   
   #Drop NA only in the predictors of the model
-  train_clean <- train_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD, VPD_lag7, cumulative_cwd_7day, Tair_lag7, LCC_daily)
-  test_clean <- test_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD, VPD_lag7, cumulative_cwd_7day, Tair_lag7, LCC_daily)
+  train_clean <- train_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD, Tair_lag7, VPD_lag7, cumulative_cwd_7day, LCC_daily)
+  test_clean <- test_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD, Tair_lag7, VPD_lag7, cumulative_cwd_7day, LCC_daily)
+  
+  #Ade and Lox have very low test data - this prevents the GAM from crashing
+   if(nrow(train_clean) < 10 | nrow(test_clean) < 10) {
+    return(tibble(RMSE = NA, MAE = NA, R2 = NA))
+  }
   
   model <- gam(
-    GPP ~ s(Tair) + s(SW_rad) + s(Precip) +s(VPD) + s(VPD) +s(VPD_lag7) +s(Tair_lag7) + s(cumulative_cwd_7day) +s(LCC_daily),
+    GPP ~ s(Tair) + s(SW_rad) + s(Precip) + s(VPD) + s(VPD_lag7) + s(Tair_lag7) + s(cumulative_cwd_7day) + s(LCC_daily),
     data = train_clean,
     method = "REML"
   )
   
   preds <- predict(model, newdata = test_clean)
+  s     <- summary(model)                      
+ resid <- test_clean$GPP - preds   
   
   rmse <- sqrt(mean((test_clean$GPP - preds)^2))
   rsq  <- cor(test_clean$GPP, preds)^2
+  mae <- mean(abs(resid))
+  R2_adj     = s$r.sq
+  
   
   tibble(
     RMSE = rmse,
-    R2   = rsq
+    R2   = rsq,
+    MAE = mae,
+    R2_adj_train = R2_adj
   )
 }
 
 
 # Run GAM for all sites and combine results
 
-lcc7_metrics <- bind_rows(
+model_5_results <- bind_rows(
   lapply(aus_sites, function(site) {
-    fit_gam_and_metrics(
+    fit_gam_m5(
       get(paste0(site, "_train")),
       get(paste0(site, "_test"))
     ) %>%
@@ -743,9 +702,9 @@ lcc7_metrics <- bind_rows(
 
 
 ```{r}
-lcc7_metrics$site <- factor(lcc7_metrics$site, levels = wet_dry_order)
+model_5_results$site <- factor(model_5_results$site, levels = wet_dry_order)
 
-ggplot(lcc7_metrics, aes(x = site, y = R2)) +
+ggplot(model_5_results, aes(x = site, y = R2)) +
   geom_col(fill = "violet") +
   coord_flip() +
   labs(
@@ -759,56 +718,39 @@ ggplot(lcc7_metrics, aes(x = site, y = R2)) +
 ```{r}
 #table of all models R-squared 
 
-final_comparison <- climate_vpd_metrics %>%
+final_comparison <- model_2_results %>%
   select(site, R2) %>%
   rename(model_2 = R2) %>%
   
   inner_join(
-    lag7_metrics %>%
+    model_3_results %>%
       select(site, R2) %>%
-      rename(model_3c = R2),
+      rename(model_3 = R2),
     by = "site"
   ) %>%
   
   inner_join(
-    lag5_metrics %>%
-      select(site, R2) %>%
-      rename(model_3b = R2),
-    by = "site"
-  ) %>%
-  
-  inner_join(
-    lag3_metrics %>%
-      select(site, R2) %>%
-      rename(model_3a = R2),
-    by = "site"
-  ) %>%
-  
-   inner_join(
-    climate_metrics %>%
+    model_1_results %>%
       select(site, R2) %>%
       rename(model_1 = R2),
     by = "site"
   ) %>%
   
-   inner_join(
-    lcc7_metrics %>%
+  inner_join(
+    model_5_results %>%
       select(site, R2) %>%
       rename(model_5 = R2),
     by = "site"
   ) %>%
   
    inner_join(
-    cwd7_metrics %>%
+    model_4_results %>%
       select(site, R2) %>%
       rename(model_4 = R2),
     by = "site"
   ) 
   
-
-
-wet_dry_order <- c("Wac", "Rob","How", "Das", "Fog", "Rdf", "Dap", "Ade", "Tum", "Wom", "Dry", "Stp", "Ync", "Emr", "Gin", "Cum", "Rig", "Asm", "Whr", "Gww", "Cpr", "TTE", "Lox")
-
+  
 final_comparison <- final_comparison %>%
   mutate(site = factor(site, levels = wet_dry_order)) %>%
   arrange(site)
@@ -864,6 +806,63 @@ final_comparison %>%
   labs(title = "Best-performing model varies by moisture regime")
 ```
 
+```{r}
+library(dplyr)
+library(lubridate)
+
+convert_to_annual <- function(df_daily) {
+
+  # Add year column
+  df_daily <- df_daily %>%
+    mutate(year = year(date))
+
+df_annual <- df_daily %>%
+  group_by(year) %>%
+  summarise(
+    GPP = sum(GPP, na.rm = TRUE),
+    GPP_n_na = sum(is.na(GPP)),
+    ET = sum(ET, na.rm = TRUE),
+    ET_n_na = sum(is.na(ET)),
+    Precip = sum(Precip, na.rm = TRUE),
+    Precip_n_na = sum(is.na(Precip)),
+    Tair = mean(Tair, na.rm = TRUE),
+    VPD = mean(VPD, na.rm = TRUE),
+    LCC = mean(LCC_daily, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+  return(df_annual)
+}
+
+# apply to all sites
+sites_annual <- map(sites_daily, convert_to_annual)
+
+# calculate mean annual values per site
+site_climate <- map_dfr(names(sites_annual), function(site) {
+  df <- sites_annual[[site]]
+  
+  tibble(
+    site = str_remove(site, "_HH_daily"),
+    mat = mean(df$Tair, na.rm = TRUE),       # mean annual temperature
+    map = mean(df$Precip, na.rm = TRUE),      # mean annual precipitation
+    mal = mean(df$LAI, na.rm = TRUE),         # mean annual LAI
+    malcc = mean(df$LCC, na.rm = TRUE)        # mean annual LCC
+  )
+})
+
+print(site_climate)
+```
+```{r}
+site_climate %>%
+  arrange(map) %>%
+  mutate(site = factor(site, levels = site)) %>%
+  ggplot(aes(x = site, y = map)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(x = "Site", y = "Mean Annual Precipitation (mm)",
+       title = "Precipitation gradient across OzFlux sites") +
+  theme_minimal()
+```
 
 
 
