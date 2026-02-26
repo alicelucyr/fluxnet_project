@@ -99,8 +99,6 @@ Stp_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/
 
 Asm_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-ASM_FLUXNET2015_FULLSET_HH_2010-2014_2-4.csv")
 
-Cpr_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Cpr_FLUXNET2015_FULLSET_HH_2010-2014_2-4.csv")
-
 Cum_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Cum_FLUXNET2015_FULLSET_HH_2012-2014_2-4.csv")
 
 Emr_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Emr_FLUXNET2015_FULLSET_HH_2011-2013_1-4.csv")
@@ -229,10 +227,12 @@ convert_to_daily <- function(df) {
 
 
   # Resample to daily
+  #I have added in GPP_n_valid - basically tracks how many values are valid (should be 48 or 24 with Tum), if a day has a lot of missing GPP, the daily total sum may be smaller than it actually is, producing an underestimated GPP
   df <- df %>%
     mutate(date = floor_date(date, "day")) %>%
     group_by(date) %>%
     summarise(
+      GPP_n_valid = sum(!is.na(GPP)),
       GPP = sum(GPP, na.rm=TRUE),
       ET = sum(ET, na.rm=TRUE),
       Precip = sum(Precip, na.rm=TRUE),
@@ -276,6 +276,7 @@ convert_hourly_to_daily <- function(df) {
     mutate(date = floor_date(date, "day")) %>%
     group_by(date) %>%
     summarise(
+      GPP_n_valid = sum(!is.na(GPP)),
       GPP = sum(GPP, na.rm = TRUE),
       ET = sum(ET, na.rm = TRUE),
       Precip = sum(Precip, na.rm = TRUE),
@@ -305,7 +306,7 @@ sites_daily <- sites_clean %>%
 ```
 
 ```{r}
-plot(sites_daily$Gww_HH$GPP)
+plot(sites_daily$Gww_HH$GPP_n_valid)
 ```
 
 ```{r}
@@ -334,9 +335,9 @@ sites_daily <- sites_daily %>%
 
 Check variables look normal:
 ```{r}
-plot(sites_daily$How_HH_daily$VPD, sites_daily$How_HH_daily$GPP)
+plot(sites_daily$How_HH$VPD, sites_daily$How_HH$GPP)
 ```
-Add in water stress component and leaf chlorophyll content
+Add in water stress component (pet and cwd) and leaf chlorophyll content (LCC)
 ```{r}
 library(tidyverse)
 library(caret)
@@ -446,17 +447,15 @@ get_daily_LCC <- function(lcc_nc, lat, lon) {
 
 # --- 2. Function to attach VCmax and LCC to a site dataframe ---
 attach_site_data <- function(df, lat, lon, vcmax_raster, lcc_nc) {
-  
   vcmax_val <- get_vcmax(lat, lon, vcmax_raster)
-  daily_LCC <- get_daily_LCC(lcc_nc, lat, lon)
-  daily_LCC_full <- rep(daily_LCC, length.out = nrow(df))
+  daily_LCC <- get_daily_LCC(lcc_nc, lat, lon)  # ~365 values
   
   df %>%
     mutate(
-      vcmax      = vcmax_val,
-      LCC_daily  = daily_LCC_full,
-      year       = year(date),
-      doy        = yday(date)
+      vcmax = vcmax_val,
+      LCC_daily = daily_LCC[yday(date)],  # index by actual DOY
+      year = year(date),
+      doy = yday(date)
     )
 }
 
