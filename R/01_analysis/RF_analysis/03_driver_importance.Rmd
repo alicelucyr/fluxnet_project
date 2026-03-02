@@ -1,0 +1,299 @@
+---
+title: "03_driver_importance"
+output: html_document
+date: "2026-03-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Subsection 1: VPD across OzFlux
+- Driver importance using random forest
+
+Compare the importance of Temp, VPD, precipitation, cwd 7 day, climate lags (VPD, Temp), LAI, shortwave radiation and leaf chlorophyll content
+
+```{r}
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(zoo)
+
+standardise <- function(train, test, vars_to_scale) {
+  # Fit scaling on train only, apply to both - avoids data leakage
+  scale_params <- lapply(vars_to_scale, function(v) {
+    list(mean = mean(train[[v]], na.rm = TRUE),
+         sd   = sd(train[[v]], na.rm = TRUE))
+  })
+  names(scale_params) <- vars_to_scale
+  
+  for (v in vars_to_scale) {
+    train[[v]] <- (train[[v]] - scale_params[[v]]$mean) / scale_params[[v]]$sd
+    test[[v]]  <- (test[[v]]  - scale_params[[v]]$mean) / scale_params[[v]]$sd
+  }
+  list(train = train, test = test)
+}
+
+run_rf_for_site <- function(df, site_name) {
+  
+  df <- df %>% drop_na()
+  
+  if (nrow(df) < 100) {
+    warning(paste("Site", site_name, "has insufficient data:", nrow(df), "rows"))
+    return(NULL)
+  }
+  
+  # Add lagged variables and rolling CWD
+  df <- df %>%
+    arrange(date) %>%
+    mutate(
+      cumulative_cwd_7day = rollapply(cwd, width = 7, FUN = sum,
+                                      align = "right", fill = NA, na.rm = TRUE),
+      Tair_lag1 = lag(Tair, 1),
+      Tair_lag2 = lag(Tair, 2),
+      Tair_lag3 = lag(Tair, 3),
+      VPD_lag1  = lag(VPD, 1),
+      VPD_lag2  = lag(VPD, 2),
+      VPD_lag3  = lag(VPD, 3)
+    ) %>%
+    drop_na()
+  
+  # Train/test split
+  set.seed(123)
+  idx        <- createDataPartition(df$GPP, p = 0.8, list = FALSE)
+  train_data <- df[idx, ]
+  test_data  <- df[-idx, ]
+  
+  predictors <- c("Tair", "SW_rad", "VPD", "Precip", "LAI_filled",
+                "LCC_daily", "cumulative_cwd_7day",
+                "Tair_lag1", "Tair_lag2", "Tair_lag3",
+                "VPD_lag1",  "VPD_lag2",  "VPD_lag3")
+  
+  # Scale train, apply same params to test
+  scaled     <- standardise(train_data, test_data, predictors)
+  train_data <- scaled$train
+  test_data  <- scaled$test
+  
+  # Fit RF
+  model <- randomForest(
+    GPP ~ Tair + SW_rad + VPD + Precip + LAI_filled + LCC_daily + cumulative_cwd_7day +
+      Tair_lag1 + Tair_lag2 + Tair_lag3 +
+      VPD_lag1  + VPD_lag2  + VPD_lag3,
+    data  = train_data,
+    ntree = 500,
+    mtry  = 3,
+    importance = TRUE  # needed for permutation importance
+  )
+  
+  # Predict and metrics
+  predictions    <- predict(model, test_data)
+  results        <- data.frame(Observed = test_data$GPP, Predicted = predictions)
+  rmse           <- sqrt(mean((results$Observed - results$Predicted)^2))
+  rsq            <- cor(results$Observed, results$Predicted)^2
+  mean_observed  <- mean(results$Observed)
+  nse            <- 1 - sum((results$Observed - results$Predicted)^2) /
+                        sum((results$Observed - mean_observed)^2)
+  
+  # Variable importance - use %IncMSE (permutation based, more reliable than IncNodePurity)
+  imp <- importance(model, type = 1)  # type=1 is %IncMSE
+  importance_df <- data.frame(
+    variable   = rownames(imp),
+    importance = imp[, 1],
+    site       = site_name
+  )
+  
+  return(list(
+    site        = site_name,
+    model       = model,
+    metrics     = data.frame(site = site_name, RMSE = rmse, R2 = rsq, NSE = nse),
+    importance  = importance_df,
+    predictions = results %>% mutate(site = site_name)
+  ))
+}
+
+# Apply to all sites
+rf_results <- map2(sites_daily, names(sites_daily), run_rf_for_site)
+
+# Remove NULLs from sites with insufficient data
+rf_results <- Filter(Negate(is.null), rf_results)
+cat("Sites successfully fitted:", length(rf_results), "\n")
+
+# Extract metrics and importance
+all_metrics    <- map_df(rf_results, ~.x$metrics)
+all_importance <- map_df(rf_results, ~.x$importance)
+
+print(all_metrics)
+
+# Plot importance in groups of 6 sites
+site_names <- unique(all_importance$site)
+n_groups   <- ceiling(length(site_names) / 6)
+
+for (i in 1:n_groups) {
+  start_idx    <- (i - 1) * 6 + 1
+  end_idx      <- min(i * 6, length(site_names))
+  sites_subset <- site_names[start_idx:end_idx]
+  
+  p <- ggplot(all_importance %>% filter(site %in% sites_subset),
+              aes(x = reorder(variable, importance), y = importance)) +
+    geom_col(fill = "steelblue") +
+    facet_wrap(~site, scales = "free_x", ncol = 3) +
+    coord_flip() +
+    theme_minimal() +
+    theme(strip.text = element_text(size = 10),
+          axis.text  = element_text(size = 8)) +
+    labs(title = paste("Variable Importance - Group", i),
+         x = "Variable", y = "%IncMSE")
+  
+  print(p)
+  ggsave(paste0("importance_group_", i, ".png"), width = 12, height = 8, dpi = 300)
+}
+```
+
+LAI interpolated looks like the most important - let's try with the raw data instead and compare
+
+```{r}
+library(zoo)
+
+sites_daily <- map(sites_daily, function(df) {
+  df %>%
+    arrange(date) %>%
+    mutate(LAI_step = na.locf(LAI_4day, na.rm = FALSE))
+})
+```
+
+```{r}
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(zoo)
+
+standardise <- function(train, test, vars_to_scale) {
+  # Fit scaling on train only, apply to both - avoids data leakage
+  scale_params <- lapply(vars_to_scale, function(v) {
+    list(mean = mean(train[[v]], na.rm = TRUE),
+         sd   = sd(train[[v]], na.rm = TRUE))
+  })
+  names(scale_params) <- vars_to_scale
+  
+  for (v in vars_to_scale) {
+    train[[v]] <- (train[[v]] - scale_params[[v]]$mean) / scale_params[[v]]$sd
+    test[[v]]  <- (test[[v]]  - scale_params[[v]]$mean) / scale_params[[v]]$sd
+  }
+  list(train = train, test = test)
+}
+
+run_rf_for_site <- function(df, site_name) {
+  
+  df <- df %>% drop_na()
+  
+  if (nrow(df) < 100) {
+    warning(paste("Site", site_name, "has insufficient data:", nrow(df), "rows"))
+    return(NULL)
+  }
+  
+  # Add lagged variables and rolling CWD
+  df <- df %>%
+    arrange(date) %>%
+    mutate(
+      cumulative_cwd_7day = rollapply(cwd, width = 7, FUN = sum,
+                                      align = "right", fill = NA, na.rm = TRUE),
+      Tair_lag1 = lag(Tair, 1),
+      Tair_lag2 = lag(Tair, 2),
+      Tair_lag3 = lag(Tair, 3),
+      VPD_lag1  = lag(VPD, 1),
+      VPD_lag2  = lag(VPD, 2),
+      VPD_lag3  = lag(VPD, 3)
+    ) %>%
+    drop_na()
+  
+  # Train/test split
+  set.seed(123)
+  idx        <- createDataPartition(df$GPP, p = 0.8, list = FALSE)
+  train_data <- df[idx, ]
+  test_data  <- df[-idx, ]
+  
+  predictors <- c("Tair", "SW_rad", "VPD", "Precip", "LAI_step",
+                "LCC_daily", "cumulative_cwd_7day",
+                "Tair_lag1", "Tair_lag2", "Tair_lag3",
+                "VPD_lag1",  "VPD_lag2",  "VPD_lag3")
+  
+  # Scale train, apply same params to test
+  scaled     <- standardise(train_data, test_data, predictors)
+  train_data <- scaled$train
+  test_data  <- scaled$test
+  
+  # Fit RF
+  model <- randomForest(
+    GPP ~ Tair + SW_rad + VPD + Precip + LAI_step + LCC_daily + cumulative_cwd_7day +
+      Tair_lag1 + Tair_lag2 + Tair_lag3 +
+      VPD_lag1  + VPD_lag2  + VPD_lag3,
+    data  = train_data,
+    ntree = 500,
+    mtry  = 3,
+    importance = TRUE  # needed for permutation importance
+  )
+  
+  # Predict and metrics
+  predictions    <- predict(model, test_data)
+  results        <- data.frame(Observed = test_data$GPP, Predicted = predictions)
+  rmse           <- sqrt(mean((results$Observed - results$Predicted)^2))
+  rsq            <- cor(results$Observed, results$Predicted)^2
+  mean_observed  <- mean(results$Observed)
+  nse            <- 1 - sum((results$Observed - results$Predicted)^2) /
+                        sum((results$Observed - mean_observed)^2)
+  
+  # Variable importance - use %IncMSE (permutation based, more reliable than IncNodePurity)
+  imp <- importance(model, type = 1)  # type=1 is %IncMSE
+  importance_df <- data.frame(
+    variable   = rownames(imp),
+    importance = imp[, 1],
+    site       = site_name
+  )
+  
+  return(list(
+    site        = site_name,
+    model       = model,
+    metrics     = data.frame(site = site_name, RMSE = rmse, R2 = rsq, NSE = nse),
+    importance  = importance_df,
+    predictions = results %>% mutate(site = site_name)
+  ))
+}
+
+# Apply to all sites
+rf_results <- map2(sites_daily, names(sites_daily), run_rf_for_site)
+
+# Remove NULLs from sites with insufficient data
+rf_results <- Filter(Negate(is.null), rf_results)
+cat("Sites successfully fitted:", length(rf_results), "\n")
+
+# Extract metrics and importance
+all_metrics    <- map_df(rf_results, ~.x$metrics)
+all_importance <- map_df(rf_results, ~.x$importance)
+
+print(all_metrics)
+
+# Plot importance in groups of 6 sites
+site_names <- unique(all_importance$site)
+n_groups   <- ceiling(length(site_names) / 6)
+
+for (i in 1:n_groups) {
+  start_idx    <- (i - 1) * 6 + 1
+  end_idx      <- min(i * 6, length(site_names))
+  sites_subset <- site_names[start_idx:end_idx]
+  
+  p <- ggplot(all_importance %>% filter(site %in% sites_subset),
+              aes(x = reorder(variable, importance), y = importance)) +
+    geom_col(fill = "steelblue") +
+    facet_wrap(~site, scales = "free_x", ncol = 3) +
+    coord_flip() +
+    theme_minimal() +
+    theme(strip.text = element_text(size = 10),
+          axis.text  = element_text(size = 8)) +
+    labs(title = paste("Variable Importance - Group", i),
+         x = "Variable", y = "%IncMSE")
+  
+  print(p)
+  ggsave(paste0("importance_group_", i, ".png"), width = 12, height = 8, dpi = 300)
+}
+```
+
