@@ -85,60 +85,53 @@ read_flux <- function(fname) {
 
 Load in 23 sites across Aus
 ```{r}
-How_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-How_FLUXNET2015_FULLSET_HH_2001-2014_1-4.csv")
+How <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-How_FLUXNET2015_FULLSET_HH_2001-2014_1-4.csv")
 
-Ade_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Ade_FLUXNET2015_FULLSET_HH_2007-2009_1-4.csv")
+Ade <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Ade_FLUXNET2015_FULLSET_HH_2007-2009_1-4.csv")
 
-Dap_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-DaP_FLUXNET2015_FULLSET_HH_2007-2013_2-4.csv")
+Dap <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-DaP_FLUXNET2015_FULLSET_HH_2007-2013_2-4.csv")
 
-Das_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-DaS_FLUXNET2015_FULLSET_HH_2008-2014_2-4.csv")
+Das <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-DaS_FLUXNET2015_FULLSET_HH_2008-2014_2-4.csv")
 
-Dry_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Dry_FLUXNET2015_FULLSET_HH_2008-2014_2-4.csv")
+Dry <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Dry_FLUXNET2015_FULLSET_HH_2008-2014_2-4.csv")
 
-Stp_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Stp_FLUXNET2015_FULLSET_HH_2008-2014_1-4.csv")
+Stp <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Stp_FLUXNET2015_FULLSET_HH_2008-2014_1-4.csv")
 
-Asm_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-ASM_FLUXNET2015_FULLSET_HH_2010-2014_2-4.csv")
+Asm <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-ASM_FLUXNET2015_FULLSET_HH_2010-2014_2-4.csv")
 
-Cum_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Cum_FLUXNET2015_FULLSET_HH_2012-2014_2-4.csv")
+Cum <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Cum_FLUXNET2015_FULLSET_HH_2012-2014_2-4.csv")
 
-Emr_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Emr_FLUXNET2015_FULLSET_HH_2011-2013_1-4.csv")
+Emr <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Emr_FLUXNET2015_FULLSET_HH_2011-2013_1-4.csv")
 
-Fog_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Fog_FLUXNET2015_FULLSET_HH_2006-2008_1-4.csv")
+Fog <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Fog_FLUXNET2015_FULLSET_HH_2006-2008_1-4.csv")
 
-Gin_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Gin_FLUXNET2015_FULLSET_HH_2011-2014_1-4.csv")
+Gin <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Gin_FLUXNET2015_FULLSET_HH_2011-2014_1-4.csv")
 
-Gww_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-GWW_FLUXNET2015_FULLSET_HH_2013-2014_1-4.csv")
+Gww <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-GWW_FLUXNET2015_FULLSET_HH_2013-2014_1-4.csv")
 
-Lox_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Lox_FLUXNET2015_FULLSET_HH_2008-2009_1-4.csv")
+Lox <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Lox_FLUXNET2015_FULLSET_HH_2008-2009_1-4.csv")
 
-Rdf_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-RDF_FLUXNET2015_FULLSET_HH_2011-2013_1-4.csv")
+Rdf <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-RDF_FLUXNET2015_FULLSET_HH_2011-2013_1-4.csv")
 
-Rig_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Rig_FLUXNET2015_FULLSET_HH_2011-2014_2-4.csv")
+Rig <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Rig_FLUXNET2015_FULLSET_HH_2011-2014_2-4.csv")
 
-Rob_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Rob_FLUXNET2015_FULLSET_HH_2014-2014_1-4.csv")
+Rob <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Rob_FLUXNET2015_FULLSET_HH_2014-2014_1-4.csv")
 
-TTE_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-TTE_FLUXNET2015_FULLSET_HH_2012-2014_1-4.csv")
+TTE <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-TTE_FLUXNET2015_FULLSET_HH_2012-2014_1-4.csv")
 
-Wac_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Wac_FLUXNET2015_FULLSET_HH_2005-2008_1-4.csv")
+Wac <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Wac_FLUXNET2015_FULLSET_HH_2005-2008_1-4.csv")
 
-Whr_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Whr_FLUXNET2015_FULLSET_HH_2011-2014_2-4.csv")
+Whr <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Whr_FLUXNET2015_FULLSET_HH_2011-2014_2-4.csv")
 
-Wom_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Wom_FLUXNET2015_FULLSET_HH_2010-2014_1-4.csv")
+Wom <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Wom_FLUXNET2015_FULLSET_HH_2010-2014_1-4.csv")
 
-Ync_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Ync_FLUXNET2015_FULLSET_HH_2012-2014_1-4.csv")
+Ync <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Ync_FLUXNET2015_FULLSET_HH_2012-2014_1-4.csv")
 
-Cpr_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Cpr_FLUXNET2015_FULLSET_HH_2010-2014_2-4.csv")
+Cpr <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Cpr_FLUXNET2015_FULLSET_HH_2010-2014_2-4.csv")
 
-Tum_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/hourly_2/FLX_AU-Tum_FLUXNET2015_FULLSET_HR_2001-2014_2-4.csv") #remember AU-Tum is hourly
+Tum <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/hourly_2/FLX_AU-Tum_FLUXNET2015_FULLSET_HR_2001-2014_2-4.csv") #remember AU-Tum is hourly
 
 ```
-
-```{r}
-plot(Ync_HH$GPP)
-```
-
-
-
 
 Remove -9999 values:
 
@@ -160,7 +153,7 @@ flux_nas <- function(df, flux_vars, na_vals = c(-9999, -9999.9)) {
 ```{r}
 #names of datasets I have loaded in so R knows what I'm yapping about
 
-site_names <- c("How_HH", "Ade_HH", "Das_HH", "Dap_HH", "Dry_HH", "Stp_HH", "Asm_HH", "Cum_HH", "Emr_HH", "Fog_HH", "Gin_HH", "Gww_HH", "Lox_HH", "Rdf_HH", "Rig_HH", "Rob_HH", "TTE_HH", "Wac_HH", "Whr_HH", "Wom_HH", "Ync_HH", "Cpr_HH", "Tum_HH")
+site_names <- c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm", "Cum", "Emr", "Fog", "Gin", "Gww", "Lox", "Rdf", "Rig", "Rob", "TTE", "Wac", "Whr", "Wom", "Ync", "Cpr", "Tum")
 
 #pulls the objects from the environment - sites is a list of dataframes
 sites <- mget(site_names)
@@ -169,12 +162,6 @@ sites <- mget(site_names)
 sites_clean <- map(sites, ~flux_nas(.x, flux_vars))
 
 ```
-
-```{r}
-plot(sites_clean$TTE_HH$GPP)
-```
-
-
 Filter low coverage days:
 
 ```{r}
@@ -194,17 +181,13 @@ filter_low_coverage_days <- function(df, min_frac = 0.8, steps_per_day = 48) {
 }
 
 sites_clean <- sites_clean %>%
-  imap(~ filter_low_coverage_days(.x, steps_per_day = if (.y=="Tum_HH") 24 else 48))
+  imap(~ filter_low_coverage_days(.x, steps_per_day = if (.y=="Tum") 24 else 48))
 
-#Basically saying if it is AU-Tum, it is hourly, so should be 24 not 48. There might be a quicker way to do this, but this is what it will be for now. For reproducibility, just plonk in the known hourly sites into this part. 
+#Basically saying if it is Tum, it is hourly, so should be 24 not 48. There might be a quicker way to do this, but this is what it will be for now. For reproducibility, just plonk in the known hourly sites into this part. 
   
 ```
 
-Double checking variables:
-```{r}
-plot(sites_clean$Gww_HH$GPP)
-```
-So all the cleaned AU_HH dataframes are in the object sites_clean. The external AU_HH in the environment is the raw data
+So all the cleaned AU dataframes are in the object sites_clean. The external site in the environment is the raw data
 
 Convert to daily:
 
@@ -310,7 +293,7 @@ convert_hourly_to_daily <- function(df) {
 #so basically, apply hourly to daily if it equals Tum, but if not apply half-hourly to daily conversion. Save in a list called sites_daily
 
 sites_daily <- sites_clean %>%
-  imap(~ if (.y == "Tum_HH") {
+  imap(~ if (.y == "Tum") {
     convert_hourly_to_daily(.x)
   } else {
     convert_to_daily(.x)
@@ -318,7 +301,7 @@ sites_daily <- sites_clean %>%
 ```
 
 ```{r}
-plot(sites_daily$Gww_HH$GPP)
+plot(sites_daily$Gww$GPP)
 ```
 
 ```{r}
@@ -345,10 +328,6 @@ sites_daily <- sites_daily %>%
   map(filter_gs)
 ```
 
-Check variables look normal:
-```{r}
-plot(sites_daily$How_HH$GPP)
-```
 Add in water stress component (pet and cwd) and leaf chlorophyll content (LCC)
 ```{r}
 library(tidyverse)
@@ -490,12 +469,4 @@ sites_daily <- pmap(
 ```
 
 
-```{r}
-#export back to environment 
 
-names(sites_daily) <- paste0(names(sites_daily), "_daily")
-list2env(sites_daily, envir = .GlobalEnv)
-
-```
-
-Now you have a list of the sites cleaned (sites_daily) and you have also exported the dataframes to the environment. Remember not to rewrite over these key lists.
