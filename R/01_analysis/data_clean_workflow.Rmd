@@ -133,6 +133,13 @@ Tum_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/
 
 ```
 
+```{r}
+plot(Ync_HH$GPP)
+```
+
+
+
+
 Remove -9999 values:
 
 ```{r}
@@ -163,6 +170,11 @@ sites_clean <- map(sites, ~flux_nas(.x, flux_vars))
 
 ```
 
+```{r}
+plot(sites_clean$TTE_HH$GPP)
+```
+
+
 Filter low coverage days:
 
 ```{r}
@@ -171,7 +183,7 @@ library(dplyr)
 library(lubridate)
 library(purrr)
 
-filter_low_coverage_days <- function(df, min_frac = 0.9, steps_per_day = 48) {
+filter_low_coverage_days <- function(df, min_frac = 0.8, steps_per_day = 48) {
 
   min_steps <- ceiling(min_frac * steps_per_day)
 
@@ -306,7 +318,7 @@ sites_daily <- sites_clean %>%
 ```
 
 ```{r}
-plot(sites_daily$Gww_HH$GPP_n_valid)
+plot(sites_daily$Gww_HH$GPP)
 ```
 
 ```{r}
@@ -325,7 +337,7 @@ Growing season:
 filter_gs <- function(df) {
   df %>%
     filter(
-      GPP > 0
+      GPP >= 0
     )
 }
 
@@ -335,7 +347,7 @@ sites_daily <- sites_daily %>%
 
 Check variables look normal:
 ```{r}
-plot(sites_daily$How_HH$VPD, sites_daily$How_HH$GPP)
+plot(sites_daily$How_HH$GPP)
 ```
 Add in water stress component (pet and cwd) and leaf chlorophyll content (LCC)
 ```{r}
