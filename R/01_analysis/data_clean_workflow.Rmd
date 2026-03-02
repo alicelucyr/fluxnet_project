@@ -468,5 +468,13 @@ sites_daily <- pmap(
 
 ```
 
+```{r}
+list2env(
+  setNames(sites_daily, paste0(names(sites_daily), "_daily")),
+  envir = .GlobalEnv
+)
+```
+
+
 
 
