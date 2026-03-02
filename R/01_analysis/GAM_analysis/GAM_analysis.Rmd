@@ -17,11 +17,10 @@ M3a: Climate + VPD + lags 3
 M3b: Climate + VPD + lags 5
 M3c: Climate + VPD + lags 7
 M4: Climate + VPD + best lag + cwd7
-M5: Climate + VPD + best lag + cwd7 + LCC
+M5: Climate + VPD + best lag + cwd7 + LAI
 
 **2. Directly compare**
 - Model 1 + Model 2 (unique contribution of VPD)
-
 
 Everything loaded in properly.
 
@@ -45,7 +44,7 @@ aus_sites <- c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm",
 # Split, rolling CWD, lagged variables
 for(site in aus_sites){
   
-  df <- get(paste0(site, "_HH_daily")) %>%
+  df <- get(paste0(site, "_daily")) %>%
     arrange(date)  # ensure temporal order
   
   # Create lagged variables BEFORE splitting
@@ -136,10 +135,6 @@ for(site in aus_sites) {
              "test rows:", nrow(test_clean), "\n")
 }
 ```
-```{r}
-lox_test <- get("Lox_test")
-colSums(is.na(lox_test[, c("GPP", "Tair", "SW_rad", "Precip")]))
-```
 
 
 ```{r}
@@ -148,6 +143,9 @@ wet_dry_order <- c("Wac", "Rob", "How", "Das", "Fog", "Ade", "Dap", "Rdf", "Wom"
 
 #most to least variable
 precip_variability_order <- c("Gww", "TTE", "Asm", "Cpr", "Ync", "Lox", "Emr","Whr", "Wom", "Tum", "Rig", "Wac", "Stp", "Dry", "Gin", "Cum", "Fog", "Das", "Rob", "Rdf", "Dap", "How", "Ade")
+
+#highest max LAI to lowest max LAI
+lai_order <- c("Tum", "Wac", "Wom", "Rob", "Rig", "Dap", "How", "Fog", "Dry", "Ade", "Rdf", "Das", "Cum", "Whr", "Emr", "Stp", "Gin", "Ync", "Lox", "Cpr", "TTE", "Asm", "Gww")
 
 model_1_results$site <- factor(model_1_results$site, levels = wet_dry_order)
 
@@ -166,7 +164,7 @@ ggplot(model_1_results, aes(x = site, y = R2)) +
 ```{r}
 # visualise NA patterns
 library(naniar)
-vis_miss(Gww_HH_daily[, c("date", "GPP", "VPD", "Precip", "Tair", "SW_rad", "Rn")])
+vis_miss(sites_clean$Lox[, c("date", "GPP", "VPD", "Precip", "Tair", "SW_rad", "Rn")])
 ```
 - I was removing NA rows in all of the variables. This meant if there were loads of NA in Rn, it deleted entire rows even when VPD/Tair/SW_rad were complete. This is why Gww was not doing very well.
 
@@ -652,8 +650,8 @@ ggplot(model_4_results, aes(x = site, y = R2)) +
 fit_gam_m5 <- function(train_data, test_data) {
   
   #Drop NA only in the predictors of the model
-  train_clean <- train_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD, Tair_lag7, VPD_lag7, cumulative_cwd_7day, LCC_daily)
-  test_clean <- test_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD, Tair_lag7, VPD_lag7, cumulative_cwd_7day, LCC_daily)
+  train_clean <- train_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD, Tair_lag7, VPD_lag7, cumulative_cwd_7day, LAI_step)
+  test_clean <- test_data %>% drop_na(GPP, Tair, SW_rad, Precip, VPD, Tair_lag7, VPD_lag7, cumulative_cwd_7day, LAI_step)
   
   #Ade and Lox have very low test data - this prevents the GAM from crashing
    if(nrow(train_clean) < 10 | nrow(test_clean) < 10) {
@@ -661,7 +659,7 @@ fit_gam_m5 <- function(train_data, test_data) {
   }
   
   model <- gam(
-    GPP ~ s(Tair) + s(SW_rad) + s(Precip) + s(VPD) + s(VPD_lag7) + s(Tair_lag7) + s(cumulative_cwd_7day) + s(LCC_daily),
+    GPP ~ s(Tair) + s(SW_rad) + s(Precip) + s(VPD) + s(VPD_lag7) + s(Tair_lag7) + s(cumulative_cwd_7day) + s(LAI_step),
     data = train_clean,
     method = "REML"
   )
@@ -757,6 +755,35 @@ final_comparison <- final_comparison %>%
 
 final_comparison
 ```
+convert wide to long 
+```{r}
+library(tidyverse)
+
+r2_long <- final_comparison %>%
+  pivot_longer(
+    cols = starts_with("model_"),
+    names_to = "model",
+    values_to = "r2"
+  )
+```
+
+
+```{r}
+r2_long <- r2_long %>%
+  mutate(model_num = as.numeric(gsub("model_", "", model)))
+```
+
+```{r}
+ggplot(r2_long, aes(x = model_num, y = r2, group = site, colour = site)) +
+  geom_line(alpha = 0.6) +
+  geom_point(size = 2) +
+  labs(
+    x = "Model",
+    y = expression(R^2),
+    colour = "Site"
+  ) +
+  theme_minimal()
+```
 
 ```{r}
 final_comparison %>%
@@ -767,10 +794,9 @@ final_comparison %>%
   ) %>%
   mutate(
     model = factor(model,
-                   levels = c("model_1", "model_2", "model_3a", 
-                             "model_3b", "model_3c", "model_4", "model_5"),
-                   labels = c("Climate", "+VPD", "+Lag3", "+Lag5", 
-                             "+Lag7", "+CWD", "+LCC"))
+                   levels = c("model_1", "model_2", "model_3", 
+                             "model_4", "model_5"),
+                   labels = c("Climate", "+VPD", "+Lag7", "+CWD", "+LAI"))
   ) %>%
   ggplot(aes(x = model, y = site, fill = R2)) +
   geom_tile(color = "white", linewidth = 0.5) +
