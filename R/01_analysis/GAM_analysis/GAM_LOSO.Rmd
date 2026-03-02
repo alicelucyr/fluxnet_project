@@ -28,7 +28,7 @@ I have done this for a simple model (Tair, SW_rad and VPD) and the more complex 
 # Simple model:  GPP ~ s(Tair) + s(SW_rad) + s(VPD)
 # Complex model: GPP ~ s(Tair) + s(SW_rad) + s(Precip) + s(VPD) +
 #                        s(VPD_lag3) + s(Tair_lag3) + s(cumulative_cwd_7day) +
-#                        s(LCC_daily)
+#                        s(LAI_step)
 
 
 library(tidyverse)
@@ -68,7 +68,7 @@ wet_dry_order <- c("Rob", "How", "Wac", "Das", "Fog", "Dap", "Ade", "Dry",
 
 all_sites_df <- bind_rows(
   lapply(aus_sites, function(site) {
-    get(paste0(site, "_HH_daily")) %>%
+    get(paste0(site, "_daily")) %>%
       arrange(date) %>%
       mutate(
         Tair_lag3           = lag(Tair, 3),
@@ -93,7 +93,7 @@ formula_simple <- GPP ~ s(Tair) + s(SW_rad) + s(VPD)
 
 formula_complex <- GPP ~ s(Tair) + s(SW_rad) + s(Precip) +
   s(VPD) + s(VPD_lag7) + s(Tair_lag7) +
-  s(cumulative_cwd_7day) + s(LCC_daily)
+  s(cumulative_cwd_7day) + s(LAI_step)
 
 # -----------------------------------------------------------------------------
 # 3. LOSO with model-specific NA removal
@@ -159,7 +159,7 @@ run_loso <- function(data, formula, model_name, required_vars) {
 vars_simple <- c("GPP", "Tair", "SW_rad", "VPD")
 
 vars_complex <- c("GPP", "Tair", "SW_rad", "Precip", "VPD", 
-                  "VPD_lag7", "Tair_lag7", "cumulative_cwd_7day", "LCC_daily")
+                  "VPD_lag7", "Tair_lag7", "cumulative_cwd_7day", "LAI_step")
 
 cat("Running LOSO for simple model...\n")
 loso_simple  <- run_loso(all_sites_df, formula_simple, "Simple", vars_simple)
@@ -392,5 +392,168 @@ Next steps:
 - interaction terms?
 - Identify 3 highest CV sites and 3 lowest CV sites, plot actual versus predicted GPP time series - am i missing pulses? overestimating during drought?
 
+```{r}
+library(tidyverse)
 
+# 1. Prepare data for plotting
+# Add a 'Model' column to each dataset for clarity
+
+loso_simple_plot <- loso_results %>%
+  filter(model == "Simple") %>%
+  select(site = held_out_site, R2) %>%
+  mutate(Model = "LOSO Simple")
+
+loso_complex_plot <- loso_results %>%
+  filter(model == "Complex") %>%
+  select(site = held_out_site, R2) %>%
+  mutate(Model = "LOSO Complex")
+
+full_model_plot <- model_5_results %>%
+  select(site, R2) %>%
+  mutate(Model = "Within-site model 5")
+
+# Combine into one dataframe
+plot_df <- bind_rows(loso_simple_plot, loso_complex_plot, full_model_plot)
+
+# Ensure consistent site ordering
+plot_df$site <- factor(plot_df$site, levels = wet_dry_order)
+
+# 2. Plot
+ggplot(plot_df, aes(x = site, y = R2, fill = Model)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.65) +
+  coord_flip() +
+  scale_fill_manual(values = c("LOSO Simple" = "steelblue",
+                               "LOSO Complex" = "firebrick",
+                               "Within-site model 5" = "darkgreen")) +
+  theme_minimal(base_size = 13) +
+  labs(
+    x = "Site (Wet → Dry)",
+    y = expression(R^2),
+    fill = "Model",
+    title = "Comparison of Model Predictive Performance Across Sites"
+  )
+```
+Test whether VPD significantly improves model performance and whether VPD improves generalisation across sites
+- LOSO no vpd
+- LOSO vpd
+
+```{r}
+library(mgcv)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+# ------------------------
+# 1. LOSO function with NA handling
+# ------------------------
+run_loso <- function(data, formula, model_name) {
+  
+  # Extract variable names from formula (including response)
+  vars <- all.vars(formula)
+  
+  sites <- unique(data$site)
+  results <- data.frame(
+    held_out_site = character(),
+    R2 = numeric(),
+    model = character(),
+    stringsAsFactors = FALSE
+  )
+  
+  for (s in sites) {
+    # Filter data and drop rows with NAs in any variables used in the model
+    train <- data %>% filter(site != s) %>% drop_na(all_of(vars))
+    test  <- data %>% filter(site == s) %>% drop_na(all_of(vars))
+    
+    # Check if training or test set is empty
+    if(nrow(train) < 5 | nrow(test) < 5) {
+      # Not enough data to fit or test the model
+      results <- rbind(results, data.frame(held_out_site = s, R2 = NA, model = model_name))
+      next
+    }
+    
+    # Fit GAM
+    gam_mod <- gam(formula, data = train)
+    
+    # Predict on test set
+    pred <- predict(gam_mod, newdata = test)
+    
+    # Calculate R² safely, only using complete cases
+    complete <- complete.cases(pred, test$GPP)
+    r2 <- 1 - sum((test$GPP[complete] - pred[complete])^2) / sum((test$GPP[complete] - mean(test$GPP[complete]))^2)
+    
+    # Store result
+    results <- rbind(results, data.frame(held_out_site = s, R2 = r2, model = model_name))
+  }
+  
+  return(results)
+}
+
+# ------------------------
+# 2. Formulas
+# ------------------------
+formula_noVPD <- GPP ~ s(Tair) + s(SW_rad) + s(Precip)
+formula_withVPD <- GPP ~ s(Tair) + s(SW_rad) + s(Precip) + s(VPD)
+
+# ------------------------
+# 3. Run LOSO GAMs
+# ------------------------
+loso_noVPD <- run_loso(all_sites_df, formula_noVPD, "No VPD")
+loso_withVPD <- run_loso(all_sites_df, formula_withVPD, "With VPD")
+
+loso_combined <- bind_rows(loso_noVPD, loso_withVPD)
+
+# ------------------------
+# 4. Calculate delta R2 per site
+# ------------------------
+loso_delta <- loso_combined %>%
+  pivot_wider(names_from = model, values_from = R2) %>%
+  mutate(delta_R2 = `With VPD` - `No VPD`)
+
+# ------------------------
+# 5. Paired statistical test
+# ------------------------
+t_test_result <- t.test(loso_delta$`With VPD`, loso_delta$`No VPD`, paired = TRUE)
+wilcox_test_result <- wilcox.test(loso_delta$`With VPD`, loso_delta$`No VPD`, paired = TRUE)
+
+print(t_test_result)
+print(wilcox_test_result)
+
+# ------------------------
+# 6. Plot delta R2
+# ------------------------
+ggplot(loso_delta, aes(x = reorder(held_out_site, delta_R2), y = delta_R2, fill = delta_R2 > 0)) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_manual(values = c("TRUE" = "steelblue", "FALSE" = "firebrick"), guide = "none") +
+  labs(
+    x = "Held-out site",
+    y = expression(Delta*R^2),
+    title = "Effect of VPD on LOSO GAM Generalisability"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+loso_results %>%
+  filter(is.na(R2)) %>%
+  select(held_out_site, model)
+```
+
+```{r}
+
+# Ensure your data has factors for ordering
+loso_combined$site <- factor(loso_combined$held_out_site, 
+                             levels = loso_delta$held_out_site[order(loso_delta$delta_R2, decreasing = TRUE)])
+
+# Plot
+ggplot(loso_combined, aes(x = R2, y = site, color = model)) +
+  geom_point(size = 3, position = position_dodge(width = 0.5)) +
+  labs(
+    x = expression(R^2),
+    y = "Site",
+    title = "LOSO GAM R² per site with and without VPD"
+  ) +
+  scale_color_manual(values = c("No VPD" = "firebrick", "With VPD" = "steelblue")) +
+  theme_classic()
+```
 
