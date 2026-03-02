@@ -14,103 +14,101 @@ Every 4 days
 2. Convert date column into proper date column
 3. Somehow attach the corresponding date from the LAI to the one I have in the flux data - every 4 days?
 
-Load in data
+Add site names back in
 
 ```{r}
 library(tidyverse)
+library(data.table)
+library(zoo)
+
+sites_daily <- imap(sites_daily, function(df, name) {
+  df %>% mutate(site = name)
+})
 ```
+Load and clean LAI data
 
 ```{r}
-lai_data <- read.csv("/Users/alicerolfe/year_4_project/fluxnet_project/Data/site_4day_LAI.csv")
-```
-
-```{r}
-lai_data <- lai_data %>% select(-.geo)
-```
-
-Convert date to proper date format
-```{r}
-lai_data <- lai_data %>%
+lai_data <- read.csv("/Users/alicerolfe/year_4_project/fluxnet_project/Data/site_4day_LAI.csv") %>%
+  select(-.geo) %>%
   mutate(date = as.Date(date, format = "%Y-%m-%dT%H:%M:%S"))
 ```
 
-```{r}
-head(lai_data)
-```
+Verify names of LAI data and Flux data match
 
-Make corresponding names from LAI data and Flux data
 ```{r}
-site_mapping <- data.frame(
-  flux_site = c("How", "Stp", "Dry", "Das", "TTE", "Asm", "Tum", "Wom", "Ade", "Cpr", "Cum", "Dap", "Emr", "Fog", "Gin", "Gww", "Lox", "Rdf", "Rig", "Rob", "Wac", "Whr", "Ync"),
-  lai_site = c("How", "Stp", "Dry", "Das", "TTE", "Asm", "Tum", "Wom", "Ade", "Cpr", "Cum", "Dap", "Emr", "Fog", "Gin", "Gww", "Lox", "Rdf", "Rig", "Rob", "Wac", "Whr", "Ync")
-)
+cat("LAI site names:\n")
+print(unique(lai_data$site))
+cat("\nFlux site names:\n")
+print(names(sites_daily))
 ```
+Make sure flux date is correct format 
 
-Quickly add in site names to flux data
-```{r}
-sites_daily <- imap(sites_daily, function(df, name) {
-  site_code <- str_remove(name, "_HH_daily")
-  df %>% mutate(site = site_code)
-})
-```
-
-Convert flux data date to match the format of the lai data
 ```{r}
 sites_daily <- map(sites_daily, function(df) {
   df %>% mutate(date = as.Date(date))
 })
 ```
 
-Join the LAI data onto the site data
+Rolling nearest date to join for each site
+
+
 ```{r}
-sites_lai <- map(sites_daily, function(df) {
-  df %>%
-    left_join(site_mapping, by = c("site" = "flux_site")) %>%
-    left_join(lai_data %>% select(date, site, mean),
-              by = c("date" = "date", "lai_site" = "site")) %>%
-    rename(LAI = mean)
+# Step 5: Exact join first to preserve NAs between 4-day obs
+sites_daily <- map(sites_daily, function(df) {
+  site_name <- df$site[1]
+  
+  lai_site <- lai_data %>%
+    filter(site == site_name) %>%
+    select(date, mean) %>%
+    rename(LAI_4day = mean) %>%
+    arrange(date)
+  
+  if (nrow(lai_site) == 0) {
+    warning(paste("No LAI data found for site:", site_name))
+    return(df %>% mutate(LAI_4day = NA_real_, LAI_filled = NA_real_))
+  }
+  
+  # Exact join - non-matching dates get NA, which is what we want
+  left_join(df, lai_site, by = "date")
 })
-```
 
-
-Fill in missing days:
-Going to use linear interpolation - assumes gradual change between measurements. 
-
-```{r}
-library(zoo)
-
-sites_lai <- map(sites_lai, function(df) {
+# Step 6: Interpolate between the 4-day obs
+sites_daily <- map(sites_daily, function(df) {
   df %>%
-    mutate(LAI_interpolated = approx(date, LAI, xout = date, rule = 2)$y) %>%
     arrange(date) %>%
-    mutate(LAI_filled = na.approx(LAI, maxgap = 4, na.rm = FALSE))
+    mutate(LAI_filled = na.approx(LAI_4day, x = date, maxgap = 8, na.rm = FALSE))
 })
+  
 ```
 
 ```{r}
-walk(names(sites_lai), function(name) {
-  plot(sites_lai[[name]]$LAI_filled, main = name)
+
+# Step 7: Check how many valid LAI days each site has
+walk(names(sites_daily), function(name) {
+  df <- sites_daily[[name]]
+  n_valid <- sum(!is.na(df$LAI_filled))
+  n_total <- nrow(df)
+  cat(sprintf("%s - valid LAI days: %d / %d\n", name, n_valid, n_total))
+})
+
+# Step 8: Visual check - line = interpolated, red dots = raw 4-day obs
+walk(names(sites_daily), function(name) {
+  df <- sites_daily[[name]]
+  plot(df$date, df$LAI_filled,
+       main  = name,
+       xlab  = "Date", 
+       ylab  = "LAI",
+       type  = "l", 
+       col   = "darkgreen",
+       ylim  = range(c(df$LAI_filled, df$LAI_4day), na.rm = TRUE))
+  points(df$date, df$LAI_4day, col = "red", pch = 16, cex = 0.5)
+  legend("topright", 
+         legend = c("Interpolated", "Raw 4-day"),
+         col    = c("darkgreen", "red"), 
+         lty    = c(1, NA), 
+         pch    = c(NA, 16))
 })
 ```
-
-```{r}
-plot(sites_daily$Rob_HH_daily$GPP)
-plot(sites_daily$Rob_HH_daily$LAI_filled)
-plot(sites_daily$Rob_HH_daily$LAI)
-```
-1 year 
-Need to look at this linear interpolation
-
-
-How - Woody savanna
-Das - Savanna
-Dry - Savanna
-Stp - Grasslands, wetlands
-Tum - Evergreen broadleaf forest
-Wom - EBF
-TTE - GRA
-Asm - SAV
-
 
 0-1 - sparse vegetation
 1-3 - grassland/deciduous winter
@@ -118,38 +116,24 @@ Asm - SAV
 6-8 - dense forest
 8+ - dense canopy
 
-```{r}
-plot(TTE_lai$VPD, TTE_lai$LAI)
-```
-
-Now let's add the LAI data back into the "_HH"daily" dataframes so I can use them for analysis:
+Max LAI per site from sites_daily
 
 ```{r}
-sites_daily <- map2(sites_daily, sites_lai, function(hh_df, lai_df) {
-  hh_df %>%
-    left_join(lai_df %>% select(date, LAI, LAI_filled),
-              by = "date")
-})
-```
-
-Mean LAI per site from sites_daily
-
-```{r}
-# get mean LAI per site from sites_daily
+# get max LAI per site from sites_daily
 canopy_order <- map_dfr(sites_daily, function(df) {
   tibble(
     site = unique(df$site),
-    mean_LAI = mean(df$LAI_filled, na.rm = TRUE)
+    max_LAI = max(df$LAI_filled, na.rm = TRUE)
   )
 }) %>%
-  arrange(desc(mean_LAI))
+  arrange(desc(max_LAI))
 
 print(canopy_order)
 ```
 
 
 ```{r}
-ggplot(canopy_order, aes(x = reorder(site, desc(mean_LAI)), y = mean_LAI)) +
+ggplot(canopy_order, aes(x = reorder(site, desc(max_LAI)), y = max_LAI)) +
   geom_point(size = 3) +
   coord_flip() +
   labs(x = "Site", y = "Mean LAI") +
