@@ -11,7 +11,7 @@ knitr::opts_chunk$set(echo = TRUE)
 Subsection 1: VPD across OzFlux
 - Driver importance using random forest
 
-Compare the importance of Temp, VPD, precipitation, cwd 7 day, climate lags (VPD, Temp), LAI, shortwave radiation and leaf chlorophyll content
+Compare the importance of Temp, VPD, precipitation, cwd 7 day, LAI, and shortwave radiation 
 
 ```{r}
 library(tidyverse)
@@ -64,10 +64,8 @@ run_rf_for_site <- function(df, site_name) {
   train_data <- df[idx, ]
   test_data  <- df[-idx, ]
   
-  predictors <- c("Tair", "SW_rad", "VPD", "Precip", "LAI_filled",
-                "LCC_daily", "cumulative_cwd_7day",
-                "Tair_lag1", "Tair_lag2", "Tair_lag3",
-                "VPD_lag1",  "VPD_lag2",  "VPD_lag3")
+  predictors <- c("Tair", "SW_rad", "VPD", "Precip", "LAI_filled", "cumulative_cwd_7day"
+                )
   
   # Scale train, apply same params to test
   scaled     <- standardise(train_data, test_data, predictors)
@@ -76,9 +74,7 @@ run_rf_for_site <- function(df, site_name) {
   
   # Fit RF
   model <- randomForest(
-    GPP ~ Tair + SW_rad + VPD + Precip + LAI_filled + LCC_daily + cumulative_cwd_7day +
-      Tair_lag1 + Tair_lag2 + Tair_lag3 +
-      VPD_lag1  + VPD_lag2  + VPD_lag3,
+    GPP ~ Tair + SW_rad + VPD + Precip + LAI_filled + cumulative_cwd_7day,
     data  = train_data,
     ntree = 500,
     mtry  = 3,
@@ -212,10 +208,7 @@ run_rf_for_site <- function(df, site_name) {
   train_data <- df[idx, ]
   test_data  <- df[-idx, ]
   
-  predictors <- c("Tair", "SW_rad", "VPD", "Precip", "LAI_step",
-                "LCC_daily", "cumulative_cwd_7day",
-                "Tair_lag1", "Tair_lag2", "Tair_lag3",
-                "VPD_lag1",  "VPD_lag2",  "VPD_lag3")
+  predictors <- c("Tair", "SW_rad", "VPD", "Precip", "LAI_step", "cumulative_cwd_7day")
   
   # Scale train, apply same params to test
   scaled     <- standardise(train_data, test_data, predictors)
@@ -224,9 +217,7 @@ run_rf_for_site <- function(df, site_name) {
   
   # Fit RF
   model <- randomForest(
-    GPP ~ Tair + SW_rad + VPD + Precip + LAI_step + LCC_daily + cumulative_cwd_7day +
-      Tair_lag1 + Tair_lag2 + Tair_lag3 +
-      VPD_lag1  + VPD_lag2  + VPD_lag3,
+    GPP ~ Tair + SW_rad + VPD + Precip + LAI_step + cumulative_cwd_7day,
     data  = train_data,
     ntree = 500,
     mtry  = 3,
@@ -295,5 +286,185 @@ for (i in 1:n_groups) {
   print(p)
   ggsave(paste0("importance_group_", i, ".png"), width = 12, height = 8, dpi = 300)
 }
+```
+```{r}
+library(tidyverse)
+
+# Normalise importance within each site (0-1) so sites are comparable
+all_importance_norm <- all_importance %>%
+  group_by(site) %>%
+  mutate(importance_norm = (importance - min(importance)) / 
+                           (max(importance) - min(importance))) %>%
+  ungroup()
+
+ggplot(all_importance_norm, aes(x = variable, y = site, fill = importance_norm)) +
+  geom_tile(colour = "white", linewidth = 0.3) +
+  scale_fill_distiller(palette = "YlOrRd", direction = 1,
+                       name = "Relative\nImportance") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 9),
+        axis.text.y = element_text(size = 9)) +
+  labs(x = "Predictor", y = "Site", 
+       title = "RF Predictor Importance Across Australian Flux Sites")
+```
+```{r}
+library(tidyverse)
+
+# Step 1: Rename first
+all_importance_norm <- all_importance_norm %>%
+  mutate(variable = recode(variable,
+    "LAI_step"            = "Leaf Area Index (LAI)",
+    "SW_rad"              = "Short-wave radiation",
+    "Tair"                = "Air temperature",
+    "VPD"                 = "VPD",
+    "cumulative_cwd_7day" = "Cumulative water deficit",
+    "Precip"              = "Precipitation"
+  ))
+
+# Step 2: Wide format for clustering
+importance_wide <- all_importance_norm %>%
+  select(site, variable, importance_norm) %>%
+  pivot_wider(names_from = variable, values_from = importance_norm) %>%
+  column_to_rownames("site")
+
+# Step 3: Cluster sites
+site_order  <- hclust(dist(importance_wide))$order
+site_levels <- rownames(importance_wide)[site_order]
+
+all_importance_norm <- all_importance_norm %>%
+  mutate(site = factor(site, levels = site_levels))
+
+# Step 4: Plot
+ggplot(all_importance_norm, aes(x = variable, y = site, fill = importance_norm)) +
+  geom_tile(colour = "white", linewidth = 0.3) +
+  scale_fill_gradientn(
+    colours = c("#313695", "#4575b4", "#74add1", "#abd9e9",
+                "#ffffbf", "#fdae61", "#f46d43", "#d73027", "#a50026"),
+    name = "Relative\nImportance",
+    limits = c(0, 1),
+    breaks = c(0, 0.25, 0.5, 0.75, 1),
+    labels = c("Low", "", "Mid", "", "High")
+  ) +
+  theme_minimal() +
+  theme(axis.text.x  = element_text(angle = 45, hjust = 1, size = 9),
+        axis.text.y  = element_text(size = 9),
+        legend.title = element_text(size = 9),
+        panel.grid   = element_blank()) +
+  labs(x = "Predictor", y = "Site",
+       title = "Predictor Importance Across Australian Flux Sites")
+```
+```{r}
+library(tidyverse)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+
+# Get the most important predictor per site
+top_predictor <- all_importance %>%
+  group_by(site) %>%
+  slice_max(importance, n = 1) %>%
+  ungroup()
+
+# Join with site coordinates
+top_predictor <- top_predictor %>%
+  left_join(site_meta %>% rename(site = name), by = "site")
+
+# Get Australia shapefile
+australia <- ne_countries(country = "Australia", scale = "medium", returnclass = "sf")
+
+# Define colours per predictor - adjust as needed once you see what comes out
+predictor_colours <- c(
+  "LAI_step"           = "#2d8b4e",
+  "SW_rad"             = "#f5a623",
+  "Tair"               = "#d0021b",
+  "VPD"                = "#9b59b6",
+  "cumulative_cwd_7day"= "#3498db",
+  "Precip"             = "#1abc9c"
+)
+
+ggplot() +
+  geom_sf(data = australia, fill = "grey90", colour = "grey60", linewidth = 0.3) +
+  geom_point(data = top_predictor,
+             aes(x = lon, y = lat, colour = variable, shape = variable),
+             size = 5) +
+  scale_colour_manual(values = predictor_colours, name = "Top Predictor") +
+  scale_shape_manual(values = rep(c(16, 17, 15, 18, 8), length.out = 9),
+                     name = "Top Predictor") +
+  coord_sf(xlim = c(112, 155), ylim = c(-45, -10)) +
+  theme_minimal() +
+  theme(
+    legend.position   = "right",
+    legend.title      = element_text(size = 10, face = "bold"),
+    legend.text       = element_text(size = 9),
+    axis.text         = element_text(size = 8),
+    plot.title        = element_text(size = 12, face = "bold")
+  ) +
+  labs(title = "Most Important GPP Predictor by Flux Site",
+       x = "Longitude", y = "Latitude")
+
+ggsave("australia_top_predictor_map.png", width = 10, height = 8, dpi = 300)
+```
+
+
+```{r}
+library(tidyverse)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(ggrepel)
+
+# Get the most important predictor per site
+top_predictor <- all_importance %>%
+  group_by(site) %>%
+  slice_max(importance, n = 1) %>%
+  ungroup()
+
+# Join with site coordinates
+top_predictor <- top_predictor %>%
+  left_join(site_meta %>% rename(site = name), by = "site")
+
+# Get Australia shapefile
+australia <- ne_countries(country = "Australia", scale = "medium", returnclass = "sf")
+
+# Define colours per predictor
+predictor_colours <- c(
+  "LAI_step"            = "#2d8b4e",
+  "SW_rad"              = "#f5a623",
+  "Tair"                = "#d0021b",
+  "VPD"                 = "#9b59b6",
+  "cumulative_cwd_7day" = "#3498db",
+  "Precip"              = "#1abc9c"
+)
+
+ggplot() +
+  geom_sf(data = australia, fill = "grey90", colour = "grey60", linewidth = 0.3) +
+  geom_point(data = top_predictor,
+             aes(x = lon, y = lat, colour = variable, shape = variable),
+             size = 5) +
+  geom_text_repel(data = top_predictor,
+                  aes(x = lon, y = lat, label = site),
+                  size          = 3,
+                  colour        = "black",
+                  box.padding   = 0.4,
+                  point.padding = 0.3,
+                  segment.colour = "grey40",
+                  segment.size  = 0.3,
+                  max.overlaps  = Inf) +
+  scale_colour_manual(values = predictor_colours, name = "Top Predictor") +
+  scale_shape_manual(values = rep(c(16, 17, 15, 18, 8), length.out = 6),
+                     name = "Top Predictor") +
+  coord_sf(xlim = c(112, 155), ylim = c(-45, -10)) +
+  theme_minimal() +
+  theme(
+    legend.position  = "right",
+    legend.title     = element_text(size = 10, face = "bold"),
+    legend.text      = element_text(size = 9),
+    axis.text        = element_text(size = 8),
+    plot.title       = element_text(size = 12, face = "bold")
+  ) +
+  labs(title = "Most Important GPP Predictor by Flux Site",
+       x = "Longitude", y = "Latitude")
+
+ggsave("australia_top_predictor_map.png", width = 10, height = 8, dpi = 300)
 ```
 
