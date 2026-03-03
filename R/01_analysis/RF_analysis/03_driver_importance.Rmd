@@ -308,49 +308,29 @@ ggplot(all_importance_norm, aes(x = variable, y = site, fill = importance_norm))
        title = "RF Predictor Importance Across Australian Flux Sites")
 ```
 ```{r}
-library(tidyverse)
 
-# Step 1: Rename first
-all_importance_norm <- all_importance_norm %>%
-  mutate(variable = recode(variable,
-    "LAI_step"            = "Leaf Area Index (LAI)",
-    "SW_rad"              = "Short-wave radiation",
-    "Tair"                = "Air temperature",
-    "VPD"                 = "VPD",
-    "cumulative_cwd_7day" = "Cumulative water deficit",
-    "Precip"              = "Precipitation"
-  ))
-
-# Step 2: Wide format for clustering
-importance_wide <- all_importance_norm %>%
-  select(site, variable, importance_norm) %>%
-  pivot_wider(names_from = variable, values_from = importance_norm) %>%
-  column_to_rownames("site")
-
-# Step 3: Cluster sites
-site_order  <- hclust(dist(importance_wide))$order
-site_levels <- rownames(importance_wide)[site_order]
+wet_dry_order <- c("Wac", "Rob", "How", "Das", "Fog", "Ade", "Dap", "Rdf", "Wom", "Tum", "Dry", "Stp", "Gin", "Cum", "Emr", "Rig", "Whr", "Asm", "Gww", "Cpr", "Ync")
 
 all_importance_norm <- all_importance_norm %>%
-  mutate(site = factor(site, levels = site_levels))
+  mutate(site = factor(site, levels = rev(wet_dry_order)))  # rev() so wet is at top
 
-# Step 4: Plot
+# Step 4: Plot with actual importance values on scale
 ggplot(all_importance_norm, aes(x = variable, y = site, fill = importance_norm)) +
   geom_tile(colour = "white", linewidth = 0.3) +
   scale_fill_gradientn(
     colours = c("#313695", "#4575b4", "#74add1", "#abd9e9",
                 "#ffffbf", "#fdae61", "#f46d43", "#d73027", "#a50026"),
-    name = "Relative\nImportance",
+    name = "Normalised\nImportance",
     limits = c(0, 1),
-    breaks = c(0, 0.25, 0.5, 0.75, 1),
-    labels = c("Low", "", "Mid", "", "High")
+    breaks = seq(0, 1, by = 0.25),
+    labels = seq(0, 1, by = 0.25)  # actual numbers
   ) +
   theme_minimal() +
   theme(axis.text.x  = element_text(angle = 45, hjust = 1, size = 9),
         axis.text.y  = element_text(size = 9),
         legend.title = element_text(size = 9),
         panel.grid   = element_blank()) +
-  labs(x = "Predictor", y = "Site",
+  labs(x = "Predictor", y = "Site (Dry to Wet)",
        title = "Predictor Importance Across Australian Flux Sites")
 ```
 ```{r}
