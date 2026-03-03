@@ -113,12 +113,9 @@ walk(plots, print)
 
 Need to note in the results that some of the sites did not have many points
 
-Rob - artifact of 3 bins
-Wom - interesting as its on the wetter end
-
-High sensitivity - Ade (WSA), Dap (GRA), Fog (WET) (wetter more mesic sites)
-Moderate sensitivity - How (WSA), Das (SAV), Dry (SAV), Stp (GRA), Rdf (WSA), Rig (GRA), TTE (GRA), Wac (EBF), Ync (GRA)
-Low sensitivity - Cum (SAV), Emr (GRA), Gin (WSA), Gww (SAV), Lox (DBF), Whr (EBF), Wom (EBF), Cpr (SAV), Tum (EBF)
+High sensitivity - Dap (GRA), Fog (WET) (wetter more mesic sites)
+Moderate sensitivity - How (WSA), Das (SAV), Dry (SAV), Stp (GRA), Rdf (WSA), Rig (GRA), Wac (EBF), Ync (GRA)
+Low sensitivity - Cum (SAV), Emr (GRA), Gin (WSA), Gww (SAV), Whr (EBF), Wom (EBF), Cpr (SAV), Tum (EBF)
 
 Stomatal strategy gradient? Rather than simply a rainfall gradient? 
 
@@ -182,9 +179,9 @@ ggplot(site_slopes, aes(x = site, y = slope, colour = cluster_slope)) +
   theme_classic()
 ```
 
-Cluster 1 - Asm, Gww, Stp, Cum, Emr, Gin, Lox, Rig, Wac, Whr, Wom, Ync, Cpr, Tum
-Cluster 2 - Ade, Das, Dap, Dry, Rdf, TTE
-Cluster 3 - Rob, Fog 
+High - Fog
+Medium - How, Das, Dap, Dry, Stp, Asm, Rdf, Rig, Wac, Ync
+Low - Cum, Emr, Gin, Gww, Whr, Wom, Cpr, Tum
 
 2. Hierarchical clustering 2
 - slope
@@ -192,6 +189,7 @@ Cluster 3 - Rob, Fog
 - VPD when GPP is at its maximum
 
 ```{r}
+# Step 1: fit and assign clusters
 slopes_mat_2 <- site_slopes %>%
   filter(!is.na(slope)) %>%
   column_to_rownames("site") %>%
@@ -200,36 +198,41 @@ slopes_mat_2 <- site_slopes %>%
 
 hclust_fit_2 <- hclust(dist(slopes_mat_2, method = "euclidean"), method = "ward.D2")
 
-site_slopes <- site_slopes %>%
-  mutate(cluster_multi = factor(cutree(hclust_fit_2, k = 3)))
+# Step 2: derive level order from hclust_fit_2 specifically
+cluster_means_2 <- site_slopes %>%
+  filter(!is.na(slope)) %>%
+  mutate(cluster_raw = factor(cutree(hclust_fit_2, k = 3))) %>%
+  group_by(cluster_raw) %>%
+  summarise(mean_slope = mean(slope)) %>%
+  arrange(mean_slope)  # most negative = high sensitivity
 
+level_order_2 <- cluster_means_2$cluster_raw
+
+# Step 3: assign and recode in one clean step
 site_slopes <- site_slopes %>%
+  filter(!is.na(slope)) %>%
   mutate(
     cluster_multi = factor(cutree(hclust_fit_2, k = 3)),
     cluster_multi = fct_recode(cluster_multi,
-      "high"   = "2",
-      "medium" = "3",
-      "low"    = "1"
-    )
+      "high"   = as.character(level_order_2[1]),
+      "medium" = as.character(level_order_2[2]),
+      "low"    = as.character(level_order_2[3])
+    ),
+    cluster_multi = factor(cluster_multi, levels = c("low", "medium", "high"))
   )
-```
 
-```{r}
-site_slopes <- site_slopes %>%
-  filter(!is.na(slope)) %>%
-  mutate(cluster = factor(cutree(hclust_fit_2, k = 3)))
-
+# Step 4: plot
 ggplot(site_slopes, aes(x = site, y = slope, colour = cluster_multi)) +
   geom_point(size = 3) +
   geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
   coord_flip() +
-  labs(x = "Site", y = "GPP~VPD Slope", colour = "Cluster",
+  scale_colour_manual(values = c("low" = "steelblue", 
+                                 "medium" = "orange", 
+                                 "high" = "firebrick")) +
+  labs(x = "Site", y = "GPP~VPD Slope", colour = "Sensitivity",
        title = "GPP sensitivity clusters") +
   theme_classic()
 ```
-Cluster 1 - How (WSA), Stp (GRA), Asm (SAV), Cum (EBF), Emr (GRA), Gin (WSA), Gww (SAV), Lox (DBF), Rig (GRA), Whr (EBF), Wom (EBF), Ync (GRA), Cpr (SAV), Tum (EBF)
-Cluster 2 - Ade (WSA), Dap (GRA), Fog (WET), Rob (EBF)
-Cluster 3 - Das (SAV), Dry (SAV), Rdf (WSA), TTE (GRA), Wac (EBF)
 
 1. Is cluster membership non-random with respect to PFT, precipitation regime, or biome/climate zone?
 
@@ -242,11 +245,10 @@ Biome/climatic classification
 ```{r}
 site_meta_2 <- tibble(
   site = c("Rob", "How", "Wac", "Das", "Fog", "Dap", "Ade", "Dry", "Stp", "Wom", 
-           "Rdf", "Tum", "Gin", "Emr", "Cum", "Gww", "Rig", "Asm", "Cpr", "Whr", 
-           "TTE", "Ync", "Lox"),
-  PFT = c("EBF", "WSA", "EBF", "SAV", "WET", "GRA", "WSA", "SAV", "GRA", "EBF", "WSA", "EBF", "WSA", "GRA", "EBF", "SAV", "GRA", "SAV", "SAV", "EBF", "GRA", "GRA", "DBF"),
+           "Rdf", "Tum", "Gin", "Emr", "Cum", "Gww", "Rig", "Asm", "Cpr", "Whr", "Ync"),
+  PFT = c("EBF", "WSA", "EBF", "SAV", "WET", "GRA", "WSA", "SAV", "GRA", "EBF", "WSA", "EBF", "WSA", "GRA", "EBF", "SAV", "GRA", "SAV", "SAV", "EBF", "GRA"),
   koppen_climate = c("Tropical", "Tropical", "Temperate", "Tropical", "Tropical", "Tropical", "Tropical",
-                     "Tropical", "Grassland", "Temperate", "Tropical", "Temperate", "Subtropical", "Grassland", "Temperate", "Grassland", "Temperate", "Desert", "Grassland", "Temperate", "Desert", "Grassland", "Grassland")
+                     "Tropical", "Grassland", "Temperate", "Tropical", "Temperate", "Subtropical", "Grassland", "Temperate", "Grassland", "Temperate", "Desert", "Grassland", "Temperate", "Grassland")
 )
 ```
 
@@ -291,22 +293,7 @@ table(site_slopes$cluster_multi, site_slopes$PFT)
 table(site_slopes$cluster_multi, site_slopes$koppen_climate)
 ```
 
-PFT p = 0.89
-PFT does not predict VPD sensitivity. 
 
-Koppen climate p = 0.01
-cluster membership is non-random with respect to climate
-High sensitivity sites exclusively tropical
-Low sensitivity sites dominated by grassland and temperate zones
-Medium sensitivity split between desert, tropical and temperate
-
-VPD sensitivity may not be about the vegetation a site has but the climate regime the vegetation operates within. Temperate and grasslands are less sensitive maybe because they already operate close to their water limitation threshold and stomatal responses are more conservative. 
-
-Is tropical vegetation more sensitive to VPD, or is it that tropical climates produce more extreme VPD excursions that push GPP into declines more frequently? 
-
-
-
-Continuous (mean annual precipitation, mean annual temperature and max LAI)
 
 ```{r}
 # Kruskal-Wallis (non-parametric ANOVA — better than ANOVA for small n)
@@ -351,11 +338,6 @@ site_slopes %>%
 
 Are nearby sites more similar in slope than distant sites?
 Moran's test - whether nearby sites are similar
-
-```{r}
-install.packages("ape")
-```
-
 
 ```{r}
 library(ape)
