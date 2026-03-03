@@ -37,8 +37,8 @@ set.seed(123)  # for reproducibility
 
 # List all sites
 aus_sites <- c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm",
-               "Cum", "Emr", "Fog", "Gin", "Gww", "Lox",
-               "Rdf", "Rig", "Rob", "TTE", "Wac", "Whr",
+               "Cum", "Emr", "Fog", "Gin", "Gww",
+               "Rdf", "Rig", "Rob", "Wac", "Whr",
                "Wom", "Ync", "Cpr", "Tum")
 
 # Split, rolling CWD, lagged variables
@@ -139,15 +139,15 @@ for(site in aus_sites) {
 
 ```{r}
 # Define wet to dry order
-wet_dry_order <- c("Wac", "Rob", "How", "Das", "Fog", "Ade", "Dap", "Rdf", "Wom", "Tum", "Dry", "Stp", "Gin", "Cum", "Emr", "Rig", "Whr", "Asm", "Gww", "Cpr", "Ync", "Lox", "TTE")
+wet_dry_order <- c("Wac", "Rob", "How", "Das", "Fog", "Ade", "Dap", "Rdf", "Wom", "Tum", "Dry", "Stp", "Gin", "Cum", "Emr", "Rig", "Whr", "Asm", "Gww", "Cpr", "Ync")
 
 #most to least variable
-precip_variability_order <- c("Gww", "TTE", "Asm", "Cpr", "Ync", "Lox", "Emr","Whr", "Wom", "Tum", "Rig", "Wac", "Stp", "Dry", "Gin", "Cum", "Fog", "Das", "Rob", "Rdf", "Dap", "How", "Ade")
+precip_variability_order <- c("Gww", "Asm", "Cpr", "Ync", "Emr","Whr", "Wom", "Tum", "Rig", "Wac", "Stp", "Dry", "Gin", "Cum", "Fog", "Das", "Rob", "Rdf", "Dap", "How", "Ade")
 
 #highest max LAI to lowest max LAI
-lai_order <- c("Tum", "Wac", "Wom", "Rob", "Rig", "Dap", "How", "Fog", "Dry", "Ade", "Rdf", "Das", "Cum", "Whr", "Emr", "Stp", "Gin", "Ync", "Lox", "Cpr", "TTE", "Asm", "Gww")
+lai_order <- c("Tum", "Wac", "Wom", "Rob", "Rig", "Dap", "How", "Fog", "Dry", "Ade", "Rdf", "Das", "Cum", "Whr", "Emr", "Stp", "Gin", "Ync", "Cpr", "Asm", "Gww")
 
-model_1_results$site <- factor(model_1_results$site, levels = wet_dry_order)
+model_1_results$site <- factor(model_1_results$site, levels = precip_variability_order)
 
 ggplot(model_1_results, aes(x = site, y = R2)) +
   geom_col(fill = "violet") +
@@ -162,14 +162,10 @@ ggplot(model_1_results, aes(x = site, y = R2)) +
 ```
 
 ```{r}
-# visualise NA patterns
+# Allows you to visualise where there are large chunks of missing data
 library(naniar)
-vis_miss(sites_clean$Lox[, c("date", "GPP", "VPD", "Precip", "Tair", "SW_rad", "Rn")])
+vis_miss(sites_clean$Rig[, c("date", "GPP", "VPD", "Precip", "Tair", "SW_rad", "Rn")])
 ```
-- I was removing NA rows in all of the variables. This meant if there were loads of NA in Rn, it deleted entire rows even when VPD/Tair/SW_rad were complete. This is why Gww was not doing very well.
-
-
-Seems to be trend of declining R-squared from high precipitation coefficient of variation to low coefficient of variation. 
 
 ```{r}
 #Model 2 - climate (temp, precip, SW rad) and VPD
@@ -399,7 +395,7 @@ ggplot(lag_comparison, aes(x = site, y = delta_R2_lag)) +
   labs(
     x = "Site (Wet -> Dry)",
     y = expression(Delta*R^2),
-    title = "Extra explanatory power of 3 day climate lags across OzFlux sites"
+    title = "Added predictive value of 3 day climate lags across OzFlux sites"
   )
 
 ```
@@ -660,7 +656,7 @@ ggplot(model_4_results, aes(x = site, y = R2)) +
 
 
 ```{r}
-#Model 5: Climate + cwd + lags + VPD + LCC
+#Model 5: Climate + cwd + lags + VPD + LAI
 
 fit_gam_m5 <- function(train_data, test_data) {
   
@@ -825,6 +821,41 @@ final_comparison %>%
   ) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
+
+```{r}
+final_comparison %>%
+  pivot_longer(
+    cols = starts_with("model_"),
+    names_to = "model",
+    values_to = "R2"
+  ) %>%
+  mutate(
+    model = factor(model,
+                   levels = c("model_1", "model_2", "model_3", 
+                              "model_4", "model_5"),
+                   labels = c("Climate", "+VPD", "+Lag7", "+CWD", "+LAI"))
+  ) %>%
+  ggplot(aes(x = model, y = site, fill = R2)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  scale_fill_gradientn(
+    colours = c("#313695", "#4575b4", "#74add1", "#abd9e9",
+                "#ffffbf", "#fdae61", "#f46d43", "#d73027", "#a50026"),
+    name = expression(R^2),
+    limits = c(0, 1),
+    breaks = seq(0, 1, by = 0.25),
+    labels = seq(0, 1, by = 0.25)
+  ) +
+  theme_minimal(base_size = 12) +
+  labs(
+    x = "Model",
+    y = "Site (Wet → Dry)",
+    title = "Model performance across sites and complexity"
+  ) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.grid = element_blank())
+```
+
+
 
 ```{r}
 # Create a figure showing best model per site
