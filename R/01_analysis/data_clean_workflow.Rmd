@@ -83,11 +83,9 @@ read_flux <- function(fname) {
 }
 ```
 
-Load in 23 sites across Aus
+Load in 19 sites across Aus
 ```{r}
 How <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-How_FLUXNET2015_FULLSET_HH_2001-2014_1-4.csv")
-
-Ade <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Ade_FLUXNET2015_FULLSET_HH_2007-2009_1-4.csv")
 
 Dap <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-DaP_FLUXNET2015_FULLSET_HH_2007-2013_2-4.csv")
 
@@ -109,15 +107,9 @@ Gin <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/hal
 
 Gww <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-GWW_FLUXNET2015_FULLSET_HH_2013-2014_1-4.csv")
 
-Lox <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Lox_FLUXNET2015_FULLSET_HH_2008-2009_1-4.csv")
-
 Rdf <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-RDF_FLUXNET2015_FULLSET_HH_2011-2013_1-4.csv")
 
 Rig <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Rig_FLUXNET2015_FULLSET_HH_2011-2014_2-4.csv")
-
-Rob <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Rob_FLUXNET2015_FULLSET_HH_2014-2014_1-4.csv")
-
-TTE <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-TTE_FLUXNET2015_FULLSET_HH_2012-2014_1-4.csv")
 
 Wac <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Wac_FLUXNET2015_FULLSET_HH_2005-2008_1-4.csv")
 
@@ -153,7 +145,7 @@ flux_nas <- function(df, flux_vars, na_vals = c(-9999, -9999.9)) {
 ```{r}
 #names of datasets I have loaded in so R knows what I'm yapping about
 
-site_names <- c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm", "Cum", "Emr", "Fog", "Gin", "Gww", "Lox", "Rdf", "Rig", "Rob", "TTE", "Wac", "Whr", "Wom", "Ync", "Cpr", "Tum")
+site_names <- c("How", "Das", "Dap", "Dry", "Stp", "Asm", "Cum", "Emr", "Fog", "Gin", "Gww", "Rdf", "Rig", "Wac", "Whr", "Wom", "Ync", "Cpr", "Tum")
 
 #pulls the objects from the environment - sites is a list of dataframes
 sites <- mget(site_names)
@@ -453,11 +445,11 @@ attach_site_data <- function(df, lat, lon, vcmax_raster, lcc_nc) {
 # --- 3. Map over sites_daily using site metadata ---
 site_meta <- tibble(
   name = names(sites_daily),
-  lat  = c(-12.4943, -13.0769, -14.1593, -14.0633, -15.2588, -17.1507, -22.283, -33.6152, -23.8587,
-           -12.5452, -31.3764, -30.1913, -34.4704, -14.5636, -36.6499, -17.1175, -22.287, -37.4259,
+  lat  = c(-12.4943, -14.1593, -14.0633, -15.2588, -17.1507, -22.283, -33.6152, -23.8587,
+           -12.5452, -31.3764, -30.1913, -14.5636, -36.6499, -37.4259,
            -36.6732, -37.4222, -34.9893, -34.0021, -35.6566),
-  lon  = c(131.1523, 131.1178, 131.3881, 131.3181, 132.3706, 133.3502, 133.2490, 150.7236, 148.4746,
-           131.3072, 115.7138, 120.6541, 140.6551, 132.4776, 145.5759, 145.6301, 133.64, 145.1878,
+  lon  = c(131.1523, 131.3881, 131.3181, 132.3706, 133.3502, 133.2490, 150.7236, 148.4746,
+           131.3072, 115.7138, 120.6541, 132.4776, 145.5759, 145.1878,
            145.0294, 144.0944, 146.2907, 140.5891, 148.1517)
 )
 
