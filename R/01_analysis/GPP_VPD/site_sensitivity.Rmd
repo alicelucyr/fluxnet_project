@@ -9,61 +9,10 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 Straight line slope
-- Bin data and take the mean or max GPP value for a clean curve per site
+- Bin data and take cloud of GPP values 
 - Identify the VPD bin where GPP is maximum (start point)
 - Fit simple linear regression from start point - GPP normalised so slopes are comparable across sites
 - Slope per site to compare
-
-```{r}
-library(tidyverse)
-
-Ade_binned <- Ade_HH_daily %>%
-  mutate(vpd_bin = cut(VPD, breaks = seq(0, 6, by = 0.5))) %>%
-  group_by(vpd_bin) %>%
-  summarise(gpp_mean = mean(GPP, na.rm = TRUE),
-            vpd_mid = mean(VPD, na.rm = TRUE)) %>%
-  mutate(gpp_norm = gpp_mean / max(gpp_mean, na.rm = TRUE)) %>%
-  filter(vpd_mid >= vpd_mid[which.max(gpp_norm)])
-
-lm(gpp_norm ~ vpd_mid, data = Ade_binned) %>% coef()
-```
-
-```{r}
-# fit the model and get predictions
-model <- lm(gpp_norm ~ vpd_mid, data = Ade_binned)
-
-Ade_binned <- Ade_binned %>%
-  mutate(fitted = predict(model))
-
-# plot
-ggplot(Ade_binned, aes(x = vpd_mid, y = gpp_norm)) +
-  geom_point(size = 3) +
-  geom_line(alpha = 0.4) +  # connect the binned points
-  geom_line(aes(y = fitted), colour = "firebrick", linewidth = 1) +
-  labs(x = "VPD (kPa)", y = "Normalised GPP",
-       title = "Adelaide River - GPP~VPD sensitivity") +
-  theme_classic()
-```
-
-```{r}
-df <- sites_daily[["Fog_HH_daily"]]
-
-# check VPD range first
-summary(df$VPD)
-
-# then look at the binned data before any filtering
-df %>%
-  mutate(vpd_bin = cut(VPD, breaks = seq(0, 6, by = 0.5))) %>%
-  group_by(vpd_bin) %>%
-  summarise(
-    gpp_max = quantile(GPP, 0.95, na.rm = TRUE),
-    vpd_mid = mean(VPD, na.rm = TRUE),
-    n = n(),
-    .groups = "drop"
-  ) %>%
-  print(n = Inf)
-```
-
 
 
 ```{r}
@@ -85,11 +34,10 @@ site_slopes <- map_dfr(names(sites_daily), function(site) {
     mutate(gpp_norm = gpp_max / max(gpp_max, na.rm = TRUE))
   
   vpd_at_peak <- binned$vpd_mid[which.max(binned$gpp_norm)]
-  
-  descending <- binned %>% filter(vpd_mid >= vpd_at_peak)
+  descending  <- binned %>% filter(vpd_mid >= vpd_at_peak)
   
   if (nrow(descending) < 3) {
-    return(tibble(site = site, intercept = NA, slope = NA, 
+    return(tibble(site = site, intercept = NA, slope = NA,
                   vpd_at_peak = NA, n_bins = nrow(descending)))
   }
   
@@ -97,47 +45,73 @@ site_slopes <- map_dfr(names(sites_daily), function(site) {
   coefs <- coef(model)
   
   tibble(
-    site = site,
-    intercept = coefs[1],
-    slope = coefs[2],
+    site        = site,
+    intercept   = coefs[1],
+    slope       = coefs[2],
     vpd_at_peak = vpd_at_peak,
-    n_bins = nrow(descending)
+    n_bins      = nrow(descending)
   )
 }) %>%
-  mutate(site = str_remove(site, "_HH_daily"))
+  mutate(site = str_remove(site, "_HH_daily"))  # this closing }) was also missing
+
+
+# Step 2: Build point cloud — raw daily points normalised per site
+all_clouds <- map_dfr(names(sites_daily), function(site) {
+  
+  df <- sites_daily[[site]]
+  
+  
+gpp_max_site <- max(df$GPP, na.rm = TRUE)
+  
+  df %>%
+    drop_na(VPD, GPP) %>%
+    mutate(
+      gpp_norm = GPP / gpp_max_site,
+      site     = str_remove(site, "_HH_daily")
+    ) %>%
+    select(site, VPD, gpp_norm)
+})
+
+
+# Step 3: Build fitted lines from slopes + intercepts
+fitted_lines <- site_slopes %>%
+  filter(!is.na(slope)) %>%
+  rowwise() %>%
+  reframe(
+    site    = site,
+    vpd_mid = seq(vpd_at_peak, 6, by = 0.1),
+    fitted  = intercept + slope * vpd_mid
+  )
+
+
+# Step 4: Plot — cloud + slope line per site
+site_names  <- unique(all_clouds$site)
+site_groups <- split(site_names, ceiling(seq_along(site_names) / 6))
+
+plots <- map(site_groups, function(sites_subset) {
+  
+  all_clouds %>%
+    filter(site %in% sites_subset) %>%
+    ggplot(aes(x = VPD, y = gpp_norm)) +
+    geom_point(size = 0.4, alpha = 0.2, colour = "grey40") +
+    geom_line(data = filter(fitted_lines, site %in% sites_subset),
+              aes(x = vpd_mid, y = fitted),
+              colour = "firebrick", linewidth = 1) +
+    geom_vline(data = filter(site_slopes, site %in% sites_subset),
+               aes(xintercept = vpd_at_peak),
+               linetype = "dashed", alpha = 0.4) +
+    facet_wrap(~ site, scales = "free_x", ncol = 2) +
+    coord_cartesian(ylim = c(0, 1.5)) +
+    labs(x = "VPD (kPa)", y = "Normalised GPP") +
+    theme_classic(base_size = 10) +
+    theme(strip.background = element_blank(),
+          strip.text = element_text(face = "bold"))
+})
+
+walk(plots, print)
 ```
 
-```{r}
-wet_dry_order <- c("Rob", "How", "Wac", "Das", "Fog", "Dap", "Ade", "Dry", "Stp", "Wom", "Rdf", "Tum", "Gin", "Emr", "Cum", "Gww", "Rig", "Asm", "Cpr", "Whr", "TTE", "Ync", "Lox")
-
-#highest mean LAI to lowest mean LAI
-lai_order <- c("Rob", "Tum", "Wom", "Wac", "Dap", "Rig", "How", "Fog", "Dry", "Cum", "Das", "Rdf", "Ade", "Whr", "Gin", "Emr", "Lox", "Stp", "Cpr", "Ync", "Gww", "TTE", "Asm" )
-
-site_slopes <- site_slopes %>%
-  mutate(site = str_remove(site, "_HH_daily"))
-
-site_slopes$site <- factor(site_slopes$site, levels = lai_order)
-
-
-ggplot(site_slopes, aes(x = site, y = slope)) +
-  geom_point(size = 3) +
-  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
-  coord_flip() +
-  labs(x = "Site", y = "GPP~VPD Slope", 
-       title = "GPP sensitivity to VPD across sites") +
-  theme_classic()
-```
-Rob and Wom unsure 
-
-```{r}
-site_slopes <- site_slopes %>%
-  mutate(sensitivity_group = case_when(
-    slope < -0.4 ~ "high",
-    slope < -0.2 ~ "moderate",
-    TRUE ~ "low"
-  ))
-
-```
+Need to note in the results that some of the sites did not have many points
 
 Rob - artifact of 3 bins
 Wom - interesting as its on the wetter end
@@ -150,87 +124,6 @@ Stomatal strategy gradient? Rather than simply a rainfall gradient?
 
 Plant functional type does not seem to control VPD sensitivity
 
-
-```{r}
-# first generate binned data and fitted values for all sites
-all_binned <- map_dfr(names(sites_daily), function(site) {
-  
-  df <- sites_daily[[site]]
-  
-  binned_full <- df %>%
-    drop_na(VPD, GPP) %>%
-    mutate(vpd_bin = cut(VPD, breaks = seq(0, 6, by = 0.2))) %>%
-    group_by(vpd_bin) %>%
-    summarise(
-      gpp_max = quantile(GPP, 0.95, na.rm = TRUE),
-      vpd_mid = mean(VPD, na.rm = TRUE),
-      n = n(),
-      .groups = "drop"
-    ) %>%
-    filter(n >= 3) %>%
-    mutate(
-      gpp_norm = gpp_max / max(gpp_max, na.rm = TRUE),
-      site = site,
-      descending = vpd_mid >= vpd_mid[which.max(gpp_norm)]
-    )
-  
-  # fit model on descending limb only
-  descending <- filter(binned_full, descending)
-  
-  if (nrow(descending) >= 3) {
-    model <- lm(gpp_norm ~ vpd_mid, data = descending)
-    binned_full <- binned_full %>%
-      mutate(fitted = ifelse(descending, predict(model, newdata = binned_full), NA))
-  } else {
-    binned_full <- binned_full %>% mutate(fitted = NA)
-  }
-  
-  binned_full
-})
-
-# plot
-# split sites into groups of 6 for separate panels
-site_names <- unique(all_binned$site)
-n_per_panel <- 6
-site_groups <- split(site_names, ceiling(seq_along(site_names) / n_per_panel))
-
-plots <- map(site_groups, function(sites_subset) {
-  all_binned %>%
-    filter(site %in% sites_subset) %>%
-    ggplot(aes(x = vpd_mid, y = gpp_norm)) +
-    geom_line(alpha = 0.3) +
-    geom_point(size = 1.5) +
-    geom_line(aes(y = fitted), colour = "firebrick", linewidth = 1, na.rm = TRUE) +
-    facet_wrap(~ site, scales = "free_x", ncol = 2) +
-    labs(x = "VPD (kPa)", y = "Normalised GPP") +
-    theme_classic(base_size = 10) +
-    theme(strip.background = element_blank(),
-          strip.text = element_text(face = "bold"))
-})
-
-# print all panels
-walk(plots, print)
-```
-
-```{r}
-plot(sites_daily$Rob_HH_daily$VPD)
-```
-```{r}
-plot(TTE_HH_daily$GPP)
-```
-```{r}
-site_slopes <- site_slopes %>%
-  filter(!is.na(slope)) %>%
-  mutate(cluster = factor(cutree(hclust_fit, k = 3)))
-
-ggplot(site_slopes, aes(x = site, y = slope, colour = sensitivity_group)) +
-  geom_point(size = 3) +
-  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
-  coord_flip() +
-  labs(x = "Site", y = "GPP~VPD Slope", colour = "Cluster",
-       title = "GPP sensitivity clusters") +
-  theme_classic()
-```
 
 Cluster analysis:
 - Based on the GPP ~ VPD response, which sites cluster together?
@@ -250,10 +143,35 @@ site_slopes <- site_slopes %>%
   mutate(cluster_slope = factor(cutree(hclust_fit_1, k = 3)))
 ```
 
+
+```{r}
+# work out which cluster number corresponds to which sensitivity level
+cluster_means <- site_slopes %>%
+  filter(!is.na(slope)) %>%
+  mutate(cluster_slope = factor(cutree(hclust_fit_1, k = 3))) %>%
+  group_by(cluster_slope) %>%
+  summarise(mean_slope = mean(slope)) %>%
+  arrange(mean_slope)  # most negative = highest sensitivity
+
+# cluster_means will show you the order — then assign labels accordingly
+level_order <- cluster_means$cluster_slope  # 1st = most negative = high
+
+site_slopes <- site_slopes %>%
+  mutate(
+    cluster_slope = factor(cutree(hclust_fit_1, k = 3)),
+    cluster_slope = fct_recode(cluster_slope,
+      "high"   = as.character(level_order[1]),
+      "medium" = as.character(level_order[2]),
+      "low"    = as.character(level_order[3])
+    )
+  )
+```
+
+
 ```{r}
 site_slopes <- site_slopes %>%
   filter(!is.na(slope)) %>%
-  mutate(cluster = factor(cutree(hclust_fit, k = 3)))
+  mutate(cluster = factor(cutree(hclust_fit_1, k = 3)))
 
 ggplot(site_slopes, aes(x = site, y = slope, colour = cluster_slope)) +
   geom_point(size = 3) +
@@ -284,12 +202,22 @@ hclust_fit_2 <- hclust(dist(slopes_mat_2, method = "euclidean"), method = "ward.
 
 site_slopes <- site_slopes %>%
   mutate(cluster_multi = factor(cutree(hclust_fit_2, k = 3)))
+
+site_slopes <- site_slopes %>%
+  mutate(
+    cluster_multi = factor(cutree(hclust_fit_2, k = 3)),
+    cluster_multi = fct_recode(cluster_multi,
+      "high"   = "2",
+      "medium" = "3",
+      "low"    = "1"
+    )
+  )
 ```
 
 ```{r}
 site_slopes <- site_slopes %>%
   filter(!is.na(slope)) %>%
-  mutate(cluster = factor(cutree(hclust_fit, k = 3)))
+  mutate(cluster = factor(cutree(hclust_fit_2, k = 3)))
 
 ggplot(site_slopes, aes(x = site, y = slope, colour = cluster_multi)) +
   geom_point(size = 3) +
@@ -303,10 +231,135 @@ Cluster 1 - How (WSA), Stp (GRA), Asm (SAV), Cum (EBF), Emr (GRA), Gin (WSA), Gw
 Cluster 2 - Ade (WSA), Dap (GRA), Fog (WET), Rob (EBF)
 Cluster 3 - Das (SAV), Dry (SAV), Rdf (WSA), TTE (GRA), Wac (EBF)
 
+1. Is cluster membership non-random with respect to PFT, precipitation regime, or biome/climate zone?
+
+Add on PFT column
+Mean annual precip column
+Max annual LAI
+Mean annual temp
+Biome/climatic classification
+
+```{r}
+site_meta_2 <- tibble(
+  site = c("Rob", "How", "Wac", "Das", "Fog", "Dap", "Ade", "Dry", "Stp", "Wom", 
+           "Rdf", "Tum", "Gin", "Emr", "Cum", "Gww", "Rig", "Asm", "Cpr", "Whr", 
+           "TTE", "Ync", "Lox"),
+  PFT = c("EBF", "WSA", "EBF", "SAV", "WET", "GRA", "WSA", "SAV", "GRA", "EBF", "WSA", "EBF", "WSA", "GRA", "EBF", "SAV", "GRA", "SAV", "SAV", "EBF", "GRA", "GRA", "DBF"),
+  koppen_climate = c("Tropical", "Tropical", "Temperate", "Tropical", "Tropical", "Tropical", "Tropical",
+                     "Tropical", "Grassland", "Temperate", "Tropical", "Temperate", "Subtropical", "Grassland", "Temperate", "Grassland", "Temperate", "Desert", "Grassland", "Temperate", "Desert", "Grassland", "Grassland")
+)
+```
+
+```{r}
+site_climate <- map_dfr(names(sites_daily), function(site) {
+  df <- sites_daily[[site]]
+  
+  # annual precip per year then average
+  annual_precip <- df %>%
+    mutate(year = year(date)) %>%
+    group_by(year) %>%
+    summarise(precip_annual = sum(Precip, na.rm = TRUE)) %>%
+    pull(precip_annual) %>%
+    mean(na.rm = TRUE)
+  
+  tibble(
+    site = site,
+    MAP  = annual_precip,
+    MAT  = mean(df$Tair, na.rm = TRUE),
+    MAL  = max(df$LAI_4day, na.rm = TRUE)
+  )
+})
+
+# then join everything onto site_slopes
+site_slopes <- site_slopes %>%
+  left_join(site_meta_2, by = "site") %>%
+  left_join(site_meta, by = c("site" = "name")) %>%
+  left_join(site_climate, by = "site")
+```
+
+Is cluster membership non-random?
+
+Categorical (climate, PFT) = Fisher's exact test
+
+```{r}
+# Fisher's exact test (better than chi-square for small n)
+fisher.test(table(site_slopes$cluster_multi, site_slopes$PFT), simulate.p.value = TRUE)
+fisher.test(table(site_slopes$cluster_multi, site_slopes$koppen_climate), simulate.p.value = TRUE)
+
+# look at the raw counts too
+table(site_slopes$cluster_multi, site_slopes$PFT)
+table(site_slopes$cluster_multi, site_slopes$koppen_climate)
+```
+
+PFT p = 0.89
+PFT does not predict VPD sensitivity. 
+
+Koppen climate p = 0.01
+cluster membership is non-random with respect to climate
+High sensitivity sites exclusively tropical
+Low sensitivity sites dominated by grassland and temperate zones
+Medium sensitivity split between desert, tropical and temperate
+
+VPD sensitivity may not be about the vegetation a site has but the climate regime the vegetation operates within. Temperate and grasslands are less sensitive maybe because they already operate close to their water limitation threshold and stomatal responses are more conservative. 
+
+Is tropical vegetation more sensitive to VPD, or is it that tropical climates produce more extreme VPD excursions that push GPP into declines more frequently? 
+
+
+
+Continuous (mean annual precipitation, mean annual temperature and max LAI)
+
+```{r}
+# Kruskal-Wallis (non-parametric ANOVA — better than ANOVA for small n)
+kruskal.test(MAP ~ cluster_multi, data = site_slopes)
+kruskal.test(MAT ~ cluster_multi, data = site_slopes)
+kruskal.test(MAL ~ cluster_multi, data = site_slopes)
+
+# If significant, follow up with pairwise Wilcoxon to see which clusters differ
+pairwise.wilcox.test(site_slopes$MAP, site_slopes$cluster_multi, p.adjust.method = "bonferroni")
+pairwise.wilcox.test(site_slopes$MAT, site_slopes$cluster_multi, p.adjust.method = "bonferroni")
+pairwise.wilcox.test(site_slopes$MAL, site_slopes$cluster_multi, p.adjust.method = "bonferroni")
+```
+Mean annual precipitation (p = 0.022)
+High sensitivity sites have significantly higher mean annual precipitation than low sensitivity sites. 
+Wetter sites are more sensitive to VPD
+Plants in high rainfall sites are adapted to higher water availability and may have less conservative stomatal regulation
+
+```{r}
+site_slopes <- site_slopes %>%
+  mutate(cluster_multi = factor(cluster_multi, levels = c("low", "medium", "high")))
+
+library(ggplot2)
+
+# Boxplots for continuous
+site_slopes %>%
+  pivot_longer(cols = c(MAP, MAT, MAL), names_to = "variable", values_to = "value") %>%
+  ggplot(aes(x = cluster_multi, y = value, fill = cluster_multi)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(width = 0.1, size = 2) +
+  facet_wrap(~ variable, scales = "free_y") +
+  labs(x = "Sensitivity cluster", y = NULL) +
+  theme_classic() +
+  theme(legend.position = "none")
+
+# Bar chart for categorical
+site_slopes %>%
+  ggplot(aes(x = cluster_multi, fill = koppen_climate)) +
+  geom_bar(position = "fill") +
+  labs(x = "Sensitivity cluster", y = "Proportion") +
+  theme_classic()
+```
 
 
 
 
 
+
+2. Simple regression of slope ~ climate variable (LAI, precip, mean VPD regime) and a multiple regression
+
+3. Variance partitioning 
+
+
+4. Spatial scale - Moran's test, is sensitivity a site-level phenomenon? 
+If this test is significant, sensitivity clusters spatially - climate, regional constraint. However, if not it is more likely a site/vegetation strategy.
 
 
