@@ -36,7 +36,7 @@ lai_data <- read.csv("/Users/alicerolfe/year_4_project/fluxnet_project/Data/site
 sites to drop:
 
 ```{r}
-sites_to_drop <- c("Rob", "TTE", "Lox", "Ade")
+sites_to_drop <- c("TTE", "Lox")
 ```
 
 ```{r}
@@ -223,10 +223,6 @@ ggplot(site_climate, aes(x = map, y = mat, label = site)) +
 ```
 Add in clustering groups:
 
-```{r}
-site_slopes <- site_slopes %>%
-  left_join(site_climate, by = "site")
-```
 
 My own arbritrary groupings:
 ```{r}
