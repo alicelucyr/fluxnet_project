@@ -33,6 +33,17 @@ lai_data <- read.csv("/Users/alicerolfe/year_4_project/fluxnet_project/Data/site
   mutate(date = as.Date(date, format = "%Y-%m-%dT%H:%M:%S"))
 ```
 
+sites to drop:
+
+```{r}
+sites_to_drop <- c("Rob", "TTE", "Lox", "Ade")
+```
+
+```{r}
+lai_data <- lai_data %>% filter(!site %in% sites_to_drop)
+```
+
+
 Verify names of LAI data and Flux data match
 
 ```{r}
