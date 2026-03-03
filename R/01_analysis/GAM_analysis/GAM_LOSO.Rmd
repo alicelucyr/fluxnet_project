@@ -472,7 +472,7 @@ run_loso <- function(data, formula, model_name) {
     
     # Calculate R² safely, only using complete cases
     complete <- complete.cases(pred, test$GPP)
-    r2 <- 1 - sum((test$GPP[complete] - pred[complete])^2) / sum((test$GPP[complete] - mean(test$GPP[complete]))^2)
+    r2 <- cor(test$GPP, pred, use = "complete.obs")^2
     
     # Store result
     results <- rbind(results, data.frame(held_out_site = s, R2 = r2, model = model_name))
@@ -548,5 +548,27 @@ ggplot(loso_combined, aes(x = R2, y = site, color = model)) +
   ) +
   scale_color_manual(values = c("No VPD" = "firebrick", "With VPD" = "steelblue")) +
   theme_classic()
+```
+```{r}
+# look at what the model actually predicts for Gww
+train <- all_sites_df %>% 
+  filter(site != "Gww") %>% 
+  drop_na(GPP, Tair, SW_rad, Precip, VPD)
+
+test <- all_sites_df %>% 
+  filter(site == "Gww") %>% 
+  drop_na(GPP, Tair, SW_rad, Precip, VPD)
+
+gam_mod <- gam(GPP ~ s(Tair) + s(SW_rad) + s(Precip) + s(VPD), data = train)
+pred <- predict(gam_mod, newdata = test)
+
+# plot actual vs predicted
+plot(test$GPP, pred, main = "Gww: actual vs predicted",
+     xlab = "Actual GPP", ylab = "Predicted GPP")
+abline(0, 1, col = "red")
+
+# check ranges
+summary(test$GPP)
+summary(pred)
 ```
 
