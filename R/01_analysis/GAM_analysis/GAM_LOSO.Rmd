@@ -38,23 +38,18 @@ library(mgcv)
 
 
 aus_sites <- c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm",
-               "Cum", "Emr", "Fog", "Gin", "Gww", "Lox",
-               "Rdf", "Rig", "Rob", "TTE", "Wac", "Whr",
+               "Cum", "Emr", "Fog", "Gin", "Gww",
+               "Rdf", "Rig", "Rob", "Wac", "Whr",
                "Wom", "Ync", "Cpr", "Tum")
 
 # Assign PFTs - adjust if your classification differs
 pft_lookup <- tibble(
   site = aus_sites,
   pft  = c("WSA", "WSA", "SAV", "GRA", "SAV", "GRA", "SAV",
-            "EBF", "GRA", "WET", "WSA", "SAV", "DBF",
-            "WSA", "GRA", "EBF", "GRA", "EBF", "EBF",
+            "EBF", "GRA", "WET", "WSA", "SAV",
+            "WSA", "GRA", "EBF", "EBF", "EBF",
             "EBF", "GRA", "SAV", "EBF")
 )
-
-# Wet-to-dry ordering for plots 
-wet_dry_order <- c("Rob", "How", "Wac", "Das", "Fog", "Dap", "Ade", "Dry",
-                   "Stp", "Wom", "Rdf", "Tum", "Gin", "Emr", "Cum", "Gww",
-                   "Rig", "Asm", "Cpr", "Whr", "TTE", "Ync", "Lox")
 
 # -----------------------------------------------------------------------------
 # 1. Combine all site data into a single pooled dataframe
@@ -357,17 +352,15 @@ Gww = 1
 Rdf = 2
 
 ```{r}
-precip_variability_order <- c("Gww", "TTE", "Asm", "Cpr", "Ync", "Lox", "Emr","Whr", "Wom", "Tum", "Rig", "Wac", "Stp", "Dry", "Gin", "Cum", "Fog", "Das", "Rob", "Rdf", "Dap", "How", "Ade")
-
-loso_wide$held_out_site <- factor(loso_wide$held_out_site, levels = precip_variability_order)
+loso_wide$held_out_site <- factor(loso_wide$held_out_site, levels = wet_dry_order)
 
 ggplot(loso_wide, aes(x = held_out_site, y = R2_Simple)) +
   geom_col(fill = "violet") +
   coord_flip() +
   labs(
-    x = "Site (most to least variability in precip CV)",
+    x = "Site (Wet to Dry)",
     y = expression(R^2),
-    title = "Predictability of GPP across OzFlux sites"
+    title = "Generalisability of sites across OzFlux (simple model)"
   ) +
   theme_minimal()
 ```
@@ -377,9 +370,9 @@ ggplot(loso_wide, aes(x = held_out_site, y = R2_Complex)) +
   geom_col(fill = "violet") +
   coord_flip() +
   labs(
-    x = "Site (most to least variable precipitation CV)",
+    x = "Site (Wet to Dry)",
     y = expression(R^2),
-    title = "Predictability of GPP across OzFlux sites"
+    title = "Generalisability of sites across OzFlux (complex model)"
   ) +
   theme_minimal()
 ```
