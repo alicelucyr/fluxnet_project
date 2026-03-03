@@ -194,8 +194,8 @@ site_climate <- map_dfr(names(sites_annual), function(site) {
     site = str_remove(site, "_HH_daily"),
     mat = mean(df$Tair, na.rm = TRUE),       # mean annual temperature
     map = mean(df$Precip, na.rm = TRUE),      # mean annual precipitation
-    mal = mean(df$LAI, na.rm = TRUE),         # mean annual LAI
-    malcc = mean(df$LCC, na.rm = TRUE)        # mean annual LCC
+    mal = max(df$LAI, na.rm = TRUE),         # mean annual LAI
+    malcc = max(df$LCC, na.rm = TRUE)        # mean annual LCC
   )
 })
 
