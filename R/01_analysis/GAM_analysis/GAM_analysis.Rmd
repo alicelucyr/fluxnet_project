@@ -280,6 +280,21 @@ Potentially here, we have the difference between wet sites and dry sites. In the
 
 Seems to be a really mixed pattern here. 
 
+```{r}
+# Check data availability per site
+map_dfr(names(sites_daily), function(site) {
+  df <- sites_daily[[site]]
+  tibble(
+    site    = site,
+    n_days  = nrow(df),
+    n_na_gpp = sum(is.na(df$GPP)),
+    n_na_vpd = sum(is.na(df$VPD)),
+    pct_complete = mean(!is.na(df$GPP) & !is.na(df$VPD)) * 100
+  )
+}) %>% arrange(pct_complete)
+```
+
+
 
 
 ```{r}
