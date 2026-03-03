@@ -111,17 +111,6 @@ plots <- map(site_groups, function(sites_subset) {
 walk(plots, print)
 ```
 
-Need to note in the results that some of the sites did not have many points
-
-High sensitivity - Dap (GRA), Fog (WET) (wetter more mesic sites)
-Moderate sensitivity - How (WSA), Das (SAV), Dry (SAV), Stp (GRA), Rdf (WSA), Rig (GRA), Wac (EBF), Ync (GRA)
-Low sensitivity - Cum (SAV), Emr (GRA), Gin (WSA), Gww (SAV), Whr (EBF), Wom (EBF), Cpr (SAV), Tum (EBF)
-
-Stomatal strategy gradient? Rather than simply a rainfall gradient? 
-
-Plant functional type does not seem to control VPD sensitivity
-
-
 Cluster analysis:
 - Based on the GPP ~ VPD response, which sites cluster together?
 
@@ -175,7 +164,7 @@ ggplot(site_slopes, aes(x = site, y = slope, colour = cluster_slope)) +
   geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
   coord_flip() +
   labs(x = "Site", y = "GPP~VPD Slope", colour = "Cluster",
-       title = "GPP sensitivity clusters") +
+       title = "GPP sensitivity clusters (slope only)") +
   theme_classic()
 ```
 
@@ -256,7 +245,6 @@ site_meta_2 <- tibble(
 site_climate <- map_dfr(names(sites_daily), function(site) {
   df <- sites_daily[[site]]
   
-  # annual precip per year then average
   annual_precip <- df %>%
     mutate(year = year(date)) %>%
     group_by(year) %>%
@@ -264,18 +252,28 @@ site_climate <- map_dfr(names(sites_daily), function(site) {
     pull(precip_annual) %>%
     mean(na.rm = TRUE)
   
+  # MAT as mean of annual means
+  annual_mat <- df %>%
+    mutate(year = year(date)) %>%
+    group_by(year) %>%
+    summarise(tair_annual = mean(Tair, na.rm = TRUE)) %>%
+    pull(tair_annual) %>%
+    mean(na.rm = TRUE)
+  
   tibble(
     site = site,
     MAP  = annual_precip,
-    MAT  = mean(df$Tair, na.rm = TRUE),
-    MAL  = max(df$LAI_4day, na.rm = TRUE)
+    MAT  = annual_mat,
+    MAL  = max(df$LAI_filled, na.rm = TRUE)
   )
 })
 
-# then join everything onto site_slopes
+# single clean join — remove any duplicate columns first
 site_slopes <- site_slopes %>%
+  select(-any_of(c("mat", "map", "mal", "malcc", "MAP", "MAT", "MAL",
+                   "lat", "lon", "PFT", "koppen_climate"))) %>%
   left_join(site_meta_2, by = "site") %>%
-  left_join(site_meta, by = c("site" = "name")) %>%
+  left_join(site_meta %>% select(name, lat, lon), by = c("site" = "name")) %>%
   left_join(site_climate, by = "site")
 ```
 
@@ -306,10 +304,6 @@ pairwise.wilcox.test(site_slopes$MAP, site_slopes$cluster_multi, p.adjust.method
 pairwise.wilcox.test(site_slopes$MAT, site_slopes$cluster_multi, p.adjust.method = "bonferroni")
 pairwise.wilcox.test(site_slopes$MAL, site_slopes$cluster_multi, p.adjust.method = "bonferroni")
 ```
-Mean annual precipitation (p = 0.022)
-High sensitivity sites have significantly higher mean annual precipitation than low sensitivity sites. 
-Wetter sites are more sensitive to VPD
-Plants in high rainfall sites are adapted to higher water availability and may have less conservative stomatal regulation
 
 ```{r}
 site_slopes <- site_slopes %>%
@@ -338,6 +332,9 @@ site_slopes %>%
 
 Are nearby sites more similar in slope than distant sites?
 Moran's test - whether nearby sites are similar
+
+
+
 
 ```{r}
 library(ape)
