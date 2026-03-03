@@ -349,17 +349,42 @@ site_slopes %>%
   theme_classic()
 ```
 
+Are nearby sites more similar in slope than distant sites?
+Moran's test - whether nearby sites are similar
+
+```{r}
+install.packages("ape")
+```
 
 
+```{r}
+library(ape)
 
+# build inverse distance weight matrix
+coords  <- site_slopes %>% filter(!is.na(slope)) %>% select(lon, lat) %>% as.matrix()
+slopes  <- site_slopes %>% filter(!is.na(slope)) %>% pull(slope)
 
+dist_mat    <- as.matrix(dist(coords))
+weight_mat  <- 1 / dist_mat
+diag(weight_mat) <- 0
 
-2. Simple regression of slope ~ climate variable (LAI, precip, mean VPD regime) and a multiple regression
+# run Moran's I
+Moran.I(slopes, weight_mat)
+```
 
-3. Variance partitioning 
+```{r}
+library(ggplot2)
 
-
-4. Spatial scale - Moran's test, is sensitivity a site-level phenomenon? 
-If this test is significant, sensitivity clusters spatially - climate, regional constraint. However, if not it is more likely a site/vegetation strategy.
+# map of sites coloured by sensitivity cluster
+site_slopes %>%
+  filter(!is.na(slope)) %>%
+  ggplot(aes(x = lon, y = lat, colour = cluster_multi, size = abs(slope))) +
+  geom_point() +
+  scale_colour_manual(values = c("low" = "steelblue", "medium" = "orange", "high" = "firebrick")) +
+  labs(x = "Longitude", y = "Latitude", colour = "Sensitivity", size = "|Slope|",
+       title = "Spatial distribution of GPP~VPD sensitivity") +
+  theme_classic()
+```
+Observed value is above expected and the difference is significant. Sensitivity does cluster spatially. Sites that are geographically close tend to have similar GPP ~ VPD responses.
 
 
