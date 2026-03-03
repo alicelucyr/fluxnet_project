@@ -1,0 +1,45 @@
+---
+title: "long_term_drought"
+output: html_document
+date: "2026-03-03"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Long term sites (How and Tum) - both 13 years
+- Are Droughts and extreme VPD events becoming more unpredictable?
+
+
+```{r}
+library(tidyverse)
+library(mgcv)
+library(lubridate)
+
+long_term_sites <- c("How", "Tum")
+
+#Define extreme years per site
+#drought event - bottom 20th percentile annual precip
+#extreme VPD - top 20th percentile annual mean VPD
+
+extreme_years <- map_dfr(long_term_sites, function(site) {
+  df <- sites_daily[[site]] %>%
+    mutate(year = year(date)) %>%
+    group_by(year) %>%
+    summarise(
+      precip_annual = sum(Precip, na.rm = TRUE), 
+      vpd_annual = mean(VPD, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      site = site, 
+      drought_year = precip_annual < quantile(precip_annual, 0.2, na.rm = TRUE),
+      extreme_vpd = vpd_annual > quantile(vpd_annual, 0.8, na.rm = TRUE)
+    )
+})
+
+print(extreme_years)
+
+```
+
