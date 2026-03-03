@@ -12,6 +12,8 @@ Long term sites (How and Tum) - both 13 years
 - Are Droughts and extreme VPD events becoming more unpredictable?
 
 
+1. First going to try years - next time I will do dry season/summers
+
 ```{r}
 library(tidyverse)
 library(mgcv)
@@ -42,4 +44,111 @@ extreme_years <- map_dfr(long_term_sites, function(site) {
 print(extreme_years)
 
 ```
+
+Fit GAM per year per site and extract R-squared 
+
+```{r}
+
+annual_r2 <- map_dfr(long_term_sites, function(site) {
+  df <- sites_daily[[site]] %>%
+    mutate(year = year(date)) %>%
+    drop_na(GPP, Tair, SW_rad, Precip, VPD)
+  
+  map_dfr(unique(df$year), function(yr) {
+    df_yr <- df %>% filter(year == yr)
+    
+  if (nrow(df_yr) <30) return(NULL)
+      
+      r2 <- tryCatch({
+        mod <- gam(GPP ~ s(Tair) + s(SW_rad) + s(Precip) + s(VPD),
+                   data = df_yr, method = "REML")
+        preds <- predict(mod)
+        cor(df_yr$GPP, preds, use = "complete.obs")^2
+      }, error = function(e) NA_real_)
+    
+    tibble(site = site, year = yr, r2 = r2)
+  })
+  }) %>% 
+  left_join(extreme_years, by = c("site", "year"))
+
+
+```
+
+Is R-squared declining over time?
+
+Spearman correlation between year and R-squared per site
+
+```{r}
+
+annual_r2 %>%
+  group_by(site) %>%
+  summarise(
+    trend_rho = cor.test(year, r2, method = "spearman")$estimate,
+    trend_p   = cor.test(year, r2, method = "spearman")$p.value,
+    .groups = "drop"
+  )
+
+```
+```{r}
+# Step 4: Is R² lower during drought / extreme VPD years?
+# per site separately since n is small
+
+map(long_term_sites, function(site) {
+  df_site <- annual_r2 %>% filter(site == !!site)
+  
+  cat("\n---", site, "---\n")
+  cat("Drought years R²:", round(mean(df_site$r2[df_site$drought_year], na.rm = TRUE), 3),
+      "vs normal:", round(mean(df_site$r2[!df_site$drought_year], na.rm = TRUE), 3), "\n")
+  cat("Extreme VPD R²:", round(mean(df_site$r2[df_site$extreme_vpd], na.rm = TRUE), 3),
+      "vs normal:", round(mean(df_site$r2[!df_site$extreme_vpd], na.rm = TRUE), 3), "\n")
+  
+  # Wilcoxon only if enough years in each group
+  if (sum(df_site$drought_year, na.rm = TRUE) >= 2) {
+    w <- wilcox.test(r2 ~ drought_year, data = df_site)
+    cat("Drought Wilcoxon p =", round(w$p.value, 3), "\n")
+  }
+  if (sum(df_site$extreme_vpd, na.rm = TRUE) >= 2) {
+    w <- wilcox.test(r2 ~ extreme_vpd, data = df_site)
+    cat("Extreme VPD Wilcoxon p =", round(w$p.value, 3), "\n")
+  }
+})
+```
+
+```{r}
+# Step 5: Visualise — R² over time with extreme years highlighted
+annual_r2 %>%
+  mutate(event = case_when(
+    drought_year & extreme_vpd ~ "Drought + Extreme VPD",
+    drought_year               ~ "Drought",
+    extreme_vpd                ~ "Extreme VPD",
+    TRUE                       ~ "Normal"
+  )) %>%
+  ggplot(aes(x = year, y = r2, colour = event, size = event)) +
+  geom_point() +
+  geom_smooth(aes(group = 1), method = "lm", colour = "grey40",
+              linetype = "dashed", se = TRUE, linewidth = 0.8) +
+  scale_colour_manual(values = c(
+    "Normal"               = "grey60",
+    "Drought"              = "steelblue",
+    "Extreme VPD"          = "orange",
+    "Drought + Extreme VPD" = "firebrick"
+  )) +
+  scale_size_manual(values = c(
+    "Normal" = 2, "Drought" = 3, "Extreme VPD" = 3, "Drought + Extreme VPD" = 4
+  )) +
+  facet_wrap(~ site, ncol = 1) +
+  labs(x = "Year", y = expression(R^2),
+       colour = "Year type", size = "Year type",
+       title = "Is model predictability declining over time?",
+       subtitle = "Dashed line = linear trend; coloured points = extreme years") +
+  theme_classic() +
+  theme(legend.position = "bottom")
+```
+How = Drought years actually show slightly higher R-squared than normal years. Extreme VPD years show significantly lower R-squared (p=0.022). At How it is not water deficit but actually VPD that causes the model to struggle. 
+
+Tum = extreme VPD years show higher R-squared though not significantly. Drought years show slightly lower R-squared but not significantly. 
+
+2. Seasonal extremes 
+
+Need to define which sites have wet/dry seasons and temperate summer/winter climates 
 
