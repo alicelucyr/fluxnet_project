@@ -366,4 +366,54 @@ site_slopes %>%
 ```
 Observed value is above expected and the difference is significant. Sensitivity does cluster spatially. Sites that are geographically close tend to have similar GPP ~ VPD responses.
 
+```{r}
+install.packages("ozmaps")
+```
+
+
+
+```{r}
+library(ozmaps)
+library(sf)
+
+aus <- ozmap_country
+
+ggplot() +
+  geom_sf(data = aus, fill = "grey95", colour = "grey60") +
+  geom_point(data = site_slopes,
+             aes(x = lon, y = lat, colour = cluster_multi, size = abs(slope)),
+             alpha = 0.9) +
+  ggrepel::geom_text_repel(data = site_slopes,
+                            aes(x = lon, y = lat, label = site), size = 3) +
+  scale_colour_manual(values = c("low" = "steelblue",
+                                 "medium" = "orange", 
+                                 "high" = "firebrick")) +
+  labs(x = "Longitude", y = "Latitude",
+       colour = "VPD Sensitivity", size = "|Slope|") +
+  theme_classic()
+```
+```{r}
+library(plotbiomes)
+library(ggplot2)
+library(ggrepel)
+
+whittaker_base_plot() +
+  geom_point(data = site_slopes,
+             aes(x = MAT, y = map_cm, colour = cluster_multi),
+             size = 3) +
+  geom_text_repel(data = site_slopes,
+                  aes(x = MAT, y = map_cm, label = site),
+                  size = 3,
+                  max.overlaps = 20) +
+  scale_colour_manual(values = c("low"    = "steelblue",
+                                 "medium" = "orange",
+                                 "high"   = "firebrick"),
+                      name = "VPD Sensitivity") +
+  labs(x = "Mean Annual Temperature (°C)",
+       y = "Mean Annual Precipitation (cm)") +
+  theme_classic() +
+  theme(panel.grid       = element_blank(),
+        panel.background = element_rect(fill = "white", colour = NA),
+        plot.background  = element_rect(fill = "white", colour = NA))
+```
 
