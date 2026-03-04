@@ -180,12 +180,17 @@ standardise <- function(train, test, vars_to_scale) {
 
 run_rf_for_site <- function(df, site_name) {
   
-  df <- df %>% drop_na()
+  required_vars <- c("GPP", "Tair", "SW_rad", "VPD", "Precip", 
+                     "LAI_step", "cwd", "date")
+  
+  df <- df %>% drop_na(all_of(required_vars))  # only drop NAs in relevant columns
   
   if (nrow(df) < 100) {
     warning(paste("Site", site_name, "has insufficient data:", nrow(df), "rows"))
     return(NULL)
   }
+  
+  # rest of function unchanged...
   
   # Add lagged variables and rolling CWD
   df <- df %>%
