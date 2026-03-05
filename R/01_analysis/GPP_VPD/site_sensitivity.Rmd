@@ -14,6 +14,15 @@ Straight line slope
 - Fit simple linear regression from start point - GPP normalised so slopes are comparable across sites
 - Slope per site to compare
 
+```{r}
+#cap for anomalous GPP
+
+sites_daily <- map(sites_daily, function(df) {
+  cap <- quantile(df$GPP, 0.99, na.rm = TRUE)
+  df %>% mutate(GPP = ifelse(GPP > cap, NA, GPP))
+})
+```
+
 
 ```{r}
 site_slopes <- map_dfr(names(sites_daily), function(site) {
@@ -109,7 +118,35 @@ plots <- map(site_groups, function(sites_subset) {
 })
 
 walk(plots, print)
+
 ```
+
+```{r}
+plot(sites_daily$Tum$GPP)
+```
+```{r}
+# Check GPP distribution per site
+sites_daily_df <- bind_rows(sites_daily)
+
+ggplot(sites_daily_df, aes(x = GPP)) +
+  geom_histogram(bins = 50, fill = "steelblue") +
+  facet_wrap(~ site, scales = "free") +
+  theme_bw() +
+  labs(title = "GPP distribution by site")
+
+# Also look at the high end specifically
+sites_daily_df %>%
+  group_by(site) %>%
+  summarise(
+    max_GPP    = max(GPP, na.rm = TRUE),
+    p99_GPP    = quantile(GPP, 0.99, na.rm = TRUE),
+    p95_GPP    = quantile(GPP, 0.95, na.rm = TRUE),
+    mean_GPP   = mean(GPP, na.rm = TRUE)
+  ) %>%
+  print(n = Inf)
+```
+
+
 
 Cluster analysis:
 - Based on the GPP ~ VPD response, which sites cluster together?
@@ -210,15 +247,21 @@ site_slopes <- site_slopes %>%
     cluster_multi = factor(cluster_multi, levels = c("low", "medium", "high"))
   )
 
+```
+
+```{r}
+
 # Step 4: plot
-ggplot(site_slopes, aes(x = site, y = slope, colour = cluster_multi)) +
+ggplot(site_slopes %>% 
+         mutate(site = factor(site, levels = LAI_order)),
+       aes(x = site, y = slope, colour = cluster_multi)) +
   geom_point(size = 3) +
   geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
   coord_flip() +
-  scale_colour_manual(values = c("low" = "steelblue", 
-                                 "medium" = "orange", 
-                                 "high" = "firebrick")) +
-  labs(x = "Site", y = "GPP~VPD Slope", colour = "Sensitivity",
+  scale_colour_manual(values = c("low"    = "steelblue",
+                                 "medium" = "orange",
+                                 "high"   = "firebrick")) +
+  labs(x = "Site (Highest to Lowest max LAI)", y = "GPP~VPD Slope", colour = "Sensitivity",
        title = "GPP sensitivity clusters") +
   theme_classic()
 ```
@@ -333,7 +376,31 @@ site_slopes %>%
 Are nearby sites more similar in slope than distant sites?
 Moran's test - whether nearby sites are similar
 
+High LAI but low sensitivity - i believe is Tum, Wac, Wom, Rig (EBF, EBF, EBF, GRA) - They are all grouped together in South Australia
 
+
+```{r}
+cluster_colours <- c(
+  "low" = "steelblue",  # steel blue
+  "high" = "firebrick",  # raspberry
+  "medium" = "orange"   # amber
+)
+
+site_slopes %>%
+  pivot_longer(cols = c(MAP, MAT, MAL), names_to = "variable", values_to = "value") %>%
+  ggplot(aes(x = cluster_multi, y = value, fill = cluster_multi)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(width = 0.1, size = 2) +
+  scale_fill_manual(values = cluster_colours) +
+  facet_wrap(~ variable, scales = "free_y") +
+  labs(x = "Sensitivity cluster", y = NULL) +
+  theme_classic() +
+  theme(legend.position = "none")
+```
+
+```{r}
+unique(site_slopes$cluster_multi)
+```
 
 
 ```{r}
@@ -396,6 +463,8 @@ ggplot() +
 library(plotbiomes)
 library(ggplot2)
 library(ggrepel)
+
+site_slopes$map_cm <- site_slopes$MAP / 10
 
 whittaker_base_plot() +
   geom_point(data = site_slopes,
