@@ -1,0 +1,704 @@
+---
+title: "RF_extreme_events"
+output: html_document
+date: "2026-03-05"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Random Forest
+- normal summer conditions versus extreme VPD summer conditions
+- Compare driver importance
+- Compare site predictability
+- Removed LAI (not really a driver of GPP)
+
+Predictors = VPD, Tair, SW_rad, Precip, rolling 7-day cwd
+Response = GPP
+Method = Leave-one-year out cross validation
+
+Approach 1: VPD and VPD lag 3 90th percentile
+Approach 2: Compound drought (VPD + cwd 7 day) 75th percentile
+
+```{r}
+library(tidyverse)
+library(randomForest)
+library(ggplot2)
+
+# =============================================================================
+# 1. PARAMETERS
+# =============================================================================
+
+SUMMER_MONTHS  <- 6:8   # JJA
+MIN_SUMMERS    <- 2     # minimum summers required per site
+RF_NTREE       <- 500
+MIN_OBS        <- 20    # minimum observations to fit a model
+
+# Approach 1 thresholds
+A1_PERCENTILE  <- 0.90  # 90th percentile for sustained VPD
+
+# Approach 2 thresholds
+A2_VPD_PCTILE  <- 0.75  # 75th percentile for compound VPD
+A2_CWD_PCTILE  <- 0.75  # 75th percentile for compound CWD
+
+PREDICTORS     <- c("VPD", "Tair", "SW_rad", "Precip", "cwd_7day")
+
+# =============================================================================
+# 2. PREPARE BASE DATA
+# Assumes sites_daily has: site, date, GPP, VPD, Tair, SW_rad, Precip, cwd
+# =============================================================================
+
+data_prepared <- bind_rows(sites_daily) %>%
+  mutate(date = as.Date(date)) %>%
+  arrange(site, date) %>%
+  group_by(site) %>%
+  mutate(
+    cwd_7day  = zoo::rollapply(cwd, width = 7, FUN = sum, align = "right", fill = NA),
+    VPD_lag3  = lag(VPD, 3),
+    month     = month(date),
+    year      = year(date),
+    is_summer = month %in% SUMMER_MONTHS
+  ) %>%
+  ungroup()
+
+# Filter to sites with at least MIN_SUMMERS summers
+valid_sites <- data_prepared %>%
+  filter(is_summer) %>%
+  group_by(site) %>%
+  summarise(n_summers = n_distinct(year), .groups = "drop") %>%
+  filter(n_summers >= MIN_SUMMERS) %>%
+  pull(site)
+
+message("Excluding: ", paste(setdiff(unique(data_prepared$site), valid_sites), collapse = ", "))
+
+data_prepared <- data_prepared %>% filter(site %in% valid_sites)
+
+# =============================================================================
+# 3. DEFINE REGIMES
+# =============================================================================
+
+# --- Approach 1: Sustained VPD ---
+# Extreme = today AND 3 days ago both above site-specific 90th percentile
+# Normal  = all remaining summer days
+
+thresholds_a1 <- data_prepared %>%
+  filter(is_summer, !is.na(VPD)) %>%
+  group_by(site) %>%
+  summarise(vpd_90 = quantile(VPD, A1_PERCENTILE), .groups = "drop")
+
+data_a1 <- data_prepared %>%
+  left_join(thresholds_a1, by = "site") %>%
+  mutate(
+    regime = case_when(
+      !is_summer                          ~ NA_character_,
+      VPD >= vpd_90 & VPD_lag3 >= vpd_90 ~ "extreme",
+      TRUE                                ~ "normal"
+    )
+  ) %>%
+  filter(is_summer, !is.na(regime))
+
+# --- Approach 2: Compound drought ---
+# Extreme = VPD AND cwd_7day both above site-specific 75th percentile
+# Normal  = all remaining summer days (including middle ground)
+
+thresholds_a2 <- data_prepared %>%
+  filter(is_summer, !is.na(VPD), !is.na(cwd_7day)) %>%
+  group_by(site) %>%
+  summarise(
+    vpd_75 = quantile(VPD,      A2_VPD_PCTILE),
+    cwd_75 = quantile(cwd_7day, A2_CWD_PCTILE),
+    .groups = "drop"
+  )
+
+data_a2 <- data_prepared %>%
+  left_join(thresholds_a2, by = "site") %>%
+  mutate(
+    regime = case_when(
+      !is_summer                          ~ NA_character_,
+      VPD >= vpd_75 & cwd_7day >= cwd_75 ~ "extreme",
+      TRUE                                ~ "normal"
+    )
+  ) %>%
+  filter(is_summer, !is.na(regime))
+
+# =============================================================================
+# 4. VISUALISE REGIMES — check before fitting
+# =============================================================================
+
+sites_list   <- unique(data_a1$site)
+site_groups  <- split(sites_list, ceiling(seq_along(sites_list) / 6))
+
+# Approach 1 — GPP
+for (grp in site_groups) {
+  p <- data_a1 %>%
+    filter(site %in% grp) %>%
+    ggplot(aes(x = date, y = GPP, colour = regime)) +
+    geom_point(size = 0.8, alpha = 0.6) +
+    scale_colour_manual(values = c("normal" = "steelblue", "extreme" = "red")) +
+    facet_wrap(~ site, scales = "free", ncol = 2) +
+    labs(title = "Approach 1 — Sustained VPD: Summer GPP", colour = "regime") +
+    theme_bw()
+  print(p)
+}
+
+# Approach 2 — GPP
+for (grp in site_groups) {
+  p <- data_a2 %>%
+    filter(site %in% grp) %>%
+    ggplot(aes(x = date, y = GPP, colour = regime)) +
+    geom_point(size = 0.8, alpha = 0.6) +
+    scale_colour_manual(values = c("normal" = "steelblue", "extreme" = "red")) +
+    facet_wrap(~ site, scales = "free", ncol = 2) +
+    labs(title = "Approach 2 — Compound Drought: Summer GPP", colour = "regime") +
+    theme_bw()
+  print(p)
+}
+
+# Observation counts — good to check before fitting
+message("--- Approach 1 observation counts ---")
+print(data_a1 %>% count(site, regime) %>% pivot_wider(names_from = regime, values_from = n))
+
+message("--- Approach 2 observation counts ---")
+print(data_a2 %>% count(site, regime) %>% pivot_wider(names_from = regime, values_from = n))
+
+```
+
+```{r}
+
+# =============================================================================
+# 5. FIT RANDOM FOREST WITH LEAVE-ONE-YEAR-OUT CV
+# =============================================================================
+
+fit_rf_loyo_cv <- function(site_df, regime_label) {
+
+  df <- site_df %>%
+    filter(regime == regime_label) %>%
+    select(year, GPP, all_of(PREDICTORS)) %>%
+    drop_na()
+
+  years <- unique(df$year)
+  n_obs <- nrow(df)
+
+  if (length(years) < 2) {
+    message("  Skipping ", regime_label, ": fewer than 2 years with data")
+    return(NULL)
+  }
+
+  if (n_obs < MIN_OBS) {
+    message("  Skipping ", regime_label, ": only ", n_obs, " obs (min = ", MIN_OBS, ")")
+    return(NULL)
+  }
+
+  # Leave-one-year-out CV
+  cv_results <- map_dfr(years, function(test_year) {
+    train <- df %>% filter(year != test_year)
+    test  <- df %>% filter(year == test_year)
+
+    if (nrow(train) < 10 || nrow(test) < 5) return(NULL)
+
+    rf    <- randomForest(x = train[, PREDICTORS], y = train$GPP,
+                          ntree = RF_NTREE, importance = TRUE)
+    preds <- predict(rf, newdata = test[, PREDICTORS])
+
+    ss_res <- sum((test$GPP - preds)^2)
+    ss_tot <- sum((test$GPP - mean(test$GPP))^2)
+
+    tibble(test_year = test_year, r2 = 1 - ss_res / ss_tot, n_test = nrow(test))
+  })
+
+  if (nrow(cv_results) == 0 || !"r2" %in% names(cv_results)) {
+    message("  Skipping ", regime_label, ": no valid CV folds")
+    return(NULL)
+  }
+
+  # Final model on all data for importance
+  final_rf <- randomForest(x = df[, PREDICTORS], y = df$GPP,
+                           ntree = RF_NTREE, importance = TRUE)
+
+  importance_df <- importance(final_rf, type = 1) %>%
+    as.data.frame() %>%
+    rownames_to_column("predictor") %>%
+    rename(importance = `%IncMSE`)
+
+  list(
+    cv_results = cv_results,
+    importance = importance_df,
+    n_obs      = n_obs,
+    mean_r2    = mean(cv_results$r2, na.rm = TRUE),
+    sd_r2      = sd(cv_results$r2,   na.rm = TRUE)
+  )
+}
+
+run_all_sites <- function(df, approach_label) {
+  sites <- unique(df$site)
+  results <- map(sites, function(s) {
+    message("Fitting ", approach_label, " — site: ", s)
+    site_df <- df %>% filter(site == s)
+    list(
+      site    = s,
+      normal  = fit_rf_loyo_cv(site_df, "normal"),
+      extreme = fit_rf_loyo_cv(site_df, "extreme")
+    )
+  })
+  names(results) <- sites
+  results
+}
+
+# =============================================================================
+# 6. RUN BOTH APPROACHES
+# =============================================================================
+
+message("========== Approach 1: Sustained VPD ==========")
+results_a1 <- run_all_sites(data_a1, "A1")
+
+message("========== Approach 2: Compound Drought ==========")
+results_a2 <- run_all_sites(data_a2, "A2")
+
+# =============================================================================
+# 7. SUMMARISE & EXTRACT IMPORTANCE
+# =============================================================================
+
+summarise_results <- function(results, approach) {
+  map_dfr(results, function(res) {
+    bind_rows(
+      if (!is.null(res$normal))
+        tibble(approach = approach, site = res$site, regime = "normal",
+               mean_r2 = res$normal$mean_r2, sd_r2 = res$normal$sd_r2,
+               n_obs   = res$normal$n_obs),
+      if (!is.null(res$extreme))
+        tibble(approach = approach, site = res$site, regime = "extreme",
+               mean_r2 = res$extreme$mean_r2, sd_r2 = res$extreme$sd_r2,
+               n_obs   = res$extreme$n_obs)
+    )
+  })
+}
+
+extract_importance <- function(results, approach) {
+  map_dfr(results, function(res) {
+    bind_rows(
+      if (!is.null(res$normal))
+        res$normal$importance %>%
+          mutate(approach = approach, site = res$site, regime = "normal"),
+      if (!is.null(res$extreme))
+        res$extreme$importance %>%
+          mutate(approach = approach, site = res$site, regime = "extreme")
+    )
+  })
+}
+
+summary_df <- bind_rows(
+  summarise_results(results_a1, "A1: Sustained VPD"),
+  summarise_results(results_a2, "A2: Compound Drought")
+)
+
+importance_df <- bind_rows(
+  extract_importance(results_a1, "A1: Sustained VPD"),
+  extract_importance(results_a2, "A2: Compound Drought")
+)
+
+print(summary_df)
+
+# =============================================================================
+# 8. PLOT RESULTS
+# =============================================================================
+
+# --- R² comparison by site and approach ---
+ggplot(summary_df, aes(x = reorder(site, mean_r2), y = mean_r2, colour = regime)) +
+  geom_point(size = 2.5, position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = mean_r2 - sd_r2, ymax = mean_r2 + sd_r2),
+                width = 0.2, position = position_dodge(width = 0.5)) +
+  scale_colour_manual(values = c("normal" = "steelblue", "extreme" = "red")) +
+  facet_wrap(~ approach) +
+  coord_flip() +
+  labs(title = "Model R² by site and regime",
+       x = "Site", y = "Mean R² (LOYO-CV)", colour = "Regime") +
+  theme_bw()
+
+# --- Mean predictor importance across sites ---
+importance_df %>%
+  group_by(approach, regime, predictor) %>%
+  summarise(mean_imp = mean(importance, na.rm = TRUE),
+            sd_imp   = sd(importance,   na.rm = TRUE),
+            .groups  = "drop") %>%
+  ggplot(aes(x = reorder(predictor, mean_imp), y = mean_imp, fill = regime)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+  geom_errorbar(aes(ymin = mean_imp - sd_imp, ymax = mean_imp + sd_imp),
+                position = position_dodge(width = 0.7), width = 0.25) +
+  scale_fill_manual(values = c("normal" = "steelblue", "extreme" = "red")) +
+  facet_wrap(~ approach) +
+  coord_flip() +
+  labs(title = "Mean predictor importance: normal vs extreme",
+       x = "Predictor", y = "Mean % increase in MSE", fill = "Regime") +
+  theme_bw()
+
+# --- Importance by site ---
+importance_df %>%
+  ggplot(aes(x = predictor, y = importance, fill = regime)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+  scale_fill_manual(values = c("normal" = "steelblue", "extreme" = "red")) +
+  facet_wrap(~ site, scales = "free_x") +
+  coord_flip() +
+  labs(title = "Predictor importance by site",
+       x = "Predictor", y = "% increase in MSE", fill = "Regime") +
+  theme_bw() +
+  theme(legend.position = "top")
+```
+Is VPD becoming more important in recent years in long-term sites (How and Tum)?
+
+```{r}
+library(tidyverse)
+library(randomForest)
+
+# Extract How and Tum
+how_df <- sites_daily[["How"]] %>% mutate(site = "How")
+tum_df <- sites_daily[["Tum"]] %>% mutate(site = "Tum")
+
+long_sites <- bind_rows(how_df, tum_df) %>%
+  mutate(
+    date      = as.Date(date),
+    month     = month(date),
+    year      = year(date),
+    is_summer = month %in% 6:8
+  ) %>%
+  filter(is_summer) %>%
+  mutate(
+    cumulative_cwd_7day = zoo::rollapply(cwd, width = 7, FUN = sum,
+                                         align = "right", fill = NA, na.rm = TRUE)
+  ) %>%
+  drop_na(GPP, Tair, SW_rad, VPD, Precip, cumulative_cwd_7day)
+
+# Fit RF per site per year and extract VPD importance
+predictors <- c("Tair", "SW_rad", "VPD", "Precip", "cumulative_cwd_7day")
+
+yearly_results <- long_sites %>%
+  group_by(site, year) %>%
+  group_map(~ {
+    df   <- .x
+    site <- .y$site
+    yr   <- .y$year
+
+    # Need enough observations to fit a meaningful model
+    if (nrow(df) < 20) {
+      message("Skipping ", site, " ", yr, ": only ", nrow(df), " obs")
+      return(NULL)
+    }
+
+    # Simple train/test split within year
+    set.seed(123)
+    idx        <- sample(1:nrow(df), size = floor(0.8 * nrow(df)))
+    train_data <- df[idx, ]
+    test_data  <- df[-idx, ]
+
+    rf <- randomForest(
+      x          = train_data[, predictors],
+      y          = train_data$GPP,
+      ntree      = 500,
+      importance = TRUE
+    )
+
+    # R² on test set
+    preds  <- predict(rf, newdata = test_data[, predictors])
+    ss_res <- sum((test_data$GPP - preds)^2)
+    ss_tot <- sum((test_data$GPP - mean(test_data$GPP))^2)
+    r2     <- 1 - ss_res / ss_tot
+
+    # Variable importance
+    imp <- importance(rf, type = 1) %>%
+      as.data.frame() %>%
+      rownames_to_column("variable") %>%
+      rename(importance = `%IncMSE`) %>%
+      mutate(site = site, year = yr, r2 = r2)
+
+    imp
+  }) %>%
+  bind_rows()
+
+# ---- Plot 1: VPD importance over time ----
+yearly_results %>%
+  filter(variable == "VPD") %>%
+  ggplot(aes(x = year, y = importance, colour = site)) +
+  geom_point(size = 3) +
+  geom_smooth(method = "lm", se = TRUE, alpha = 0.2) +
+  scale_colour_manual(values = c("How" = "#2E86AB", "Tum" = "#A23B72")) +
+  facet_wrap(~ site) +
+  labs(title = "VPD importance over time (summer RF)",
+       x = "Year", y = "VPD % increase in MSE") +
+  theme_classic() +
+  theme(legend.position = "none")
+
+# ---- Plot 2: All predictor importance over time ----
+yearly_results %>%
+  ggplot(aes(x = year, y = importance, colour = variable)) +
+  geom_point(size = 2, alpha = 0.7) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 0.8) +
+  facet_wrap(~ site) +
+  labs(title = "Predictor importance over time (summer RF)",
+       x = "Year", y = "% increase in MSE", colour = "Predictor") +
+  theme_classic()
+
+# ---- Plot 3: R² over time ----
+yearly_results %>%
+  distinct(site, year, r2) %>%
+  ggplot(aes(x = year, y = r2, colour = site)) +
+  geom_point(size = 3) +
+  geom_smooth(method = "lm", se = TRUE, alpha = 0.2) +
+  scale_colour_manual(values = c("How" = "#2E86AB", "Tum" = "#A23B72")) +
+  facet_wrap(~ site) +
+  labs(title = "Model R² over time (summer RF)",
+       x = "Year", y = "R²") +
+  theme_classic() +
+  theme(legend.position = "none")
+```
+```{r}
+plot(sites_daily$How$date, sites_daily$How$GPP)
+```
+```{r}
+plot(sites_daily$Tum$date, sites_daily$Tum$GPP)
+```
+```{r}
+library(tidyverse)
+
+# Extract and label sites
+how_df <- sites_daily[["How"]] %>% mutate(site = "Howard Springs")
+tum_df <- sites_daily[["Tum"]] %>% mutate(site = "Tumbarumba")
+
+drought_df <- bind_rows(how_df, tum_df) %>%
+  mutate(
+    date  = as.Date(date),
+    year  = year(date),
+    month = month(date)
+  ) %>%
+  filter(year >= 2001 & year <= 2012)
+
+# Define periods
+drought_df <- drought_df %>%
+  mutate(period = case_when(
+    year >= 2001 & year <= 2005 ~ "Shared drought (2001-2005)",
+    year >= 2006 & year <= 2007 ~ "Divergence (2006-2007)",
+    year >= 2008 & year <= 2009 ~ "Continued drought (2008-2009)",
+    year >= 2010 & year <= 2011 ~ "La Nina recovery (2010-2011)",
+    TRUE ~ "Other"
+  ))
+
+# Shading df for background periods
+period_shading <- tibble(
+  xmin   = as.Date(c("2001-01-01", "2006-01-01", "2008-01-01", "2010-01-01")),
+  xmax   = as.Date(c("2005-12-31", "2007-12-31", "2009-12-31", "2011-12-31")),
+  period = c("Shared drought (2001-2005)", "Divergence (2006-2007)",
+             "Continued drought (2008-2009)", "La Nina recovery (2010-2011)"),
+  fill   = c("#D4E6F1", "#FADBD8", "#FDEBD0", "#D5F5E3")
+)
+
+period_colours <- c(
+  "Shared drought (2001-2005)"    = "#D4E6F1",
+  "Divergence (2006-2007)"        = "#FADBD8",
+  "Continued drought (2008-2009)" = "#FDEBD0",
+  "La Nina recovery (2010-2011)"  = "#D5F5E3"
+)
+
+# Helper to add period shading to any plot
+add_shading <- function(p) {
+  for (i in 1:nrow(period_shading)) {
+    p <- p + annotate("rect",
+                      xmin  = period_shading$xmin[i],
+                      xmax  = period_shading$xmax[i],
+                      ymin  = -Inf, ymax = Inf,
+                      fill  = period_shading$fill[i],
+                      alpha = 0.4)
+  }
+  p
+}
+
+# ---- Annual means per site ----
+annual_df <- drought_df %>%
+  group_by(site, year) %>%
+  summarise(
+    mean_GPP   = mean(GPP,   na.rm = TRUE),
+    mean_VPD   = mean(VPD,   na.rm = TRUE),
+    mean_Precip = mean(Precip, na.rm = TRUE),
+    mean_Tair  = mean(Tair,  na.rm = TRUE),
+    .groups    = "drop"
+  ) %>%
+  mutate(date = as.Date(paste0(year, "-07-01")))  # mid-year date for plotting
+
+site_colours <- c("Howard Springs" = "#2E86AB", "Tumbarumba" = "#A23B72")
+
+# ---- Plot 1: GPP ----
+p_gpp <- ggplot(annual_df, aes(x = date, y = mean_GPP, colour = site)) +
+  annotate("rect", xmin = period_shading$xmin, xmax = period_shading$xmax,
+           ymin = -Inf, ymax = Inf, fill = period_shading$fill, alpha = 0.4) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 3) +
+  scale_colour_manual(values = site_colours) +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  labs(x = NULL, y = "Mean daily GPP", colour = NULL,
+       title = "GPP during the Millennium Drought") +
+  theme_classic() +
+  theme(legend.position = "top",
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(p_gpp)
+
+# ---- Plot 2: VPD ----
+p_vpd <- ggplot(annual_df, aes(x = date, y = mean_VPD, colour = site)) +
+  annotate("rect", xmin = period_shading$xmin, xmax = period_shading$xmax,
+           ymin = -Inf, ymax = Inf, fill = period_shading$fill, alpha = 0.4) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 3) +
+  scale_colour_manual(values = site_colours) +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  labs(x = NULL, y = "Mean VPD (kPa)", colour = NULL,
+       title = "VPD during the Millennium Drought") +
+  theme_classic() +
+  theme(legend.position = "top",
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(p_vpd)
+
+# ---- Plot 3: Precipitation ----
+p_precip <- ggplot(annual_df, aes(x = date, y = mean_Precip, colour = site)) +
+  annotate("rect", xmin = period_shading$xmin, xmax = period_shading$xmax,
+           ymin = -Inf, ymax = Inf, fill = period_shading$fill, alpha = 0.4) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 3) +
+  scale_colour_manual(values = site_colours) +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  labs(x = NULL, y = "Mean daily precipitation (mm)", colour = NULL,
+       title = "Precipitation during the Millennium Drought") +
+  theme_classic() +
+  theme(legend.position = "top",
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(p_precip)
+
+# ---- Plot 4: Temperature ----
+p_tair <- ggplot(annual_df, aes(x = date, y = mean_Tair, colour = site)) +
+  annotate("rect", xmin = period_shading$xmin, xmax = period_shading$xmax,
+           ymin = -Inf, ymax = Inf, fill = period_shading$fill, alpha = 0.4) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 3) +
+  scale_colour_manual(values = site_colours) +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  labs(x = "Year", y = "Mean temperature (°C)", colour = NULL,
+       title = "Temperature during the Millennium Drought") +
+  theme_classic() +
+  theme(legend.position = "top",
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(p_tair)
+```
+```{r}
+# ---- RF importance by drought period ----
+
+predictors <- c("Tair", "SW_rad", "VPD", "Precip", "cumulative_cwd_7day")
+
+period_df <- drought_df %>%
+  filter(period != "Other") %>%
+  arrange(site, date) %>%
+  group_by(site) %>%
+  mutate(
+    cumulative_cwd_7day = zoo::rollapply(cwd, width = 7, FUN = sum,
+                                         align = "right", fill = NA, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  drop_na(GPP, all_of(predictors))
+
+# Fit RF per site per period
+period_results <- period_df %>%
+  group_by(site, period) %>%
+  group_map(~ {
+    df     <- .x
+    site   <- .y$site
+    period <- .y$period
+
+    if (nrow(df) < 50) {
+      message("Skipping ", site, " ", period, ": only ", nrow(df), " obs")
+      return(NULL)
+    }
+
+    set.seed(123)
+    idx        <- sample(1:nrow(df), size = floor(0.8 * nrow(df)))
+    train_data <- df[idx, ]
+    test_data  <- df[-idx, ]
+
+    rf <- randomForest(
+      x          = train_data[, predictors],
+      y          = train_data$GPP,
+      ntree      = 500,
+      importance = TRUE
+    )
+
+    preds  <- predict(rf, newdata = test_data[, predictors])
+    ss_res <- sum((test_data$GPP - preds)^2)
+    ss_tot <- sum((test_data$GPP - mean(test_data$GPP))^2)
+    r2     <- 1 - ss_res / ss_tot
+
+    imp <- importance(rf, type = 1) %>%
+      as.data.frame() %>%
+      rownames_to_column("variable") %>%
+      rename(importance = `%IncMSE`) %>%
+      mutate(site = site, period = period, r2 = r2, n_obs = nrow(df))
+
+    imp
+  }) %>%
+  bind_rows()
+
+# Set period order for plotting
+period_order <- c(
+  "Shared drought (2001-2005)",
+  "Divergence (2006-2007)",
+  "Continued drought (2008-2009)",
+  "La Nina recovery (2010-2011)"
+)
+
+period_results <- period_results %>%
+  mutate(period = factor(period, levels = period_order))
+
+# ---- Plot 1: VPD importance by period at each site ----
+period_results %>%
+  filter(variable == "VPD") %>%
+  ggplot(aes(x = period, y = importance, fill = site)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+  scale_fill_manual(values = c("Howard Springs" = "#2E86AB",
+                                "Tumbarumba"     = "#A23B72")) +
+  labs(title = "VPD importance by drought period",
+       x = NULL, y = "% increase in MSE", fill = NULL) +
+  theme_classic() +
+  theme(legend.position  = "top",
+        axis.text.x = element_text(angle = 30, hjust = 1))
+
+# ---- Plot 2: All predictor importance by period, faceted by site ----
+period_results %>%
+  ggplot(aes(x = variable, y = importance, fill = period)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+  scale_fill_manual(values = c(
+    "Shared drought (2001-2005)"    = "#AED6F1",
+    "Divergence (2006-2007)"        = "#F1948A",
+    "Continued drought (2008-2009)" = "#FAD7A0",
+    "La Nina recovery (2010-2011)"  = "#A9DFBF"
+  )) +
+  facet_wrap(~ site) +
+  coord_flip() +
+  labs(title = "Predictor importance by drought period",
+       x = "Predictor", y = "% increase in MSE", fill = "Period") +
+  theme_classic() +
+  theme(legend.position = "top")
+
+# ---- Plot 3: R² by period and site ----
+period_results %>%
+  distinct(site, period, r2, n_obs) %>%
+  ggplot(aes(x = period, y = r2, fill = site)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+  geom_text(aes(label = paste0("n=", n_obs)),
+            position = position_dodge(width = 0.7),
+            vjust = -0.5, size = 3) +
+  scale_fill_manual(values = c("Howard Springs" = "#2E86AB",
+                                "Tumbarumba"     = "#A23B72")) +
+  labs(title = "Model predictability (R²) by drought period",
+       x = NULL, y = "R²", fill = NULL) +
+  theme_classic() +
+  theme(legend.position  = "top",
+        axis.text.x = element_text(angle = 30, hjust = 1))
+```
+
