@@ -64,7 +64,7 @@ run_rf_for_site <- function(df, site_name) {
   train_data <- df[idx, ]
   test_data  <- df[-idx, ]
   
-  predictors <- c("Tair", "SW_rad", "VPD", "Precip", "LAI_filled", "cumulative_cwd_7day"
+  predictors <- c("Tair", "SW_rad", "VPD", "Precip", "cumulative_cwd_7day"
                 )
   
   # Scale train, apply same params to test
@@ -74,7 +74,7 @@ run_rf_for_site <- function(df, site_name) {
   
   # Fit RF
   model <- randomForest(
-    GPP ~ Tair + SW_rad + VPD + Precip + LAI_filled + cumulative_cwd_7day,
+    GPP ~ Tair + SW_rad + VPD + Precip + cumulative_cwd_7day,
     data  = train_data,
     ntree = 500,
     mtry  = 3,
@@ -181,7 +181,7 @@ standardise <- function(train, test, vars_to_scale) {
 run_rf_for_site <- function(df, site_name) {
   
   required_vars <- c("GPP", "Tair", "SW_rad", "VPD", "Precip", 
-                     "LAI_step", "cwd", "date")
+                    "cwd", "date")
   
   df <- df %>% drop_na(all_of(required_vars))  # only drop NAs in relevant columns
   
@@ -213,7 +213,7 @@ run_rf_for_site <- function(df, site_name) {
   train_data <- df[idx, ]
   test_data  <- df[-idx, ]
   
-  predictors <- c("Tair", "SW_rad", "VPD", "Precip", "LAI_step", "cumulative_cwd_7day")
+  predictors <- c("Tair", "SW_rad", "VPD", "Precip", "cumulative_cwd_7day")
   
   # Scale train, apply same params to test
   scaled     <- standardise(train_data, test_data, predictors)
@@ -222,7 +222,7 @@ run_rf_for_site <- function(df, site_name) {
   
   # Fit RF
   model <- randomForest(
-    GPP ~ Tair + SW_rad + VPD + Precip + LAI_step + cumulative_cwd_7day,
+    GPP ~ Tair + SW_rad + VPD + Precip + cumulative_cwd_7day,
     data  = train_data,
     ntree = 500,
     mtry  = 3,
@@ -413,7 +413,7 @@ australia <- ne_countries(country = "Australia", scale = "medium", returnclass =
 
 # Define colours per predictor
 predictor_colours <- c(
-  "LAI_step"            = "#2d8b4e",
+  "VPD_lag3"            = "#2d8b4e",
   "SW_rad"              = "#f5a623",
   "Tair"                = "#d0021b",
   "VPD"                 = "#9b59b6",
@@ -451,5 +451,120 @@ ggplot() +
        x = "Longitude", y = "Latitude")
 
 ggsave("australia_top_predictor_map.png", width = 10, height = 8, dpi = 300)
+```
+
+Looking at LAI as the response
+
+```{r}
+run_rf_for_site_LAI <- function(df, site_name) {
+  
+  required_vars <- c("LAI_filled", "Tair", "SW_rad", "VPD", "Precip", "cwd", "date")
+  
+  df <- df %>% drop_na(all_of(required_vars))
+  
+  if (nrow(df) < 100) {
+    warning(paste("Site", site_name, "has insufficient data:", nrow(df), "rows"))
+    return(NULL)
+  }
+  
+  df <- df %>%
+    arrange(date) %>%
+    mutate(
+      cumulative_cwd_7day = rollapply(cwd, width = 7, FUN = sum,
+                                      align = "right", fill = NA, na.rm = TRUE),
+      Tair_lag1 = lag(Tair, 1),
+      Tair_lag2 = lag(Tair, 2),
+      Tair_lag3 = lag(Tair, 3),
+      VPD_lag1  = lag(VPD, 1),
+      VPD_lag2  = lag(VPD, 2),
+      VPD_lag3  = lag(VPD, 3)
+    ) %>%
+    drop_na()
+  
+  set.seed(123)
+  idx        <- createDataPartition(df$LAI_filled, p = 0.8, list = FALSE)
+  train_data <- df[idx, ]
+  test_data  <- df[-idx, ]
+  
+  predictors <- c("Tair", "SW_rad", "VPD", "Precip", "cumulative_cwd_7day")
+  
+  scaled     <- standardise(train_data, test_data, predictors)
+  train_data <- scaled$train
+  test_data  <- scaled$test
+  
+  model <- randomForest(
+    LAI_filled ~ Tair + SW_rad + VPD + Precip + cumulative_cwd_7day,
+    data       = train_data,
+    ntree      = 500,
+    mtry       = 3,
+    importance = TRUE
+  )
+  
+  predictions   <- predict(model, test_data)
+  results       <- data.frame(Observed = test_data$LAI_filled, Predicted = predictions)
+  rmse          <- sqrt(mean((results$Observed - results$Predicted)^2))
+  rsq           <- cor(results$Observed, results$Predicted)^2
+  mean_observed <- mean(results$Observed)
+  nse           <- 1 - sum((results$Observed - results$Predicted)^2) /
+                       sum((results$Observed - mean_observed)^2)
+  
+  imp <- importance(model, type = 1)
+  importance_df <- data.frame(
+    variable   = rownames(imp),
+    importance = imp[, 1],
+    site       = site_name
+  )
+  
+  return(list(
+    site        = site_name,
+    model       = model,
+    metrics     = data.frame(site = site_name, RMSE = rmse, R2 = rsq, NSE = nse),
+    importance  = importance_df,
+    predictions = results %>% mutate(site = site_name)
+  ))
+}
+
+# Apply to all sites
+rf_results_LAI <- map2(sites_daily, names(sites_daily), run_rf_for_site_LAI)
+rf_results_LAI <- Filter(Negate(is.null), rf_results_LAI)
+cat("Sites successfully fitted:", length(rf_results_LAI), "\n")
+
+all_metrics_LAI    <- map_df(rf_results_LAI, ~.x$metrics)
+all_importance_LAI <- map_df(rf_results_LAI, ~.x$importance)
+
+print(all_metrics_LAI)
+```
+```{r}
+
+# Combine GPP and LAI importance with a response label
+all_importance_combined <- bind_rows(
+  all_importance     %>% mutate(response = "GPP"),
+  all_importance_LAI %>% mutate(response = "LAI")
+)
+
+site_names <- unique(all_importance_combined$site)
+n_groups   <- ceiling(length(site_names) / 6)
+
+for (i in 1:n_groups) {
+  start_idx    <- (i - 1) * 6 + 1
+  end_idx      <- min(i * 6, length(site_names))
+  sites_subset <- site_names[start_idx:end_idx]
+  
+  p <- ggplot(all_importance_combined %>% filter(site %in% sites_subset),
+              aes(x = reorder(variable, importance), y = importance, fill = response)) +
+    geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+    scale_fill_manual(values = c("GPP" = "steelblue", "LAI" = "coral")) +
+    facet_wrap(~ site, scales = "free_x", ncol = 3) +
+    coord_flip() +
+    theme_minimal() +
+    theme(strip.text     = element_text(size = 10),
+          axis.text      = element_text(size = 8),
+          legend.position = "top") +
+    labs(title = paste("Variable Importance - Group", i),
+         x = "Variable", y = "%IncMSE", fill = "Response")
+  
+  print(p)
+  ggsave(paste0("importance_group_", i, ".png"), width = 12, height = 8, dpi = 300)
+}
 ```
 
