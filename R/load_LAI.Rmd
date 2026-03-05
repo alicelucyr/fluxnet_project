@@ -141,6 +141,9 @@ canopy_order <- map_dfr(sites_daily, function(df) {
 
 print(canopy_order)
 ```
+```{r}
+LAI_order <- c("Tum", "Wac", "Wom", "Rob", "Rig", "Dap", "How", "Fog", "Dry", "Ade", "Rdf", "Das", "Cum", "Whr", "Emr", "Stp", "Gin", "Ync", "Cpr", "Asm", "Gww")
+```
 
 
 ```{r}
