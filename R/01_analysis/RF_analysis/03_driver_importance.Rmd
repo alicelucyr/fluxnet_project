@@ -453,17 +453,25 @@ ggplot() +
 ggsave("australia_top_predictor_map.png", width = 10, height = 8, dpi = 300)
 ```
 
-Looking at LAI as the response
+Compare model without VPD and model with VPD
 
 ```{r}
-run_rf_for_site_LAI <- function(df, site_name) {
+standardise <- function(df, vars_to_scale) {
+  df_scaled <- df
+  df_scaled[vars_to_scale] <- scale(df[vars_to_scale])
+  return(df_scaled)
+}
+```
+
+
+```{r}
+run_rf_with_without_vpd <- function(df, site_name) {
   
-  required_vars <- c("LAI_filled", "Tair", "SW_rad", "VPD", "Precip", "cwd", "date")
-  
-  df <- df %>% drop_na(all_of(required_vars))
+  # Only drop NAs in columns we always need
+  df <- df %>% drop_na(GPP, Tair, SW_rad, VPD, cwd, date)
   
   if (nrow(df) < 100) {
-    warning(paste("Site", site_name, "has insufficient data:", nrow(df), "rows"))
+    warning(paste("Site", site_name, "has insufficient data"))
     return(NULL)
   }
   
@@ -471,100 +479,109 @@ run_rf_for_site_LAI <- function(df, site_name) {
     arrange(date) %>%
     mutate(
       cumulative_cwd_7day = rollapply(cwd, width = 7, FUN = sum,
-                                      align = "right", fill = NA, na.rm = TRUE),
-      Tair_lag1 = lag(Tair, 1),
-      Tair_lag2 = lag(Tair, 2),
-      Tair_lag3 = lag(Tair, 3),
-      VPD_lag1  = lag(VPD, 1),
-      VPD_lag2  = lag(VPD, 2),
-      VPD_lag3  = lag(VPD, 3)
-    ) %>%
-    drop_na()
+                                      align = "right", fill = NA, na.rm = TRUE)
+    )
   
-  set.seed(123)
-  idx        <- createDataPartition(df$LAI_filled, p = 0.8, list = FALSE)
-  train_data <- df[idx, ]
-  test_data  <- df[-idx, ]
+  # Predictors with and without VPD
+  predictors_with    <- c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day")
+  predictors_without <- c("Tair", "SW_rad", "cumulative_cwd_7day")
   
-  predictors <- c("Tair", "SW_rad", "VPD", "Precip", "cumulative_cwd_7day")
+  fit_rf <- function(predictors, label) {
+    
+    # Drop NAs only in columns this model actually uses
+    model_df <- df %>% drop_na(GPP, all_of(predictors))
+    
+    if (nrow(model_df) < 100) {
+      message("  Skipping ", label, " at ", site_name, ": insufficient data after NA drop")
+      return(NULL)
+    }
+    
+    # Standardise
+    model_df <- standardise(model_df, predictors)
+    
+    # Train/test split
+    set.seed(123)
+    idx        <- createDataPartition(model_df$GPP, p = 0.8, list = FALSE)
+    train_data <- model_df[idx, ]
+    test_data  <- model_df[-idx, ]
+    
+    formula <- as.formula(paste("GPP ~", paste(predictors, collapse = " + ")))
+    
+    model <- randomForest(formula, data = train_data,
+                          ntree = 500, mtry = 3, importance = TRUE)
+    
+    preds         <- predict(model, test_data)
+    results       <- data.frame(Observed = test_data$GPP, Predicted = preds)
+    rmse          <- sqrt(mean((results$Observed - results$Predicted)^2))
+    rsq           <- cor(results$Observed, results$Predicted)^2
+    mean_observed <- mean(results$Observed)
+    nse           <- 1 - sum((results$Observed - results$Predicted)^2) /
+                         sum((results$Observed - mean_observed)^2)
+    
+    importance_df <- data.frame(
+      variable   = rownames(importance(model)),
+      importance = importance(model, type = 1)[, 1],
+      model      = label,
+      site       = site_name
+    )
+    
+    list(
+      metrics     = data.frame(site = site_name, model = label,
+                               RMSE = rmse, R2 = rsq, NSE = nse),
+      importance  = importance_df,
+      predictions = results %>% mutate(site = site_name, model = label)
+    )
+  }
   
-  scaled     <- standardise(train_data, test_data, predictors)
-  train_data <- scaled$train
-  test_data  <- scaled$test
+  with_vpd    <- fit_rf(predictors_with,    "with_VPD")
+  without_vpd <- fit_rf(predictors_without, "without_VPD")
   
-  model <- randomForest(
-    LAI_filled ~ Tair + SW_rad + VPD + Precip + cumulative_cwd_7day,
-    data       = train_data,
-    ntree      = 500,
-    mtry       = 3,
-    importance = TRUE
-  )
+  if (is.null(with_vpd) || is.null(without_vpd)) return(NULL)
   
-  predictions   <- predict(model, test_data)
-  results       <- data.frame(Observed = test_data$LAI_filled, Predicted = predictions)
-  rmse          <- sqrt(mean((results$Observed - results$Predicted)^2))
-  rsq           <- cor(results$Observed, results$Predicted)^2
-  mean_observed <- mean(results$Observed)
-  nse           <- 1 - sum((results$Observed - results$Predicted)^2) /
-                       sum((results$Observed - mean_observed)^2)
-  
-  imp <- importance(model, type = 1)
-  importance_df <- data.frame(
-    variable   = rownames(imp),
-    importance = imp[, 1],
-    site       = site_name
-  )
-  
-  return(list(
+  list(
     site        = site_name,
-    model       = model,
-    metrics     = data.frame(site = site_name, RMSE = rmse, R2 = rsq, NSE = nse),
-    importance  = importance_df,
-    predictions = results %>% mutate(site = site_name)
-  ))
+    metrics     = bind_rows(with_vpd$metrics,     without_vpd$metrics),
+    importance  = bind_rows(with_vpd$importance,  without_vpd$importance),
+    predictions = bind_rows(with_vpd$predictions, without_vpd$predictions)
+  )
 }
 
-# Apply to all sites
-rf_results_LAI <- map2(sites_daily, names(sites_daily), run_rf_for_site_LAI)
-rf_results_LAI <- Filter(Negate(is.null), rf_results_LAI)
-cat("Sites successfully fitted:", length(rf_results_LAI), "\n")
+# Run across all sites
+rf_results_vpd <- map2(sites_daily, names(sites_daily), run_rf_with_without_vpd)
+rf_results_vpd <- Filter(Negate(is.null), rf_results_vpd)
 
-all_metrics_LAI    <- map_df(rf_results_LAI, ~.x$metrics)
-all_importance_LAI <- map_df(rf_results_LAI, ~.x$importance)
+# Extract
+all_metrics_vpd    <- map_df(rf_results_vpd, ~.x$metrics)
+all_importance_vpd <- map_df(rf_results_vpd, ~.x$importance)
 
-print(all_metrics_LAI)
+print(all_metrics_vpd)
+
+# ---- Plot 1: R² with vs without VPD per site ----
+all_metrics_vpd %>%
+  ggplot(aes(x = reorder(site, R2), y = R2, fill = model)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+  scale_fill_manual(values = c("with_VPD" = "#2E86AB", "without_VPD" = "#A23B72")) +
+  coord_flip() +
+  labs(title = "Model R²: with vs without VPD",
+       x = "Site", y = "R²", fill = NULL) +
+  theme_classic() +
+  theme(legend.position = "top")
+
+# ---- Plot 2: R² difference (gain from adding VPD) ----
+all_metrics_vpd %>%
+  select(site, model, R2) %>%
+  pivot_wider(names_from = model, values_from = R2) %>%
+  mutate(R2_gain = with_VPD - without_VPD) %>%
+  ggplot(aes(x = reorder(site, R2_gain), y = R2_gain, fill = R2_gain > 0)) +
+  geom_col(width = 0.7) +
+  scale_fill_manual(values = c("TRUE" = "#2E86AB", "FALSE" = "#A23B72"),
+                    labels = c("TRUE" = "VPD improves R²", "FALSE" = "VPD reduces R²")) +
+  coord_flip() +
+  labs(title = "R² gain from adding VPD",
+       x = "Site", y = "ΔR² (with - without VPD)", fill = NULL) +
+  theme_classic() +
+  theme(legend.position = "top")
 ```
-```{r}
 
-# Combine GPP and LAI importance with a response label
-all_importance_combined <- bind_rows(
-  all_importance     %>% mutate(response = "GPP"),
-  all_importance_LAI %>% mutate(response = "LAI")
-)
 
-site_names <- unique(all_importance_combined$site)
-n_groups   <- ceiling(length(site_names) / 6)
-
-for (i in 1:n_groups) {
-  start_idx    <- (i - 1) * 6 + 1
-  end_idx      <- min(i * 6, length(site_names))
-  sites_subset <- site_names[start_idx:end_idx]
-  
-  p <- ggplot(all_importance_combined %>% filter(site %in% sites_subset),
-              aes(x = reorder(variable, importance), y = importance, fill = response)) +
-    geom_col(position = position_dodge(width = 0.7), width = 0.6) +
-    scale_fill_manual(values = c("GPP" = "steelblue", "LAI" = "coral")) +
-    facet_wrap(~ site, scales = "free_x", ncol = 3) +
-    coord_flip() +
-    theme_minimal() +
-    theme(strip.text     = element_text(size = 10),
-          axis.text      = element_text(size = 8),
-          legend.position = "top") +
-    labs(title = paste("Variable Importance - Group", i),
-         x = "Variable", y = "%IncMSE", fill = "Response")
-  
-  print(p)
-  ggsave(paste0("importance_group_", i, ".png"), width = 12, height = 8, dpi = 300)
-}
-```
 
