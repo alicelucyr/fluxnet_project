@@ -245,6 +245,62 @@ site_slopes <- site_slopes %>%
 ```
 
 ```{r}
+# ── Step 1: scale and fit ─────────────────────────────────────────────────────
+slopes_mat_2 <- site_slopes %>%
+  filter(!is.na(slope)) %>%
+  column_to_rownames("site") %>%
+  select(slope, intercept, vpd_at_peak) %>%
+  scale()
+
+hclust_fit_2 <- hclust(dist(slopes_mat_2, method = "euclidean"), method = "ward.D2")
+
+# ── Step 2: verify cluster number is justified ────────────────────────────────
+# Silhouette score — confirm k=3 is optimal
+library(cluster)
+sil_scores <- map_dbl(2:6, function(k) {
+  clusters <- cutree(hclust_fit_2, k = k)
+  mean(silhouette(clusters, dist(slopes_mat_2))[, 3])
+})
+tibble(k = 2:6, silhouette = sil_scores)  # highest score = best k
+
+# ── Step 3: derive label order from mean slope ────────────────────────────────
+cluster_means_2 <- site_slopes %>%
+  filter(!is.na(slope)) %>%
+  mutate(cluster_raw = factor(cutree(hclust_fit_2, k = 3))) %>%
+  group_by(cluster_raw) %>%
+  summarise(
+    mean_slope     = mean(slope),
+    mean_intercept = mean(intercept),
+    mean_peak_vpd  = mean(vpd_at_peak),
+    n_sites        = n()             # useful to check cluster sizes
+  ) %>%
+  arrange(mean_slope)                # most negative = high sensitivity
+
+print(cluster_means_2)               # sanity check before labelling
+level_order_2 <- cluster_means_2$cluster_raw
+
+# ── Step 4: assign labels ─────────────────────────────────────────────────────
+site_slopes <- site_slopes %>%
+  filter(!is.na(slope)) %>%
+  mutate(
+    cluster_multi = factor(cutree(hclust_fit_2, k = 3)),
+    cluster_multi = fct_recode(cluster_multi,
+      "High"   = as.character(level_order_2[1]),
+      "Medium" = as.character(level_order_2[2]),
+      "Low"    = as.character(level_order_2[3])
+    ),
+    cluster_multi = factor(cluster_multi, levels = c("Low", "Medium", "High"))
+  )
+
+# ── Step 5: verify — check mean slope per labelled cluster ───────────────────
+site_slopes %>%
+  group_by(cluster_multi) %>%
+  summarise(mean_slope = mean(slope), n = n())
+```
+
+
+
+```{r}
 # Step 4: plot
 ggplot(site_slopes %>% 
          mutate(site = factor(site, levels = wet_to_dry_order)),
@@ -252,9 +308,9 @@ ggplot(site_slopes %>%
   geom_point(size = 3) +
   geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
   coord_flip() +
-  scale_colour_manual(values = c("low"    = "steelblue",
-                                 "medium" = "orange",
-                                 "high"   = "firebrick")) +
+  scale_colour_manual(values = c("Low"    = "steelblue",
+                                 "Medium" = "orange",
+                                 "High"   = "firebrick")) +
   labs(x = "Site (Wet to Dry)", y = "GPP~VPD Slope", colour = "Sensitivity",
        title = "GPP sensitivity clusters") +
   theme_classic()
@@ -361,7 +417,7 @@ site_slopes %>%
 
 # Bar chart for categorical
 site_slopes %>%
-  ggplot(aes(x = cluster_multi, fill = koppen_climate)) +
+  ggplot(aes(x = cluster_multi, fill = PFT)) +
   geom_bar(position = "fill") +
   labs(x = "Sensitivity cluster", y = "Proportion") +
   theme_classic()
