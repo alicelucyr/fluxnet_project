@@ -122,9 +122,6 @@ walk(plots, print)
 ```
 
 ```{r}
-plot(sites_daily$Tum$GPP)
-```
-```{r}
 # Check GPP distribution per site
 sites_daily_df <- bind_rows(sites_daily)
 
@@ -145,8 +142,6 @@ sites_daily_df %>%
   ) %>%
   print(n = Inf)
 ```
-
-
 
 Cluster analysis:
 - Based on the GPP ~ VPD response, which sites cluster together?
@@ -250,10 +245,9 @@ site_slopes <- site_slopes %>%
 ```
 
 ```{r}
-
 # Step 4: plot
 ggplot(site_slopes %>% 
-         mutate(site = factor(site, levels = LAI_order)),
+         mutate(site = factor(site, levels = wet_to_dry_order)),
        aes(x = site, y = slope, colour = cluster_multi)) +
   geom_point(size = 3) +
   geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
@@ -261,7 +255,7 @@ ggplot(site_slopes %>%
   scale_colour_manual(values = c("low"    = "steelblue",
                                  "medium" = "orange",
                                  "high"   = "firebrick")) +
-  labs(x = "Site (Highest to Lowest max LAI)", y = "GPP~VPD Slope", colour = "Sensitivity",
+  labs(x = "Site (Wet to Dry)", y = "GPP~VPD Slope", colour = "Sensitivity",
        title = "GPP sensitivity clusters") +
   theme_classic()
 ```
@@ -277,10 +271,10 @@ Biome/climatic classification
 ```{r}
 site_meta_2 <- tibble(
   site = c("Rob", "How", "Wac", "Das", "Fog", "Dap", "Ade", "Dry", "Stp", "Wom", 
-           "Rdf", "Tum", "Gin", "Emr", "Cum", "Gww", "Rig", "Asm", "Cpr", "Whr", "Ync"),
-  PFT = c("EBF", "WSA", "EBF", "SAV", "WET", "GRA", "WSA", "SAV", "GRA", "EBF", "WSA", "EBF", "WSA", "GRA", "EBF", "SAV", "GRA", "SAV", "SAV", "EBF", "GRA"),
+           "Rdf", "Tum", "Gin", "Emr", "Cum", "Gww", "Rig", "Asm", "Cpr", "Whr", "Ync", "Boy"),
+  PFT = c("EBF", "WSA", "EBF", "SAV", "WET", "GRA", "WSA", "SAV", "GRA", "EBF", "WSA", "EBF", "WSA", "GRA", "EBF", "SAV", "GRA", "SAV", "SAV", "EBF", "GRA", "WSA"),
   koppen_climate = c("Tropical", "Tropical", "Temperate", "Tropical", "Tropical", "Tropical", "Tropical",
-                     "Tropical", "Grassland", "Temperate", "Tropical", "Temperate", "Subtropical", "Grassland", "Temperate", "Grassland", "Temperate", "Desert", "Grassland", "Temperate", "Grassland")
+                     "Tropical", "Grassland", "Temperate", "Tropical", "Temperate", "Subtropical", "Grassland", "Temperate", "Grassland", "Temperate", "Desert", "Grassland", "Temperate", "Grassland", "Temperate")
 )
 ```
 
