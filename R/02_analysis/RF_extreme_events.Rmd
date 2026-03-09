@@ -344,7 +344,7 @@ importance_df %>%
   theme_bw() +
   theme(legend.position = "top")
 ```
-Is VPD becoming more important in recent years in long-term sites (How and Tum)?
+Is VPD becoming more important in recent years in long-term sites (How, Tum, Asm, Cpr, Wom)?
 
 ```{r}
 library(tidyverse)
@@ -353,8 +353,11 @@ library(randomForest)
 # Extract How and Tum
 how_df <- sites_daily[["How"]] %>% mutate(site = "How")
 tum_df <- sites_daily[["Tum"]] %>% mutate(site = "Tum")
+cpr_df <- sites_daily[["Cpr"]] %>% mutate(site = "Cpr")
+wom_df <- sites_daily[["Wom"]] %>% mutate(site = "Wom")
+asm_df <- sites_daily[["Asm"]] %>% mutate(site = "Asm")
 
-long_sites <- bind_rows(how_df, tum_df) %>%
+long_sites <- bind_rows(how_df, tum_df, cpr_df, wom_df, asm_df) %>%
   mutate(
     date      = as.Date(date),
     month     = month(date),
@@ -420,7 +423,7 @@ yearly_results %>%
   ggplot(aes(x = year, y = importance, colour = site)) +
   geom_point(size = 3) +
   geom_smooth(method = "lm", se = TRUE, alpha = 0.2) +
-  scale_colour_manual(values = c("How" = "#2E86AB", "Tum" = "#A23B72")) +
+  scale_colour_manual(values = c("How" = "#2E86AB", "Tum" = "#A23B72", "Asm" = "steelblue", "Cpr" = "orange", "Wom" = "firebrick")) +
   facet_wrap(~ site) +
   labs(title = "VPD importance over time (summer RF)",
        x = "Year", y = "VPD % increase in MSE") +
@@ -443,7 +446,7 @@ yearly_results %>%
   ggplot(aes(x = year, y = r2, colour = site)) +
   geom_point(size = 3) +
   geom_smooth(method = "lm", se = TRUE, alpha = 0.2) +
-  scale_colour_manual(values = c("How" = "#2E86AB", "Tum" = "#A23B72")) +
+  scale_colour_manual(values = c("How" = "#2E86AB", "Tum" = "#A23B72", "Asm" = "steelblue", "Cpr" = "orange", "Wom" = "firebrick")) +
   facet_wrap(~ site) +
   labs(title = "Model R² over time (summer RF)",
        x = "Year", y = "R²") +
