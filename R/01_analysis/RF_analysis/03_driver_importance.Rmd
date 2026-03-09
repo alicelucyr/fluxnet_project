@@ -556,6 +556,10 @@ all_importance_vpd <- map_df(rf_results_vpd, ~.x$importance)
 
 print(all_metrics_vpd)
 
+```
+
+```{r}
+
 # ---- Plot 1: R² with vs without VPD per site ----
 all_metrics_vpd %>%
   ggplot(aes(x = reorder(site, R2), y = R2, fill = model)) +
@@ -581,6 +585,178 @@ all_metrics_vpd %>%
        x = "Site", y = "ΔR² (with - without VPD)", fill = NULL) +
   theme_classic() +
   theme(legend.position = "top")
+```
+
+```{r}
+library(lubridate)
+
+convert_to_annual <- function(df_daily) {
+  df_daily <- df_daily %>%
+    mutate(year = year(date))
+  
+  df_annual <- df_daily %>%
+    group_by(year) %>%
+    summarise(
+      GPP    = sum(GPP,    na.rm = TRUE),
+      ET     = sum(ET,     na.rm = TRUE),
+      Precip = sum(Precip, na.rm = TRUE),   # mean annual precip → sum daily → already correct
+      Qle    = mean(Qle,   na.rm = TRUE),
+      Tair   = mean(Tair,  na.rm = TRUE),   # ✅ mean annual temperature
+      SW_rad = mean(SW_rad, na.rm = TRUE),
+      Rn     = mean(Rn,    na.rm = TRUE),
+      Pa     = mean(Pa,    na.rm = TRUE),
+      VPD    = mean(VPD,   na.rm = TRUE),
+      LAI    = max(LAI_4day,    na.rm = TRUE),   # ✅ maximum annual LAI — added this
+      .groups = "drop"
+    )
+  return(df_annual)
+}
+
+# Apply to all sites
+sites_annual <- map(sites_daily, convert_to_annual)
+```
+
+```{r}
+sites_annual_combined <- bind_rows(sites_annual, .id = "site")
+
+# Summarise across years per site
+sites_summary <- sites_annual_combined %>%
+  group_by(site) %>%
+  summarise(
+    mean_precip = mean(Precip, na.rm = TRUE),
+    mean_tair   = mean(Tair,   na.rm = TRUE),
+    max_lai     = max(LAI,     na.rm = TRUE)
+  )
+
+# Pivot to long for faceting
+sites_summary_long <- sites_summary %>%
+  pivot_longer(cols = -site, names_to = "variable", values_to = "value") %>%
+  mutate(variable = recode(variable,
+    mean_precip = "Mean Annual Precip (mm)",
+    mean_tair   = "Mean Annual Temp (°C)",
+    max_lai     = "Max Annual LAI"
+  ))
+
+ggplot(sites_summary_long, aes(x = reorder(site, value), y = value, fill = site)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~variable, scales = "free") +
+  coord_flip() +
+  labs(x = NULL, y = NULL, title = "Site Comparison") +
+  theme_minimal()
+```
+
+```{r}
+sites_summary %>%
+  arrange(desc(mean_precip)) %>%
+  mutate(site = factor(site, levels = site)) %>%  # lock in order
+  ggplot(aes(x = site, y = mean_precip, fill = mean_precip)) +
+  geom_col() +
+  scale_fill_gradient(low = "#c6dbef", high = "#08519c", name = NULL) +
+  labs(x = NULL, y = "Mean Annual Precipitation (mm)", title = "Sites by Precipitation") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")
+```
+```{r}
+wet_to_dry_order <- c("Wac", "Rob", "How", "Das", "Fog", "Ade", "Dap", "Rdf", "Tum", "Dry", "Cum", "Wom", "Stp", "Gin", "Emr", "Boy", "Rig", "Whr", "Gww", "Ync", "Cpr", "Asm")
+```
+
+
+```{r}
+# ── Plot 1: R² with vs without VPD — LAI order ───────────────────────────────
+all_metrics_vpd %>%
+  mutate(site = factor(site, levels = LAI_order)) %>%
+  ggplot(aes(x = site, y = R2, fill = model)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+  scale_fill_manual(values = c("with_VPD" = "#4682B4", "without_VPD" = "#F28C28")) +
+  coord_flip() +
+  labs(title = "R² with vs without VPD — LAI order", x = NULL, y = "R²", fill = NULL) +
+  theme_classic() +
+  theme(legend.position = "top")
+
+# ── Plot 1: R² with vs without VPD — wet to dry order ────────────────────────
+all_metrics_vpd %>%
+  mutate(site = factor(site, levels = wet_to_dry_order)) %>%
+  ggplot(aes(x = site, y = R2, fill = model)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+  scale_fill_manual(values = c("with_VPD" = "#4682B4", "without_VPD" = "#F28C28")) +
+  coord_flip() +
+  labs(title = "R² with vs without VPD — Dry to Wet", x = NULL, y = "R²", fill = NULL) +
+  theme_classic() +
+  theme(legend.position = "top")
+
+# ── Plot 2: ΔR² gain — LAI order ─────────────────────────────────────────────
+all_metrics_vpd %>%
+  select(site, model, R2) %>%
+  pivot_wider(names_from = model, values_from = R2) %>%
+  mutate(site    = factor(site, levels = LAI_order),
+         R2_gain = with_VPD - without_VPD) %>%
+  ggplot(aes(x = site, y = R2_gain, fill = R2_gain > 0)) +
+  geom_col(width = 0.7) +
+  geom_hline(yintercept = 0, linewidth = 0.4, linetype = "dashed") +
+  scale_fill_manual(values = c("TRUE" = "#4682B4", "FALSE" = "#F28C28"),
+                    labels = c("TRUE" = "VPD improves R²", "FALSE" = "VPD reduces R²")) +
+  coord_flip() +
+  labs(title = "ΔR² from adding VPD — LAI order", x = NULL, y = "ΔR² (with − without)", fill = NULL) +
+  theme_classic() +
+  theme(legend.position = "top")
+
+# ── Plot 2: ΔR² gain — wet to dry order ──────────────────────────────────────
+all_metrics_vpd %>%
+  select(site, model, R2) %>%
+  pivot_wider(names_from = model, values_from = R2) %>%
+  mutate(site    = factor(site, levels = wet_to_dry_order),
+         R2_gain = with_VPD - without_VPD) %>%
+  ggplot(aes(x = site, y = R2_gain, fill = R2_gain > 0)) +
+  geom_col(width = 0.7) +
+  geom_hline(yintercept = 0, linewidth = 0.4, linetype = "dashed") +
+  scale_fill_manual(values = c("TRUE" = "#4682B4", "FALSE" = "#F28C28"),
+                    labels = c("TRUE" = "VPD improves R²", "FALSE" = "VPD reduces R²")) +
+  coord_flip() +
+  labs(title = "ΔR² from adding VPD — Dry to Wet order", x = NULL, y = "ΔR² (with − without)", fill = NULL) +
+  theme_classic() +
+  theme(legend.position = "top")
+```
+```{r}
+r2_per_site <- all_metrics_vpd %>%
+  filter(model == "with_VPD") %>%
+  select(site, R2) %>%
+  mutate(R2 = as.numeric(R2))
+
+n_years <- sites_annual_combined %>%
+  group_by(site) %>%
+  summarise(n_years = n_distinct(year))
+
+sites_summary <- sites_summary %>%
+  left_join(n_years, by = "site")
+
+r2_per_site <- all_metrics_vpd %>%
+  filter(model == "with_VPD") %>%
+  select(site, R2)
+
+plot_data <- sites_summary %>%
+  left_join(r2_per_site, by = "site")
+
+# ── Max LAI vs R² ─────────────────────────────────────────────────────────────
+ggplot(plot_data, aes(x = R2, y = max_lai)) +
+  geom_point(size = 3, colour = "#4682B4") +
+  geom_text(aes(label = site), vjust = -0.8, size = 2.8, colour = "grey30") +
+  labs(x = "R²", y = "Max Annual LAI") +
+  theme_classic()
+
+# ── Mean Precip vs R² ─────────────────────────────────────────────────────────
+ggplot(plot_data, aes(x = R2, y = mean_precip)) +
+  geom_point(size = 3, colour = "#4682B4") +
+  geom_text(aes(label = site), vjust = -0.8, size = 2.8, colour = "grey30") +
+  labs(x = "R²", y = "Mean Annual Precip (mm)") +
+  theme_classic()
+
+# ── No. Years vs R² ───────────────────────────────────────────────────────────
+ggplot(plot_data, aes(x = R2, y = n_years)) +
+  geom_point(size = 3, colour = "#4682B4") +
+  geom_text(aes(label = site), vjust = -0.8, size = 2.8, colour = "grey30") +
+  labs(x = "R²", y = "No. Years of Observations") +
+  theme_classic()
 ```
 
 
