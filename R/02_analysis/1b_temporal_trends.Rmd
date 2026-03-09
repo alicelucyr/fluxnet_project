@@ -1,0 +1,387 @@
+---
+title: "1b_temporal_trends"
+output: html_document
+date: "2026-03-09"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Section 1b: Temporal trends
+- Is VPD becoming more important in recent years in long-term sites?
+- Extreme summer events
+- Predictability over time
+
+```{r}
+library(zoo)
+
+long_term_sites <- c("How", "Tum", "Wom", "Asm", "Cpr")
+
+vpd_trend <- sites_daily_df %>%
+  filter(site %in% long_term_sites) %>%
+  drop_na(GPP, VPD) %>%                   # remove NAs before grouping
+  group_by(site, year) %>%
+  filter(n() >= 10) %>%                   # stricter threshold — 3 is too few for a regression
+  summarise(
+    R2_annual = summary(lm(GPP ~ VPD))$r.squared,
+    .groups = "drop"
+  )
+
+# Plot R² over time per site
+ggplot(vpd_trend, aes(x = year, y = R2_annual, colour = site)) +
+  geom_line() +
+  geom_smooth(method = "lm", se = FALSE, linetype = "dashed", linewidth = 0.5) +
+  facet_wrap(~ site, scales = "free_y", ncol = 1) +
+  scale_colour_manual(values = c("#4682B4","#F28C28","#2ca02c","#d62728","#9467bd")) +
+  labs(x = NULL, y = "Annual R² (GPP ~ VPD)", 
+       title = "Is VPD becoming more important over time?") +
+  theme_classic() +
+  theme(legend.position = "none")
+
+# Test significance of trend per site
+vpd_trend %>%
+  group_by(site) %>%
+  summarise(
+    slope  = coef(lm(R2_annual ~ year))[2],
+    p_value = summary(lm(R2_annual ~ year))$coefficients[2, 4]
+  )
+```
+```{r}
+vpd_trend_summary <- tibble(
+  site    = c("Asm", "Cpr", "How", "Tum", "Wom"),
+  slope   = c(0.00975, 0.00571, -0.01857, 0.00419, 0.00290),
+  p_value = c(0.061, 0.289, 0.014, 0.629, 0.610)
+) %>%
+  mutate(
+    significant = p_value < 0.05,
+    label       = paste0("p = ", round(p_value, 3))
+  )
+
+ggplot(vpd_trend_summary, aes(x = reorder(site, slope), y = slope, 
+                               fill = significant)) +
+  geom_col(width = 0.6) +
+  geom_text(aes(label = label,
+                hjust = ifelse(slope > 0, -0.1, 1.1)),
+            size = 3.5) +
+  scale_fill_manual(values = c("TRUE" = "#4682B4", "FALSE" = "grey70"),
+                    labels = c("TRUE" = "p < 0.05", "FALSE" = "p ≥ 0.05")) +
+  geom_hline(yintercept = 0, linewidth = 0.4, linetype = "dashed") +
+  scale_y_continuous(limits = c(-0.025, 0.015)) +  # expand range for labels
+  coord_flip(clip = "off") +
+  labs(x = NULL, y = "Trend in annual R² (GPP ~ VPD)",
+       fill = NULL,
+       title = "Is VPD becoming more important over time?",
+       subtitle = "Slope of R² ~ year per long-term site") +
+  theme_classic() +
+  theme(legend.position = "top",
+        plot.margin = margin(5, 60, 5, 5, unit = "pt"))
+```
+
+```{r}
+plot(sites_daily$How$VPD)
+```
+```{r}
+# ── Calculate VPD anomalies and flag extremes ─────────────────────────────────
+vpd_extremes <- sites_daily_df %>%
+  filter(site %in% long_term_sites) %>%
+  drop_na(VPD) %>%
+  group_by(site) %>%
+  mutate(
+    vpd_mean     = mean(VPD, na.rm = TRUE),
+    vpd_sd       = sd(VPD, na.rm = TRUE),
+    vpd_anomaly  = VPD - vpd_mean,                    # raw anomaly
+    vpd_z        = vpd_anomaly / vpd_sd,              # standardised anomaly
+    extreme      = vpd_z > 1.5                        # flag extremes (adjust threshold as needed)
+  ) %>%
+  ungroup()
+```
+
+```{r}
+vpd_extreme_annual <- vpd_extremes %>%
+  mutate(year = year(date)) %>%
+  group_by(site, year) %>%
+  summarise(
+    n_extreme    = sum(extreme, na.rm = TRUE),         # count of extreme days
+    prop_extreme = mean(extreme, na.rm = TRUE),        # proportion of days
+    mean_anomaly = mean(vpd_anomaly, na.rm = TRUE),    # mean annual anomaly
+    .groups = "drop"
+  )
+```
+
+```{r}
+ggplot(vpd_extreme_annual, aes(x = year, y = n_extreme, colour = site)) +
+  geom_line() +
+  geom_smooth(method = "lm", se = TRUE, linewidth = 0.5, alpha = 0.15) +
+  facet_wrap(~ site, ncol = 1, scales = "free_y") +
+  scale_colour_manual(values = c("#4682B4","#F28C28","#2ca02c","#d62728","#9467bd")) +
+  labs(x = NULL, y = "No. extreme VPD days per year",
+       title = "Are VPD extremes becoming more frequent?",
+       subtitle = "Extreme = VPD > 1.5 SD above site mean") +
+  theme_classic() +
+  theme(legend.position = "none")
+```
+
+```{r}
+vpd_extreme_annual %>%
+  ggplot(aes(x = year, y = site, fill = mean_anomaly)) +
+  geom_tile(colour = "white", linewidth = 0.3) +
+  scale_fill_gradient2(low = "#4682B4", mid = "white", high = "#F28C28",
+                       midpoint = 0, name = "VPD anomaly\n(kPa)") +
+  labs(x = NULL, y = NULL,
+       title = "Annual VPD anomalies across long-term sites") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+# ── Step 1: Calculate VPD extremes using 95th percentile ─────────────────────
+vpd_extremes_daily <- bind_rows(sites_daily) %>%
+  drop_na(VPD, date) %>%
+  mutate(year = year(date)) %>%
+  group_by(site) %>%
+  mutate(
+    vpd_mean    = mean(VPD, na.rm = TRUE),
+    vpd_anomaly = VPD - vpd_mean,
+    vpd_p95     = quantile(VPD, 0.95, na.rm = TRUE),
+    extreme     = VPD > vpd_p95
+  ) %>%
+  ungroup()
+
+# ── Q1: Are VPD anomalies increasing in frequency? ───────────────────────────
+vpd_annual_extremes <- vpd_extremes_daily %>%
+  group_by(site, year) %>%
+  summarise(n_extreme = sum(extreme, na.rm = TRUE), .groups = "drop")
+
+ggplot(vpd_annual_extremes %>% filter(site %in% long_term_sites),
+       aes(x = year, y = n_extreme)) +
+  geom_line(colour = "grey60") +
+  geom_point(size = 1.5, colour = "#F28C28") +
+  geom_smooth(method = "lm", se = TRUE, colour = "#4682B4", linewidth = 0.8) +
+  facet_wrap(~ site, ncol = 1, scales = "free_y") +
+  labs(x = NULL, y = "No. days above 95th percentile",
+       title = "Are extreme VPD events becoming more frequent?") +
+  theme_classic() +
+  theme(legend.position = "none")
+
+# significance
+vpd_annual_extremes %>%
+  filter(site %in% long_term_sites) %>%
+  group_by(site) %>%
+  summarise(
+    slope   = coef(lm(n_extreme ~ year))[2],
+    p_value = summary(lm(n_extreme ~ year))$coefficients[2, 4]
+  )
+
+# ── Q2: Are VPD anomalies increasing in magnitude? ───────────────────────────
+vpd_annual_anom <- vpd_extremes_daily %>%
+  filter(extreme) %>%                           # only look at extreme days
+  group_by(site, year) %>%
+  summarise(mean_extreme_vpd = mean(VPD, na.rm = TRUE), .groups = "drop")
+
+ggplot(vpd_annual_anom %>% filter(site %in% long_term_sites),
+       aes(x = year, y = mean_extreme_vpd)) +
+  geom_line(colour = "grey60") +
+  geom_point(size = 1.5, colour = "#F28C28") +
+  geom_smooth(method = "lm", se = TRUE, colour = "#4682B4", linewidth = 0.8) +
+  facet_wrap(~ site, ncol = 1, scales = "free_y") +
+  labs(x = NULL, y = "Mean VPD on extreme days (kPa)",
+       title = "Are VPD extremes becoming more intense?") +
+  theme_classic()
+
+# ── Q3: Do extremes coincide with low precipitation? ─────────────────────────
+vpd_extremes_daily %>%
+  filter(site %in% long_term_sites) %>%
+  drop_na(Precip) %>%
+  mutate(extreme_flag = ifelse(extreme, "Extreme VPD", "Normal")) %>%
+  ggplot(aes(x = extreme_flag, y = Precip, fill = extreme_flag)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA) +
+  scale_fill_manual(values = c("Extreme VPD" = "#F28C28", "Normal" = "#4682B4")) +
+  facet_wrap(~ site, scales = "free_y") +
+  labs(x = NULL, y = "Daily Precipitation (mm)",
+       title = "Do extreme VPD days coincide with low precipitation?") +
+  theme_classic() +
+  theme(legend.position = "none")
+
+# ── Q4: Do extremes coincide with low GPP? ───────────────────────────────────
+vpd_extremes_daily %>%
+  filter(site %in% long_term_sites) %>%
+  drop_na(GPP) %>%
+  mutate(extreme_flag = ifelse(extreme, "Extreme VPD", "Normal")) %>%
+  ggplot(aes(x = extreme_flag, y = GPP, fill = extreme_flag)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA) +
+  scale_fill_manual(values = c("Extreme VPD" = "#F28C28", "Normal" = "#4682B4")) +
+  facet_wrap(~ site, scales = "free_y") +
+  labs(x = NULL, y = "GPP",
+       title = "Do extreme VPD days coincide with low GPP?") +
+  theme_classic() +
+  theme(legend.position = "none")
+
+# ── Summary statistics for Q3 and Q4 ─────────────────────────────────────────
+vpd_extremes_daily %>%
+  filter(site %in% long_term_sites) %>%
+  drop_na(GPP, Precip) %>%
+  group_by(site, extreme) %>%
+  summarise(
+    mean_GPP    = mean(GPP,    na.rm = TRUE),
+    mean_Precip = mean(Precip, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(extreme = ifelse(extreme, "Extreme", "Normal")) %>%
+  pivot_wider(names_from = extreme,
+              values_from = c(mean_GPP, mean_Precip))
+```
+```{r}
+# ── Step 1: Filter to austral summer and calculate extremes ───────────────────
+vpd_summer <- bind_rows(sites_daily) %>%
+  drop_na(VPD, GPP, date) %>%
+  mutate(
+    year  = year(date),
+    month = month(date)
+  ) %>%
+  filter(month %in% c(12, 1, 2)) %>%           # austral summer only
+  group_by(site) %>%
+  mutate(
+    vpd_p95     = quantile(VPD, 0.95, na.rm = TRUE),  # summer-specific 95th
+    extreme     = VPD > vpd_p95
+  ) %>%
+  ungroup()
+
+# ── Step 2: GPP ~ VPD sensitivity per site per year (summer only) ─────────────
+vpd_sensitivity_summer <- vpd_summer %>%
+  group_by(site, year) %>%
+  filter(n() >= 10) %>%
+  summarise(
+    vpd_slope = coef(lm(GPP ~ VPD))[2],
+    R2        = summary(lm(GPP ~ VPD))$r.squared,
+    .groups   = "drop"
+  )
+
+# ── Step 3: Plot sensitivity trend over time — long-term sites ────────────────
+vpd_sensitivity_summer %>%
+  filter(site %in% long_term_sites) %>%
+  ggplot(aes(x = year, y = vpd_slope)) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4, colour = "grey40") +
+  geom_line(colour = "grey60") +
+  geom_point(size = 1.5, colour = "#4682B4") +
+  geom_smooth(method = "lm", se = TRUE, colour = "#F28C28", linewidth = 0.8) +
+  facet_wrap(~ site, ncol = 1, scales = "free_y") +
+  labs(x = NULL, y = "GPP ~ VPD slope (summer)",
+       title = "Is summer GPP sensitivity to VPD changing over time?") +
+  theme_classic()
+
+# ── Step 4: Significance of sensitivity trend ─────────────────────────────────
+vpd_sensitivity_summer %>%
+  filter(site %in% long_term_sites) %>%
+  group_by(site) %>%
+  summarise(
+    slope   = coef(lm(vpd_slope ~ year))[2],
+    p_value = summary(lm(vpd_slope ~ year))$coefficients[2, 4]
+  )
+
+# ── Step 5: Extreme VPD days in summer — frequency trend ─────────────────────
+vpd_summer %>%
+  filter(site %in% long_term_sites) %>%
+  group_by(site, year) %>%
+  summarise(n_extreme = sum(extreme, na.rm = TRUE), .groups = "drop") %>%
+  ggplot(aes(x = year, y = n_extreme)) +
+  geom_line(colour = "grey60") +
+  geom_point(size = 1.5, colour = "#F28C28") +
+  geom_smooth(method = "lm", se = TRUE, colour = "#4682B4", linewidth = 0.8) +
+  facet_wrap(~ site, ncol = 1, scales = "free_y") +
+  labs(x = NULL, y = "No. extreme VPD days (summer)",
+       title = "Are summer VPD extremes becoming more frequent?") +
+  theme_classic()
+
+# ── Step 6: Do summer extremes suppress GPP? ─────────────────────────────────
+vpd_summer %>%
+  filter(site %in% long_term_sites) %>%
+  mutate(extreme_flag = ifelse(extreme, "Extreme VPD", "Normal")) %>%
+  ggplot(aes(x = extreme_flag, y = GPP, fill = extreme_flag)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA) +
+  scale_fill_manual(values = c("Extreme VPD" = "#F28C28", "Normal" = "#4682B4")) +
+  facet_wrap(~ site, scales = "free_y") +
+  labs(x = NULL, y = "GPP",
+       title = "Do summer VPD extremes suppress GPP?") +
+  theme_classic() +
+  theme(legend.position = "none")
+```
+```{r}
+# ── Step 1: Seasonal GPP ~ VPD sensitivity across all sites ──────────────────
+vpd_seasonal <- bind_rows(sites_daily) %>%
+  drop_na(VPD, GPP, date) %>%
+  mutate(
+    season = case_when(
+      month(date) %in% c(12, 1, 2) ~ "Summer",
+      month(date) %in% c(3, 4, 5)  ~ "Autumn",
+      month(date) %in% c(6, 7, 8)  ~ "Winter",
+      month(date) %in% c(9, 10, 11) ~ "Spring"
+    ),
+    season = factor(season, levels = c("Summer", "Autumn", "Winter", "Spring"))
+  )
+
+# ── Step 2: GPP ~ VPD slope per site per season ───────────────────────────────
+seasonal_sensitivity <- vpd_seasonal %>%
+  group_by(site, season) %>%
+  filter(n() >= 30) %>%
+  summarise(
+    vpd_slope = coef(lm(GPP ~ VPD))[2],
+    R2        = summary(lm(GPP ~ VPD))$r.squared,
+    .groups   = "drop"
+  )
+
+# ── Step 3: Plot seasonal sensitivity across sites ────────────────────────────
+# Order sites by wet to dry or LAI
+seasonal_sensitivity %>%
+  mutate(site = factor(site, levels = wet_to_dry_order)) %>%
+  ggplot(aes(x = site, y = vpd_slope, fill = season)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
+  scale_fill_manual(values = c(
+    "Summer" = "#F28C28",
+    "Autumn" = "#c44e52",
+    "Winter" = "#4682B4",
+    "Spring" = "#2ca02c"
+  )) +
+  labs(x = NULL, y = "GPP ~ VPD slope", fill = NULL,
+       title = "Seasonal GPP sensitivity to VPD across Australian sites") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "top")
+
+# ── Step 4: R² per season — where does VPD explain most variance? ─────────────
+seasonal_sensitivity %>%
+  mutate(site = factor(site, levels = wet_to_dry_order)) %>%
+  ggplot(aes(x = site, y = R2, fill = season)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+  scale_fill_manual(values = c(
+    "Summer" = "#F28C28",
+    "Autumn" = "#c44e52",
+    "Winter" = "#4682B4",
+    "Spring" = "#2ca02c"
+  )) +
+  labs(x = NULL, y = "R² (GPP ~ VPD)", fill = NULL,
+       title = "How much variance does VPD explain per season?") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "top")
+
+# ── Step 5: Extreme VPD events suppress GPP — summer vs other seasons ─────────
+vpd_seasonal %>%
+  group_by(site, season) %>%
+  mutate(
+    vpd_p95 = quantile(VPD, 0.95, na.rm = TRUE),
+    extreme = VPD > vpd_p95
+  ) %>%
+  ungroup() %>%
+  mutate(extreme_flag = ifelse(extreme, "Extreme VPD", "Normal")) %>%
+  ggplot(aes(x = season, y = GPP, fill = extreme_flag)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA) +
+  scale_fill_manual(values = c("Extreme VPD" = "#F28C28", "Normal" = "#4682B4")) +
+  facet_wrap(~ site, scales = "free_y") +
+  labs(x = NULL, y = "GPP", fill = NULL,
+       title = "Does extreme VPD suppress GPP, and is summer worst?") +
+  theme_classic() +
+  theme(legend.position = "top")
+```
+
