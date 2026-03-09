@@ -1,0 +1,164 @@
+---
+title: "future_analysis_1"
+output: html_document
+date: "2026-03-09"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+# ── Step 1: Fit baseline GPP ~ VPD model per site ────────────────────────────
+baseline_models <- bind_rows(sites_daily) %>%
+  drop_na(VPD, GPP) %>%
+  group_by(site) %>%
+  group_map(~ lm(GPP ~ VPD, data = .x), .keep = TRUE) %>%
+  setNames(unique(bind_rows(sites_daily)$site))
+
+# ── Step 2: Define VPD perturbation scenarios from CMIP6 ─────────────────────
+vpd_scenarios <- tibble(
+  scenario   = c("Current", "SSP2-4.5 2050", "SSP5-8.5 2050", "SSP5-8.5 2100"),
+  vpd_delta  = c(0, 0.15, 0.25, 0.45)   # kPa increase above current
+)
+
+# ── Step 3: Predict GPP under each scenario per site ─────────────────────────
+site_data <- bind_rows(sites_daily) %>%
+  drop_na(VPD, GPP)
+
+sensitivity_results <- site_data %>%
+  group_by(site) %>%
+  summarise(
+    mean_VPD = mean(VPD, na.rm = TRUE),
+    mean_GPP = mean(GPP, na.rm = TRUE),
+    vpd_slope = coef(lm(GPP ~ VPD))[2],
+    .groups = "drop"
+  ) %>%
+  crossing(vpd_scenarios) %>%           # expand for each scenario
+  mutate(
+    VPD_new      = mean_VPD + vpd_delta,
+    GPP_predicted = mean_GPP + vpd_slope * vpd_delta,  # linear perturbation
+    GPP_change    = GPP_predicted - mean_GPP,
+    GPP_pct_change = (GPP_change / mean_GPP) * 100
+  )
+
+# ── Step 4: Plot — which sites lose most GPP? ─────────────────────────────────
+sensitivity_results %>%
+  filter(scenario != "Current") %>%
+  mutate(site = factor(site, levels = wet_to_dry_order)) %>%
+  ggplot(aes(x = site, y = GPP_pct_change, fill = scenario)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
+  scale_fill_manual(values = c(
+    "SSP2-4.5 2050" = "#4682B4",
+    "SSP5-8.5 2050" = "#F28C28",
+    "SSP5-8.5 2100" = "#c0392b"
+  )) +
+  labs(x = NULL, y = "% change in GPP", fill = NULL,
+       title = "Projected GPP response to rising VPD",
+       subtitle = "Based on observed GPP~VPD sensitivity and CMIP6 projections") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "top")
+
+# ── Step 5: Vulnerability ranking ────────────────────────────────────────────
+# Which sites are most vulnerable under worst case scenario?
+sensitivity_results %>%
+  filter(scenario == "SSP5-8.5 2100") %>%
+  arrange(GPP_pct_change) %>%
+  select(site, mean_VPD, vpd_slope, GPP_pct_change)
+```
+```{r}
+sensitivity_results %>%
+  filter(scenario == "SSP5-8.5 2100") %>%
+  mutate(site = factor(site, levels = wet_to_dry_order)) %>%
+  ggplot(aes(x = site, y = GPP_pct_change, colour = GPP_pct_change > 0)) +
+  geom_segment(aes(xend = site, y = 0, yend = GPP_pct_change), linewidth = 1) +
+  geom_point(size = 4) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
+  scale_colour_manual(values = c("TRUE" = "#4682B4", "FALSE" = "#c0392b"),
+                      guide = "none") +
+  labs(x = NULL, y = "% change in GPP",
+       title = "Projected GPP change under SSP5-8.5 2100") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+```{r}
+sensitivity_results %>%
+  filter(scenario == "SSP5-8.5 2100") %>%
+  ggplot(aes(x = vpd_slope, y = GPP_pct_change, label = site)) +
+  geom_point(size = 3, colour = "#4682B4") +
+  geom_text(vjust = -0.8, size = 3, colour = "grey30") +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, colour = "#F28C28", 
+              linewidth = 0.8, linetype = "dashed") +
+  labs(x = "GPP ~ VPD slope (baseline sensitivity)",
+       y = "% change in GPP (SSP5-8.5 2100)",
+       title = "Sites with stronger VPD sensitivity are more vulnerable") +
+  theme_classic()
+```
+```{r}
+# ── Join cluster info onto sensitivity results ────────────────────────────────
+sensitivity_clustered <- sensitivity_results %>%
+  left_join(site_slopes %>% select(site, cluster_multi), by = "site")
+
+# ── 1. Lollipop with clusters ─────────────────────────────────────────────────
+sensitivity_clustered %>%
+  filter(scenario == "SSP5-8.5 2100") %>%
+  mutate(site = factor(site, levels = wet_to_dry_order)) %>%
+  ggplot(aes(x = site, y = GPP_pct_change, colour = cluster_multi)) +
+  geom_segment(aes(xend = site, y = 0, yend = GPP_pct_change), linewidth = 1) +
+  geom_point(size = 4) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
+  scale_colour_manual(values = cluster_colours) +
+  labs(x = NULL, y = "% change in GPP", colour = "Cluster",
+       title = "Projected GPP change under SSP5-8.5 2100") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "top")
+
+# ── 2. Heatmap with cluster annotation ───────────────────────────────────────
+sensitivity_clustered %>%
+  filter(scenario != "Current") %>%
+  mutate(site = factor(site, levels = wet_to_dry_order),
+         scenario = factor(scenario, levels = c("SSP2-4.5 2050",
+                                                 "SSP5-8.5 2050",
+                                                 "SSP5-8.5 2100"))) %>%
+  ggplot(aes(x = scenario, y = site, fill = GPP_pct_change)) +
+  geom_tile(colour = "white", linewidth = 0.5) +
+  geom_text(aes(label = round(GPP_pct_change, 1)), size = 3) +
+  # cluster label on right side
+  geom_text(aes(x = 3.6, label = cluster_multi, colour = cluster_multi),
+            size = 3, hjust = 0) +
+  scale_fill_gradient2(low = "#c0392b", mid = "white", high = "#4682B4",
+                       midpoint = 0, name = "% change\nin GPP") +
+  scale_colour_manual(values = cluster_colours, guide = "none") +
+  coord_cartesian(clip = "off") +
+  labs(x = NULL, y = NULL,
+       title = "Projected % change in GPP across scenarios and sites") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1),
+      plot.margin = unit(c(5, 60, 5, 5), "pt"))
+
+# ── Fix 1: margin error — use unit = "pt" ────────────────────────────────────
+# Replace margin(5, 60, 5, 5, "pt") with:
+plot.margin = margin(5, 60, 5, 5, unit = "pt")
+
+# ── Fix 2: label warning in geom_smooth — move label out of global aes ────────
+sensitivity_clustered %>%
+  filter(scenario == "SSP5-8.5 2100") %>%
+  ggplot(aes(x = vpd_slope, y = GPP_pct_change, colour = cluster_multi)) +
+  geom_point(size = 4, alpha = 0.9) +
+  geom_text(aes(label = site), vjust = -0.8, size = 3) +   # label only in geom_text
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 0.8, linetype = "dashed") +
+  scale_colour_manual(values = cluster_colours) +
+  labs(x = "GPP ~ VPD slope (baseline sensitivity)",
+       y = "% change in GPP (SSP5-8.5 2100)",
+       colour = "Cluster",
+       title = "Sites with stronger VPD sensitivity are more vulnerable") +
+  theme_classic() +
+  theme(legend.position = "top")
+```
+
