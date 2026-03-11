@@ -385,3 +385,408 @@ vpd_seasonal %>%
   theme(legend.position = "top")
 ```
 
+```{r}
+# ── Rebuild vpd_extremes_summer_all with vpd_z included ──────────────────────
+vpd_extremes_summer_all <- bind_rows(sites_daily) %>%
+  drop_na(VPD, GPP, date) %>%
+  mutate(
+    year  = year(date),
+    month = month(date)
+  ) %>%
+  filter(month %in% c(12, 1, 2)) %>%
+  group_by(site) %>%
+  mutate(
+    vpd_mean    = mean(VPD, na.rm = TRUE),
+    vpd_sd      = sd(VPD,   na.rm = TRUE),       # ADD THIS
+    vpd_anomaly = VPD - vpd_mean,
+    vpd_z       = vpd_anomaly / vpd_sd,           # ADD THIS
+    vpd_p95     = quantile(VPD, 0.95, na.rm = TRUE),
+    extreme     = VPD > vpd_p95
+  ) %>%
+  ungroup()
+
+# Then re-join PFT/koppen
+vpd_extremes_summer_grouped <- vpd_extremes_summer_all %>%
+  left_join(site_meta_2 %>% select(site, PFT, koppen_climate), by = "site")
+
+vpd_mag_pft <- vpd_extremes_summer_grouped %>%
+  filter(extreme) %>%
+  group_by(PFT, year) %>%
+  summarise(
+    mean_z       = mean(vpd_z,       na.rm = TRUE),
+    mean_anomaly = mean(vpd_anomaly, na.rm = TRUE),
+    n_sites      = n_distinct(site),
+    .groups = "drop"
+  ) %>%
+  filter(n_sites >= 2)
+
+ggplot(vpd_mag_pft, aes(x = year, y = mean_z, colour = PFT)) +
+  geom_line() +
+  geom_smooth(method = "lm", se = TRUE, linewidth = 0.8, alpha = 0.15) +
+  facet_wrap(~ PFT, scales = "free_y") +
+  labs(x = NULL, y = "Mean z-score VPD on extreme days",
+       title = "Are summer VPD extremes intensifying by PFT?") +
+  theme_classic() +
+  theme(legend.position = "none")
+
+# significance per PFT
+vpd_mag_pft %>%
+  group_by(PFT) %>%
+  filter(n() >= 5) %>%
+  summarise(
+    slope   = coef(lm(mean_z ~ year))[2],
+    p_value = summary(lm(mean_z ~ year))$coefficients[2, 4],
+    n_years = n()
+  ) %>%
+  arrange(p_value)
+
+# ── Step 4: GPP suppression during extremes per PFT ──────────────────────────
+vpd_extremes_summer_grouped %>%
+  drop_na(GPP) %>%
+  mutate(extreme_flag = ifelse(extreme, "Extreme VPD", "Normal")) %>%
+  ggplot(aes(x = extreme_flag, y = GPP, fill = extreme_flag)) +
+  geom_boxplot(alpha = 0.7, outlier.shape = NA) +
+  scale_fill_manual(values = c("Extreme VPD" = "#F28C28", "Normal" = "#4682B4")) +
+  facet_wrap(~ PFT, scales = "free_y") +
+  labs(x = NULL, y = "GPP (g C m⁻² day⁻¹)", fill = NULL,
+       title = "Does extreme summer VPD suppress GPP by PFT?") +
+  theme_classic() +
+  theme(legend.position = "none")
+
+# Wilcoxon per PFT
+vpd_extremes_summer_grouped %>%
+  drop_na(GPP) %>%
+  group_by(PFT) %>%
+  summarise(
+    p_value    = wilcox.test(GPP ~ extreme, alternative = "greater")$p.value,
+    normal_GPP = mean(GPP[!extreme], na.rm = TRUE),
+    extreme_GPP = mean(GPP[extreme], na.rm = TRUE),
+    suppression_pct = ((extreme_GPP - normal_GPP) / normal_GPP) * 100
+  ) %>%
+  arrange(suppression_pct)
+
+# ── Step 5: Repeat Steps 2-4 by Koppen zone ───────────────────────────────────
+vpd_freq_koppen <- vpd_extremes_summer_grouped %>%
+  group_by(koppen_climate, year) %>%
+  summarise(
+    prop_extreme = mean(extreme, na.rm = TRUE),
+    n_sites      = n_distinct(site),
+    .groups = "drop"
+  ) %>%
+  filter(n_sites >= 2)
+
+ggplot(vpd_freq_koppen, aes(x = year, y = prop_extreme, colour = koppen_climate)) +
+  geom_line() +
+  geom_smooth(method = "lm", se = TRUE, linewidth = 0.8, alpha = 0.15) +
+  facet_wrap(~ koppen_climate, scales = "free_y") +
+  labs(x = NULL, y = "Proportion of extreme VPD days",
+       title = "Are summer VPD extremes becoming more frequent by climate zone?") +
+  theme_classic() +
+  theme(legend.position = "none")
+
+vpd_extremes_summer_grouped %>%
+  drop_na(GPP) %>%
+  group_by(koppen_climate) %>%
+  summarise(
+    p_value         = wilcox.test(GPP ~ extreme, alternative = "greater")$p.value,
+    normal_GPP      = mean(GPP[!extreme], na.rm = TRUE),
+    extreme_GPP     = mean(GPP[extreme],  na.rm = TRUE),
+    suppression_pct = ((extreme_GPP - normal_GPP) / normal_GPP) * 100
+  ) %>%
+  arrange(suppression_pct)
+ 
+```
+```{r}
+plot(sites_daily$Asm$VPD, sites_daily$Asm$GPP)
+```
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# --- Step 0: Convert to data frame if sites_daily is a list ---
+
+sites_all_data <- bind_rows(sites_daily, .id = "site")
+
+
+# --- Step 1: Compute the 90th percentile VPD threshold per site ---
+sites_all_data <- sites_all_data %>%
+  group_by(site) %>%
+  mutate(
+    vpd_90th  = quantile(VPD, 0.90, na.rm = TRUE),
+    vpd_group = if_else(VPD > vpd_90th, "Extreme VPD (>90th)", "Normal VPD (≤90th)")
+  ) %>%
+  ungroup()
+
+# Make vpd_group a factor with a clear order
+sites_all_data$vpd_group <- factor(
+  sites_all_data$vpd_group,
+  levels = c("Normal VPD (≤90th)", "Extreme VPD (>90th)")
+)
+
+# --- Step 2: Set how many sites per page ---
+sites_per_page <- 4
+all_sites      <- unique(sites_all_data$site)
+n_pages        <- ceiling(length(all_sites) / sites_per_page)
+
+# --- Step 3: Build a base plot function ---
+make_plot <- function(data) {
+  ggplot(data, aes(x = vpd_group, y = GPP, fill = vpd_group)) +
+    geom_boxplot(
+      outlier.shape = 21,
+      outlier.size  = 1.5,
+      outlier.alpha = 0.5,
+      width         = 0.6
+    ) +
+    facet_wrap(~ site, scales = "free_y", ncol = 2) +
+    scale_fill_manual(
+      values = c(
+        "Normal VPD (≤90th)"  = "#4CAF93",
+        "Extreme VPD (>90th)" = "#E06C4B"
+      )
+    ) +
+    labs(
+      title    = "GPP under Normal vs. Extreme VPD conditions",
+      subtitle = "Extreme VPD defined as > 90th percentile per site",
+      x        = NULL,
+      y        = expression("GPP (g C m"^{-2}~"day"^{-1}*")"),
+      fill     = "VPD condition"
+    ) +
+    theme_bw(base_size = 13) +
+    theme(
+      strip.background   = element_rect(fill = "#2E3440", colour = NA),
+      strip.text         = element_text(colour = "white", face = "bold"),
+      legend.position    = "bottom",
+      axis.text.x        = element_blank(),
+      axis.ticks.x       = element_blank(),
+      panel.grid.major.x = element_blank()
+    )
+}
+
+# --- Step 4: Print each page ---
+for (i in seq_len(n_pages)) {
+  site_subset <- all_sites[((i - 1) * sites_per_page + 1):min(i * sites_per_page, length(all_sites))]
+  data_subset <- filter(sites_all_data, site %in% site_subset)
+  print(make_plot(data_subset))
+}
+
+# --- Optional: Save all pages to a multi-page PDF ---
+# pdf("vpd_gpp_boxplots.pdf", width = 10, height = 8)
+# for (i in seq_len(n_pages)) {
+#   site_subset <- all_sites[((i - 1) * sites_per_page + 1):min(i * sites_per_page, length(all_sites))]
+#   data_subset <- filter(sites_daily, site %in% site_subset)
+#   print(make_plot(data_subset))
+# }
+# dev.off()
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+
+sites_extreme <- sites_all_data %>%
+  mutate(date = as.Date(date)) %>%
+  group_by(site) %>%
+  mutate(vpd_90th = quantile(VPD, 0.90, na.rm = TRUE)) %>%
+  filter(VPD > vpd_90th) %>%
+  ungroup()
+
+# --- Step 2: Paginated plot function (4 sites per page, 2x2 grid) ---
+sites_per_page <- 4
+all_sites      <- unique(sites_extreme$site)
+n_pages        <- ceiling(length(all_sites) / sites_per_page)
+
+make_trend_plot <- function(data) {
+  ggplot(data, aes(x = date, y = VPD)) +
+    geom_point(
+      colour = "#E06C4B",
+      alpha  = 0.35,
+      size   = 0.8
+    ) +
+    geom_smooth(
+      method    = "lm",
+      se        = TRUE,
+      colour    = "#2E3440",
+      fill      = "#aab0bd",
+      linewidth = 0.9
+    ) +
+    facet_wrap(~ site, scales = "free_y", ncol = 2) +
+    labs(
+      title    = "Trend in extreme VPD (>90th percentile) over time",
+      subtitle = "Each point is a day exceeding the site-level 90th percentile VPD threshold",
+      x        = NULL,
+      y        = "VPD (kPa)"
+    ) +
+    theme_bw(base_size = 13) +
+    theme(
+      strip.background = element_rect(fill = "#2E3440", colour = NA),
+      strip.text       = element_text(colour = "white", face = "bold"),
+      panel.grid.minor = element_blank()
+    )
+}
+
+# --- Step 3: Print each page ---
+for (i in seq_len(n_pages)) {
+  site_subset <- all_sites[((i - 1) * sites_per_page + 1):min(i * sites_per_page, length(all_sites))]
+  data_subset <- filter(sites_extreme, site %in% site_subset)
+  print(make_trend_plot(data_subset))
+}
+```
+Millennium drought (2001-2009) and the 'black summer bush fires' (2019/2020)
+
+Millennium drought - Tum, How
+
+Black summer - [Cum], Asm, [Cpr], [Wom], Boy = [within area affected]
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(patchwork)
+
+# --- Step 1: Prepare data ---
+black_summer_sites <- sites_all_data %>%
+  mutate(
+    date  = as.Date(date),
+    year  = year(date),
+    # Label years as Black Summer window or background
+    period = case_when(
+      year %in% c(2018, 2019) ~ "Black Summer (2018–2019)",
+      TRUE                          ~ "Other years"
+    ),
+    period = factor(period, levels = c("Other years", "Black Summer (2018–2020)"))
+  ) %>%
+  filter(site %in% c("Cpr", "Cum", "Wom"))
+
+# --- Step 2: Annual means per site for time series ---
+annual_means <- black_summer_sites %>%
+  group_by(site, year) %>%
+  summarise(
+    mean_VPD = mean(VPD, na.rm = TRUE),
+    mean_GPP = mean(GPP, na.rm = TRUE),
+    .groups  = "drop"
+  ) %>%
+  mutate(
+    period = if_else(year %in% c(2018, 2019),
+                     "Black Summer (2018–2019)", "Other years"),
+    period = factor(period, levels = c("Other years", "Black Summer (2018–2019)"))
+  )
+
+# --- Step 3: Colour palette ---
+period_colours <- c(
+  "Other years"              = "#4CAF93",
+  "Black Summer (2018–2020)" = "#E06C4B"
+)
+
+# --- Step 4: Time series plots (VPD and GPP annual means) ---
+p_vpd <- ggplot(annual_means, aes(x = year, y = mean_VPD, colour = period, group = site)) +
+  geom_rect(
+    aes(xmin = 2018, xmax = 2019, ymin = -Inf, ymax = Inf),
+    fill = "#fce8e2", colour = NA, inherit.aes = FALSE
+  ) +
+  geom_line(colour = "grey60", linewidth = 0.5) +
+  geom_point(aes(colour = period), size = 2.5) +
+  facet_wrap(~ site, scales = "free_y", ncol = 3) +
+  scale_colour_manual(values = period_colours) +
+  labs(
+    title    = "Annual mean VPD",
+    subtitle = "Shaded region = Black Summer window (2018–2019)",
+    x        = NULL,
+    y        = "Mean VPD (kPa)",
+    colour   = NULL
+  ) +
+  theme_bw(base_size = 12) +
+  theme(
+    strip.background = element_rect(fill = "#2E3440", colour = NA),
+    strip.text       = element_text(colour = "white", face = "bold"),
+    legend.position  = "bottom",
+    panel.grid.minor = element_blank()
+  )
+
+p_gpp <- ggplot(annual_means, aes(x = year, y = mean_GPP, colour = period, group = site)) +
+  geom_rect(
+    aes(xmin = 2018, xmax = 2019, ymin = -Inf, ymax = Inf),
+    fill = "#fce8e2", colour = NA, inherit.aes = FALSE
+  ) +
+  geom_line(colour = "grey60", linewidth = 0.5) +
+  geom_point(aes(colour = period), size = 2.5) +
+  facet_wrap(~ site, scales = "free_y", ncol = 3) +
+  scale_colour_manual(values = period_colours) +
+  labs(
+    title    = "Annual mean GPP",
+    x        = NULL,
+    y        = expression("Mean GPP (g C m"^{-2}~"day"^{-1}*")"),
+    colour   = NULL
+  ) +
+  theme_bw(base_size = 12) +
+  theme(
+    strip.background = element_rect(fill = "#2E3440", colour = NA),
+    strip.text       = element_text(colour = "white", face = "bold"),
+    legend.position  = "bottom",
+    panel.grid.minor = element_blank()
+  )
+
+# --- Step 5: Boxplots comparing Black Summer vs other years ---
+p_vpd_box <- ggplot(black_summer_sites, aes(x = period, y = VPD, fill = period)) +
+  geom_boxplot(outlier.shape = 21, outlier.size = 1, outlier.alpha = 0.4, width = 0.6) +
+  facet_wrap(~ site, scales = "free_y", ncol = 3) +
+  scale_fill_manual(values = period_colours) +
+  labs(
+    title = "VPD distribution: Black Summer vs. other years",
+    x     = NULL,
+    y     = "VPD (kPa)",
+    fill  = NULL
+  ) +
+  theme_bw(base_size = 12) +
+  theme(
+    strip.background   = element_rect(fill = "#2E3440", colour = NA),
+    strip.text         = element_text(colour = "white", face = "bold"),
+    legend.position    = "none",
+    axis.text.x        = element_text(size = 9),
+    panel.grid.major.x = element_blank()
+  )
+
+p_gpp_box <- ggplot(black_summer_sites, aes(x = period, y = GPP, fill = period)) +
+  geom_boxplot(outlier.shape = 21, outlier.size = 1, outlier.alpha = 0.4, width = 0.6) +
+  facet_wrap(~ site, scales = "free_y", ncol = 3) +
+  scale_fill_manual(values = period_colours) +
+  labs(
+    title = "GPP distribution: Black Summer vs. other years",
+    x     = NULL,
+    y     = expression("GPP (g C m"^{-2}~"day"^{-1}*")"),
+    fill  = NULL
+  ) +
+  theme_bw(base_size = 12) +
+  theme(
+    strip.background   = element_rect(fill = "#2E3440", colour = NA),
+    strip.text         = element_text(colour = "white", face = "bold"),
+    legend.position    = "none",
+    axis.text.x        = element_text(size = 9),
+    panel.grid.major.x = element_blank()
+  )
+
+# --- Step 6: Print all panels (stacked with patchwork) ---
+print(p_vpd / p_gpp)
+print(p_vpd_box / p_gpp_box)
+
+# --- Step 7: Optional summary statistics table ---
+# black_summer_sites %>%
+#   group_by(site, period) %>%
+#   summarise(
+#     mean_VPD = mean(VPD, na.rm = TRUE),
+#     mean_GPP = mean(GPP, na.rm = TRUE),
+#     n        = n(),
+#     .groups  = "drop"
+#   )
+
+# --- Optional: Save to PDF ---
+# pdf("black_summer_analysis.pdf", width = 12, height = 10)
+# print(p_vpd / p_gpp)
+# print(p_vpd_box / p_gpp_box)
+# dev.off()
+```
+
+
+
