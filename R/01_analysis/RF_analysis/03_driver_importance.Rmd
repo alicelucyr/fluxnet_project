@@ -755,8 +755,29 @@ ggplot(plot_data, aes(x = R2, y = mean_precip)) +
 ggplot(plot_data, aes(x = R2, y = n_years)) +
   geom_point(size = 3, colour = "#4682B4") +
   geom_text(aes(label = site), vjust = -0.8, size = 2.8, colour = "grey30") +
-  labs(x = "R²", y = "No. Years of Observations") +
+  labs(x = "R² (With VPD)", y = "No. Years of Observations") +
   theme_classic()
+```
+```{r}
+# ── Join R² (with_VPD) onto site_slopes ──────────────────────────────────────
+r2_vpd <- all_metrics_vpd %>%
+  filter(model == "with_VPD") %>%
+  select(site, R2)
+
+plot_data <- site_slopes %>%
+  left_join(r2_vpd, by = "site") %>%
+  pivot_longer(cols = c(MAP, MAT, MAL), names_to = "variable", values_to = "value")
+
+# ── Plot ──────────────────────────────────────────────────────────────────────
+ggplot(plot_data, aes(x = R2, y = value)) +
+  geom_point(size = 3, colour = "#4682B4") +
+  ggrepel::geom_text_repel(aes(label = site), size = 2.8, colour = "grey30",
+                            max.overlaps = 15) +
+  facet_wrap(~ variable, scales = "free_y") +
+  labs(x = "R² (RF with VPD)", y = NULL) +
+  theme_classic() +
+  theme(strip.background = element_blank(),
+        strip.text = element_text(face = "bold"))
 ```
 
 
