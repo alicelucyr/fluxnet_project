@@ -1,0 +1,100 @@
+---
+title: "remoteness_01"
+output: html_document
+date: "2026-03-10"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Test whether if a site is ecologically remote from others, it is harder to predict.
+Sites geographically and climactically close together will be easier to predict because they are represented. 
+
+```{r}
+library(randomForest)
+
+PREDICTORS <- c("Tair", "SW_rad", "VPD", "Precip", "cwd")
+
+# ── LOSO RF ───────────────────────────────────────────────────────────────────
+all_data <- bind_rows(sites_daily) %>%
+  drop_na(GPP, all_of(PREDICTORS))
+
+sites_list <- unique(all_data$site)
+
+loso_results <- map_dfr(sites_list, function(test_site) {
+  
+  train <- all_data %>% filter(site != test_site)
+  test  <- all_data %>% filter(site == test_site)
+  
+  if (nrow(test) < 30) return(NULL)
+  
+  rf <- randomForest(
+    x     = train[, PREDICTORS],
+    y     = train$GPP,
+    ntree = 500
+  )
+  
+  preds  <- predict(rf, newdata = test[, PREDICTORS])
+  ss_res <- sum((test$GPP - preds)^2)
+  ss_tot <- sum((test$GPP - mean(test$GPP))^2)
+  r2     <- 1 - ss_res / ss_tot
+  rmse   <- sqrt(mean((test$GPP - preds)^2))
+  
+  tibble(site = test_site, loso_r2 = r2, loso_rmse = rmse, n_test = nrow(test))
+})
+
+# ── Climate distance to nearest neighbour ─────────────────────────────────────
+# Scale MAP, MAT, MAL so they're comparable
+climate_mat <- site_slopes %>%
+  select(site, MAP, MAT, MAL) %>%
+  column_to_rownames("site") %>%
+  scale()
+
+dist_mat <- as.matrix(dist(climate_mat, method = "euclidean"))
+diag(dist_mat) <- NA   # ignore self-distance
+
+nn_distance <- tibble(
+  site         = rownames(dist_mat),
+  nn_dist      = apply(dist_mat, 1, min, na.rm = TRUE),   # distance to nearest neighbour
+  nn_site      = rownames(dist_mat)[apply(dist_mat, 1, which.min)]  # who is the nearest neighbour
+)
+
+# ── Join and plot ─────────────────────────────────────────────────────────────
+loso_climate <- loso_results %>%
+  left_join(nn_distance, by = "site") %>%
+  left_join(all_metrics_vpd %>%          # within-site R² for comparison
+              filter(model == "with_VPD") %>% 
+              select(site, within_r2 = R2), 
+            by = "site") %>%
+  mutate(r2_drop = within_r2 - loso_r2)  # how much predictability is lost going LOSO
+
+# Plot 1: LOSO R² vs climate distance to nearest neighbour
+ggplot(loso_climate, aes(x = nn_dist, y = loso_r2)) +
+  geom_point(size = 3, colour = "#4682B4") +
+  ggrepel::geom_text_repel(aes(label = site), size = 2.8, colour = "grey30") +
+  labs(x = "Climate distance to nearest site (scaled MAT/MAP/MAL)",
+       y = "LOSO R²",
+       title = "Are ecologically isolated sites harder to predict?") +
+  theme_classic()
+
+# Plot 2: within-site vs LOSO R² — how much does performance drop?
+ggplot(loso_climate, aes(x = within_r2, y = loso_r2, label = site)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey60") +
+  geom_point(size = 3, colour = "#4682B4") +
+  ggrepel::geom_text_repel(size = 2.8, colour = "grey30") +
+  labs(x = "Within-site R²", y = "LOSO R²",
+       title = "Sites above the line = better predicted by other sites than themselves") +
+  theme_classic()
+
+# Plot 3: R² drop vs climate isolation
+ggplot(loso_climate, aes(x = nn_dist, y = r2_drop)) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
+  geom_point(size = 3, colour = "#F28C28") +
+  ggrepel::geom_text_repel(aes(label = site), size = 2.8, colour = "grey30") +
+  labs(x = "Climate distance to nearest site",
+       y = "R² drop (within − LOSO)",
+       title = "Climatically isolated sites show greater loss of predictability") +
+  theme_classic()
+```
+
