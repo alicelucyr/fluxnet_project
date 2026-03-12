@@ -1,0 +1,331 @@
+---
+title: "summer_extremes_analysis"
+output: html_document
+date: "2026-03-12"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+1) No. of extreme summer VPD days over time in my long-term sites
+2) Average annual summer VPD over time in my long-term sites
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(purrr)
+
+long_term_sites <- c("How", "Tum", "Wom", "Asm", "Cpr")
+
+# ── Prepare data 
+# Combine long-term sites and flag summer (DJF) days
+# Summer year assigned to the January/February year so Dec is grouped forward
+lt_daily <- map_dfr(long_term_sites, function(s) {
+  sites_daily[[s]] %>%
+    mutate(
+      site        = s,
+      date        = as.Date(date),
+      month       = month(date),
+      year        = year(date),
+      summer_year = if_else(month == 12, year + 1L, year)
+    )
+}) %>%
+  filter(month %in% c(12, 1, 2))
+
+# ── Compute 90th percentile VPD threshold per site (across all summers) 
+vpd_thresholds <- lt_daily %>%
+  group_by(site) %>%
+  summarise(vpd_90th = quantile(VPD, 0.90, na.rm = TRUE), .groups = "drop")
+
+# ── Plot 1: Number of extreme VPD days per summer per site
+extreme_days <- lt_daily %>%
+  left_join(vpd_thresholds, by = "site") %>%
+  group_by(site, summer_year) %>%
+  summarise(
+    n_extreme = sum(VPD > vpd_90th, na.rm = TRUE),
+    .groups   = "drop"
+  )
+
+ggplot(extreme_days, aes(x = summer_year, y = n_extreme)) +
+  geom_col(fill = "#E06C4B", alpha = 0.8, width = 0.8) +
+  facet_wrap(~ site, scales = "free_y", ncol = 2) +
+  labs(
+    x = NULL,
+    y = "Number of days VPD > 90th percentile"
+  ) +
+  theme_classic() +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold")
+  )
+
+# ── Plot 2: Mean summer VPD per year per site 
+summer_vpd <- lt_daily %>%
+  group_by(site, summer_year) %>%
+  summarise(
+    mean_vpd = mean(VPD, na.rm = TRUE),
+    .groups  = "drop"
+  )
+
+ggplot(summer_vpd, aes(x = summer_year, y = mean_vpd)) +
+  geom_line(colour = "grey60", linewidth = 0.5) +
+  geom_point(colour = "#E06C4B", size = 2) +
+  facet_wrap(~ site, scales = "free_y", ncol = 2) +
+  labs(
+    x = NULL,
+    y = "Mean summer VPD (kPa)"
+  ) +
+  theme_classic() +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold")
+  )
+```
+```{r}
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(purrr)
+
+long_term_sites <- c("How", "Tum", "Wom", "Asm", "Cpr")
+
+# ── Prepare data ──────────────────────────────────────────────────────────────
+lt_daily <- map_dfr(long_term_sites, function(s) {
+  sites_daily[[s]] %>%
+    mutate(
+      site        = s,
+      date        = as.Date(date),
+      month       = month(date),
+      year        = year(date),
+      summer_year = if_else(month == 12, year + 1L, year)
+    )
+}) %>%
+  filter(month %in% c(12, 1, 2))
+
+# ── 90th percentile threshold per site ───────────────────────────────────────
+vpd_thresholds <- lt_daily %>%
+  group_by(site) %>%
+  summarise(vpd_90th = quantile(VPD, 0.90, na.rm = TRUE), .groups = "drop")
+
+# ── Summarised data ───────────────────────────────────────────────────────────
+extreme_days <- lt_daily %>%
+  left_join(vpd_thresholds, by = "site") %>%
+  group_by(site, summer_year) %>%
+  summarise(n_extreme = sum(VPD > vpd_90th, na.rm = TRUE), .groups = "drop")
+
+summer_vpd <- lt_daily %>%
+  group_by(site, summer_year) %>%
+  summarise(mean_vpd = mean(VPD, na.rm = TRUE), .groups = "drop")
+
+# ── Plot 1: Extreme VPD days — one plot per site ──────────────────────────────
+walk(long_term_sites, function(s) {
+  p <- extreme_days %>%
+    filter(site == s) %>%
+    ggplot(aes(x = summer_year, y = n_extreme)) +
+    geom_col(fill = "#E06C4B", alpha = 0.8, width = 0.8) +
+    labs(
+      title = s,
+      x     = NULL,
+      y     = "Days VPD > 90th percentile"
+    ) +
+    theme_classic() +
+    theme(
+      plot.title = element_text(face = "bold")
+    )
+  print(p)
+})
+
+# ── Plot 2: Mean summer VPD — one plot per site ───────────────────────────────
+walk(long_term_sites, function(s) {
+  p <- summer_vpd %>%
+    filter(site == s) %>%
+    ggplot(aes(x = summer_year, y = mean_vpd)) +
+    geom_line(colour = "grey60", linewidth = 0.5) +
+    geom_point(colour = "#E06C4B", size = 2) +
+    labs(
+      title = s,
+      x     = NULL,
+      y     = "Mean summer VPD (kPa)"
+    ) +
+    theme_classic() +
+    theme(
+      plot.title = element_text(face = "bold")
+    )
+  print(p)
+})
+```
+```{r}
+# Check how many valid VPD observations exist per site per summer
+lt_daily %>%
+  group_by(site, summer_year) %>%
+  summarise(
+    n_obs     = sum(!is.na(VPD)),
+    n_extreme = sum(VPD > vpd_thresholds$vpd_90th[vpd_thresholds$site == first(site)], na.rm = TRUE),
+    .groups   = "drop"
+  ) %>%
+  filter(n_extreme == 0) %>%
+  print(n = Inf)
+```
+```{r}
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(purrr)
+
+long_term_sites <- c("How", "Tum", "Wom", "Asm", "Cpr")
+
+# ── Prepare summer daily data ─────────────────────────────────────────────────
+lt_daily <- map_dfr(long_term_sites, function(s) {
+  sites_daily[[s]] %>%
+    mutate(
+      site        = s,
+      date        = as.Date(date),
+      month       = month(date),
+      year        = year(date),
+      summer_year = if_else(month == 12, year + 1L, year)
+    )
+}) %>%
+  filter(month %in% c(12, 1, 2))
+
+# ── Flag extreme days using 90th percentile per site ─────────────────────────
+lt_daily <- lt_daily %>%
+  group_by(site) %>%
+  mutate(
+    vpd_90th = quantile(VPD, 0.90, na.rm = TRUE),
+    extreme  = VPD > vpd_90th
+  ) %>%
+  ungroup()
+
+# ── Filter to summers with sufficient data (>= 30 valid VPD obs) ─────────────
+valid_summers <- lt_daily %>%
+  group_by(site, summer_year) %>%
+  summarise(n_obs = sum(!is.na(VPD)), .groups = "drop") %>%
+  filter(n_obs >= 10)
+
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(purrr)
+
+long_term_sites <- c("How", "Tum", "Wom", "Asm", "Cpr")
+
+# ── Site groups ───────────────────────────────────────────────────────────────
+group1 <- c("How", "Tum")
+group2 <- c("Wom", "Asm", "Cpr")
+
+# ── Plot function — takes a dataset and site group ────────────────────────────
+plot_n_extreme <- function(data, sites) {
+  data %>%
+    filter(site %in% sites) %>%
+    mutate(site = factor(site, levels = sites)) %>%
+    ggplot(aes(x = summer_year, y = n_extreme)) +
+    geom_line(colour = "grey60", linewidth = 0.5) +
+    geom_point(size = 1.5, colour = "#E06C4B") +
+    facet_wrap(~ site, ncol = 1, scales = "free_y") +
+    labs(x = NULL, y = "No. days VPD > 90th percentile") +
+    theme_classic() +
+    theme(
+      strip.background = element_blank(),
+      strip.text       = element_text(face = "bold"),
+      legend.position  = "none"
+    )
+}
+
+plot_max_extreme <- function(data, sites) {
+  data %>%
+    filter(site %in% sites) %>%
+    mutate(site = factor(site, levels = sites)) %>%
+    ggplot(aes(x = summer_year, y = max_extreme_vpd)) +
+    geom_line(colour = "grey60", linewidth = 0.5) +
+    geom_point(size = 1.5, colour = "#E06C4B") +
+    facet_wrap(~ site, ncol = 1, scales = "free_y") +
+    labs(x = NULL, y = "Maximum VPD on extreme days (kPa)") +
+    theme_classic() +
+    theme(
+      strip.background = element_blank(),
+      strip.text       = element_text(face = "bold"),
+      legend.position  = "none"
+    )
+}
+
+```
+
+```{r}
+```{r}
+# ── Update the summary to include both max and mean ───────────────────────────
+max_extreme_summer <- lt_daily %>%
+  inner_join(valid_summers, by = c("site", "summer_year")) %>%
+  filter(extreme) %>%
+  group_by(site, summer_year) %>%
+  summarise(
+    max_extreme_vpd  = max(VPD, na.rm = TRUE),
+    mean_extreme_vpd = mean(VPD, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  filter(is.finite(max_extreme_vpd)) %>%
+  pivot_longer(cols = c(max_extreme_vpd, mean_extreme_vpd),
+               names_to = "metric", values_to = "vpd") %>%
+  mutate(
+    metric = recode(metric,
+                    "max_extreme_vpd"  = "Maximum",
+                    "mean_extreme_vpd" = "Mean"),
+    site = factor(site, levels = long_term_sites)
+  )
+
+# ── Update plot function ───────────────────────────────────────────────────────
+plot_max_extreme <- function(data, sites) {
+  data %>%
+    filter(site %in% sites) %>%
+    mutate(site = factor(site, levels = sites)) %>%
+    ggplot(aes(x = summer_year, y = vpd, colour = metric)) +
+    geom_line(linewidth = 0.5) +
+    geom_point(size = 1.5) +
+    scale_colour_manual(values = c("Maximum" = "#E06C4B", "Mean" = "#4682B4")) +
+    facet_wrap(~ site, ncol = 1, scales = "free_y") +
+    coord_cartesian(ylim = c(0, NA)) +
+    labs(x = NULL, y = "VPD on extreme days (kPa)", colour = NULL) +
+    theme_classic() +
+    theme(
+      strip.background = element_blank(),
+      strip.text       = element_text(face = "bold"),
+      legend.position  = "top"
+    )
+}
+```
+
+
+```{r}
+# ── Print Plot 1 (n extreme days) ─────────────────────────────────────────────
+print(plot_n_extreme(n_extreme_summer, group1))
+print(plot_n_extreme(n_extreme_summer, group2))
+
+# ── Print Plot 2 (max VPD on extreme days) ────────────────────────────────────
+print(plot_max_extreme(max_extreme_summer, group1))
+print(plot_max_extreme(max_extreme_summer, group2))
+
+```
+
+```{r}
+Wom %>%
+  mutate(VPD = if_else(VPD == -9999, NA_real_, VPD))
+
+plot(Wom$date, Wom$VPD, ylim = c(0, max(Wom$VPD[Wom$VPD > 0], na.rm = TRUE)))
+```
+```{r}
+# Check annual stats to see where it goes wrong
+Wom %>%
+  mutate(year = year(date)) %>%
+  group_by(year) %>%
+  summarise(
+    mean_VPD = mean(VPD, na.rm = TRUE),
+    max_VPD  = max(VPD, na.rm = TRUE),
+    n_obs    = sum(!is.na(VPD))
+  ) %>%
+  print(n = Inf)
+```
+

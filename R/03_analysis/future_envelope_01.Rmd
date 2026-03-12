@@ -1,0 +1,470 @@
+---
+title: "future_envelope_01"
+output: html_document
+date: "2026-03-12"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Future envelope experiment
+- Increase my VPD met data by x% for different future scenarios
+- Refit RF model and predict GPP
+
+Increase daily VPD data by 15, 30 and 50%
+RF is trained on 80% of each site's observed data with (VPD, SW_rad, Tair and cwd_7_day) for each scenario (15, 30, 50%) only VPD is inflated, isolating the VPD effect
+
+```{r}
+library(dplyr)
+library(purrr)
+library(randomForest)
+library(caret)
+library(tidyr)
+library(ggplot2)
+library(zoo)
+
+# predictors, vpd and scenarios
+predictors  <- c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day")
+vpd_scalars <- c(1.00, 1.15, 1.30, 1.50)
+scenario_labels <- c("Observed", "+15%", "+30%", "+50%")
+
+standardise <- function(df, vars) {
+  df[vars] <- scale(df[vars])
+  df
+}
+
+#Main function: train on observed, predict on each VPD scenario
+run_vpd_scenario <- function(df, site_name) {
+  
+  message("Processing: ", site_name)
+  
+  # Prepare base data 
+  df <- df %>%
+    drop_na(GPP, Tair, SW_rad, VPD, cwd, date) %>%
+    arrange(date) %>%
+    mutate(
+      cumulative_cwd_7day = rollapply(cwd, width = 7, FUN = sum,
+                                      align = "right", fill = NA, na.rm = TRUE)
+    ) %>%
+    drop_na(all_of(predictors), GPP)
+  
+  if (nrow(df) < 100) {
+    warning("Skipping ", site_name, ": insufficient data")
+    return(NULL)
+  }
+  
+  # Standardise using observed data parameters
+  scale_params <- df %>% select(all_of(predictors))
+  scale_means  <- colMeans(scale_params, na.rm = TRUE)
+  scale_sds    <- apply(scale_params, 2, sd, na.rm = TRUE)
+  
+  scale_with_params <- function(data, means, sds) {
+    for (v in names(means)) {
+      data[[v]] <- (data[[v]] - means[v]) / sds[v]
+    }
+    data
+  }
+  
+  # Train RF on observed data
+  set.seed(123)
+  train_df <- df %>%
+    scale_with_params(scale_means, scale_sds)
+  
+  idx        <- createDataPartition(train_df$GPP, p = 0.8, list = FALSE)
+  train_data <- train_df[idx, ]
+  
+  formula <- as.formula(paste("GPP ~", paste(predictors, collapse = " + ")))
+  
+  rf_model <- randomForest(formula, data = train_data,
+                           ntree = 500, mtry = 3, importance = TRUE)
+  
+  # Predict GPP for each VPD scenario
+  scenario_preds <- map2_dfr(vpd_scalars, scenario_labels, function(scalar, label) {
+    
+    scenario_df <- df %>%
+      mutate(VPD = VPD * scalar) %>%         # inflate VPD
+      scale_with_params(scale_means, scale_sds)  # re-standardise with same params
+    
+    preds <- predict(rf_model, scenario_df)
+    
+    data.frame(
+      site      = site_name,
+      date      = df$date,
+      scenario  = label,
+      VPD_raw   = df$VPD * scalar,
+      GPP_pred  = preds,
+      GPP_obs   = df$GPP
+    )
+  })
+  
+  scenario_preds
+}
+
+#Run across all sites 
+vpd_scenario_results <- map2(
+  sites_daily,
+  names(sites_daily),
+  run_vpd_scenario
+)
+vpd_scenario_results <- Filter(Negate(is.null), vpd_scenario_results)
+
+all_scenarios <- bind_rows(vpd_scenario_results) %>%
+  mutate(
+    scenario = factor(scenario, levels = scenario_labels),
+    year     = lubridate::year(date)
+  )
+
+#Summary: mean annual GPP per site per scenario
+scenario_annual <- all_scenarios %>%
+  group_by(site, year, scenario) %>%
+  summarise(mean_GPP = mean(GPP_pred, na.rm = TRUE), .groups = "drop")
+
+# ── Plot 1: Mean annual GPP by scenario, 4 sites per page 
+all_sites   <- unique(scenario_annual$site)
+n_pages     <- ceiling(length(all_sites) / 4)
+
+scenario_colours <- c(
+  "Observed" = "#4682B4",
+  "+15%"     = "#F28C28",
+  "+30%"     = "#E06C4B",
+  "+50%"     = "#8B1A1A"
+)
+
+for (i in seq_len(n_pages)) {
+  site_subset <- all_sites[((i - 1) * 4 + 1):min(i * 4, length(all_sites))]
+  
+  p <- scenario_annual %>%
+    filter(site %in% site_subset) %>%
+    mutate(site = factor(site, levels = site_subset)) %>%
+    ggplot(aes(x = year, y = mean_GPP, colour = scenario)) +
+    geom_line(linewidth = 0.7) +
+    scale_colour_manual(values = scenario_colours) +
+    facet_wrap(~ site, scales = "free_y", ncol = 2) +
+    labs(
+      x      = NULL,
+      y      = expression("Mean GPP (g C m"^{-2}~"day"^{-1}*")"),
+      colour = "VPD scenario"
+    ) +
+    theme_classic() +
+    theme(
+      strip.background = element_blank(),
+      strip.text       = element_text(face = "bold"),
+      legend.position  = "top"
+    )
+  print(p)
+}
+
+# Plot 2: Boxplot of GPP distribution per scenario across all sites 
+all_scenarios %>%
+  ggplot(aes(x = scenario, y = GPP_pred, fill = scenario)) +
+  geom_boxplot(outlier.shape = 21, outlier.size = 1, outlier.alpha = 0.4, width = 0.6) +
+  scale_fill_manual(values = scenario_colours) +
+  facet_wrap(~ site, scales = "free_y", ncol = 4) +
+  labs(
+    x    = "VPD scenario",
+    y    = expression("Predicted GPP (g C m"^{-2}~"day"^{-1}*")"),
+    fill = "VPD scenario"
+  ) +
+  theme_classic() +
+  theme(
+    strip.background   = element_blank(),
+    strip.text         = element_text(face = "bold"),
+    legend.position    = "top",
+    axis.text.x        = element_blank(),
+    axis.ticks.x       = element_blank()
+  )
+
+# Summary table: % change in mean GPP relative to observed 
+scenario_summary <- all_scenarios %>%
+  group_by(site, scenario) %>%
+  summarise(mean_GPP = mean(GPP_pred, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = scenario, values_from = mean_GPP) %>%
+  mutate(
+    pct_change_15 = (`+15%`  - Observed) / Observed * 100,
+    pct_change_30 = (`+30%`  - Observed) / Observed * 100,
+    pct_change_50 = (`+50%`  - Observed) / Observed * 100
+  )
+
+print(scenario_summary)
+```
+% change in GPP with each VPD scenario
+R-squared for each model
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+
+#Plot 1: % change in GPP per scenario per site 
+scenario_summary_long <- all_scenarios %>%
+  group_by(site, scenario) %>%
+  summarise(mean_GPP = mean(GPP_pred, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = scenario, values_from = mean_GPP) %>%
+  mutate(
+    "+15%" = (`+15%` - Observed) / Observed * 100,
+    "+30%" = (`+30%` - Observed) / Observed * 100,
+    "+50%" = (`+50%` - Observed) / Observed * 100
+  ) %>%
+  select(site, `+15%`, `+30%`, `+50%`) %>%
+  pivot_longer(cols = c(`+15%`, `+30%`, `+50%`),
+               names_to  = "scenario",
+               values_to = "pct_change") %>%
+  mutate(
+    scenario = factor(scenario, levels = c("+15%", "+30%", "+50%")),
+    site     = factor(site, levels = wet_to_dry_order)
+  )
+
+scenario_colours <- c(
+  "+15%" = "#F28C28",
+  "+30%" = "#E06C4B",
+  "+50%" = "#8B1A1A"
+)
+
+ggplot(scenario_summary_long, aes(x = site, y = pct_change, fill = scenario)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
+  scale_fill_manual(values = scenario_colours) +
+  coord_flip() +
+  labs(
+    x    = NULL,
+    y    = "% change in mean GPP relative to observed",
+    fill = "VPD scenario"
+  ) +
+  theme_classic() +
+  theme(
+    legend.position = "top",
+    axis.text.y     = element_text(size = 10)
+  )
+
+# ── Plot 2: R² for each site's RF model (observed vs predicted) ───────────────
+r2_scenario <- all_scenarios %>%
+  filter(scenario == "Observed") %>%      # R² only meaningful on observed fit
+  group_by(site) %>%
+  summarise(
+    R2   = cor(GPP_obs, GPP_pred, use = "complete.obs")^2,
+    RMSE = sqrt(mean((GPP_obs - GPP_pred)^2, na.rm = TRUE)),
+    .groups = "drop"
+  ) %>%
+  mutate(site = factor(site, levels = wet_to_dry_order))
+
+ggplot(r2_scenario, aes(x = site, y = R2)) +
+  geom_col(width = 0.7, fill = "#4682B4") +
+  geom_text(aes(label = round(R2, 2)), hjust = -0.2, size = 3, colour = "grey30") +
+  coord_flip(clip = "off") +
+  scale_y_continuous(limits = c(0, 1.05)) +
+  labs(x = NULL, y = "R² (observed vs predicted GPP)") +
+  theme_classic() +
+  theme(axis.text.y = element_text(size = 10))
+```
+R-squared is really high - model has basically seen all of the data from the training set and then when it is asked to test on higher VPD data, it does well because it has basically seen it before
+
+LOSO: Train on all years except year X, predict X with inflated VPD, repeat for all years and then concatenate the predictions
+Gives a more robust idea of model performance
+
+```{r}
+library(dplyr)
+library(purrr)
+library(randomForest)
+library(tidyr)
+library(ggplot2)
+library(zoo)
+library(lubridate)
+
+#predictors, vpd, etc
+predictors      <- c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day")
+vpd_scalars     <- c(1.00, 1.15, 1.30, 1.50)
+scenario_labels <- c("Observed", "+15%", "+30%", "+50%")
+
+scenario_colours <- c(
+  "Observed" = "#4682B4",
+  "+15%"     = "#F28C28",
+  "+30%"     = "#E06C4B",
+  "+50%"     = "#8B1A1A"
+)
+
+#Leave-one-year-out RF scenario function 
+run_loyo_scenario <- function(df, site_name) {
+  
+  message("Processing: ", site_name)
+  
+  # Prepare base data
+  df <- df %>%
+    drop_na(GPP, Tair, SW_rad, VPD, cwd, date) %>%
+    arrange(date) %>%
+    mutate(
+      year                = year(date),
+      cumulative_cwd_7day = rollapply(cwd, width = 7, FUN = sum,
+                                      align = "right", fill = NA, na.rm = TRUE)
+    ) %>%
+    drop_na(all_of(predictors), GPP)
+  
+  if (nrow(df) < 100) {
+    warning("Skipping ", site_name, ": insufficient data")
+    return(NULL)
+  }
+  
+  all_years <- unique(df$year)
+  
+  if (length(all_years) < 4) {
+    warning("Skipping ", site_name, ": insufficient years for LOYO")
+    return(NULL)
+  }
+  
+  # Loop over each held-out year
+  loyo_results <- map_dfr(all_years, function(test_year) {
+    
+    train_df <- df %>% filter(year != test_year)
+    test_df  <- df %>% filter(year == test_year)
+    
+    if (nrow(train_df) < 100 || nrow(test_df) < 10) return(NULL)
+    
+    # Standardise using training data parameters only
+    scale_means <- colMeans(train_df[predictors], na.rm = TRUE)
+    scale_sds   <- apply(train_df[predictors], 2, sd, na.rm = TRUE)
+    
+    scale_with_params <- function(data, means, sds) {
+      for (v in names(means)) {
+        data[[v]] <- (data[[v]] - means[v]) / sds[v]
+      }
+      data
+    }
+    
+    train_scaled <- scale_with_params(train_df, scale_means, scale_sds)
+    
+    # Train RF on all years except test year
+    formula  <- as.formula(paste("GPP ~", paste(predictors, collapse = " + ")))
+    rf_model <- randomForest(formula, data = train_scaled,
+                             ntree = 500, mtry = 3, importance = FALSE)
+    
+    # Predict test year under each VPD scenario
+    map2_dfr(vpd_scalars, scenario_labels, function(scalar, label) {
+      
+      scenario_test <- test_df %>%
+        mutate(VPD = VPD * scalar) %>%
+        scale_with_params(scale_means, scale_sds)
+      
+      preds <- predict(rf_model, scenario_test)
+      
+      data.frame(
+        site      = site_name,
+        date      = test_df$date,
+        year      = test_year,
+        scenario  = label,
+        VPD_raw   = test_df$VPD * scalar,
+        GPP_pred  = preds,
+        GPP_obs   = test_df$GPP
+      )
+    })
+  })
+  
+  loyo_results
+}
+
+#Run across all sites 
+loyo_scenario_results <- map2(
+  sites_daily,
+  names(sites_daily),
+  run_loyo_scenario
+)
+loyo_scenario_results <- Filter(Negate(is.null), loyo_scenario_results)
+
+all_scenarios <- bind_rows(loyo_scenario_results) %>%
+  mutate(scenario = factor(scenario, levels = scenario_labels))
+
+#PLOTS 
+
+#Plot 1: R² per site (observed scenario only — genuine out-of-sample)
+r2_loyo <- all_scenarios %>%
+  filter(scenario == "Observed") %>%
+  group_by(site) %>%
+  summarise(
+    R2   = cor(GPP_obs, GPP_pred, use = "complete.obs")^2,
+    RMSE = sqrt(mean((GPP_obs - GPP_pred)^2, na.rm = TRUE)),
+    .groups = "drop"
+  ) %>%
+  mutate(site = factor(site, levels = wet_to_dry_order))
+
+ggplot(r2_loyo, aes(x = site, y = R2)) +
+  geom_col(width = 0.7, fill = "#4682B4") +
+  geom_text(aes(label = round(R2, 2)), hjust = -0.2, size = 3, colour = "grey30") +
+  coord_flip(clip = "off") +
+  scale_y_continuous(limits = c(0, 1.05)) +
+  labs(x = NULL, y = "R² — leave-one-year-out (out-of-sample)") +
+  theme_classic() +
+  theme(axis.text.y = element_text(size = 10))
+
+# Plot 2: % change in GPP per scenario per site 
+scenario_summary_long <- all_scenarios %>%
+  group_by(site, scenario) %>%
+  summarise(mean_GPP = mean(GPP_pred, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = scenario, values_from = mean_GPP) %>%
+  mutate(
+    "+15%" = (`+15%` - Observed) / Observed * 100,
+    "+30%" = (`+30%` - Observed) / Observed * 100,
+    "+50%" = (`+50%` - Observed) / Observed * 100
+  ) %>%
+  select(site, `+15%`, `+30%`, `+50%`) %>%
+  pivot_longer(cols = c(`+15%`, `+30%`, `+50%`),
+               names_to  = "scenario",
+               values_to = "pct_change") %>%
+  mutate(
+    scenario = factor(scenario, levels = c("+15%", "+30%", "+50%")),
+    site     = factor(site, levels = wet_to_dry_order)
+  )
+
+ggplot(scenario_summary_long, aes(x = site, y = pct_change, fill = scenario)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
+  scale_fill_manual(values = scenario_colours[c("+15%", "+30%", "+50%")]) +
+  coord_flip() +
+  labs(
+    x    = NULL,
+    y    = "% change in mean GPP relative to observed",
+    fill = "VPD scenario"
+  ) +
+  theme_classic() +
+  theme(
+    legend.position = "top",
+    axis.text.y     = element_text(size = 10)
+  )
+
+#Plot 3: Annual mean GPP time series per scenario — paginated 
+scenario_annual <- all_scenarios %>%
+  group_by(site, year, scenario) %>%
+  summarise(mean_GPP = mean(GPP_pred, na.rm = TRUE), .groups = "drop")
+
+all_sites <- unique(scenario_annual$site)
+n_pages   <- ceiling(length(all_sites) / 4)
+
+for (i in seq_len(n_pages)) {
+  site_subset <- all_sites[((i - 1) * 4 + 1):min(i * 4, length(all_sites))]
+  
+  p <- scenario_annual %>%
+    filter(site %in% site_subset) %>%
+    mutate(site = factor(site, levels = site_subset)) %>%
+    ggplot(aes(x = year, y = mean_GPP, colour = scenario)) +
+    geom_line(linewidth = 0.7) +
+    geom_point(size = 1.2) +
+    scale_colour_manual(values = scenario_colours) +
+    facet_wrap(~ site, scales = "free_y", ncol = 2) +
+    labs(
+      x      = NULL,
+      y      = expression("Mean GPP (g C m"^{-2}~"day"^{-1}*")"),
+      colour = "VPD scenario"
+    ) +
+    theme_classic() +
+    theme(
+      strip.background = element_blank(),
+      strip.text       = element_text(face = "bold"),
+      legend.position  = "top"
+    )
+  print(p)
+}
+```
+
+
+
+
+
+
