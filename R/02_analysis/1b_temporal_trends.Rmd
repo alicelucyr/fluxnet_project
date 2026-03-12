@@ -232,22 +232,21 @@ vpd_extremes_daily %>%
               values_from = c(mean_GPP, mean_Precip))
 ```
 ```{r}
-# ── Step 1: Filter to austral summer and calculate extremes ───────────────────
 vpd_summer <- bind_rows(sites_daily) %>%
   drop_na(VPD, GPP, date) %>%
   mutate(
     year  = year(date),
     month = month(date)
   ) %>%
-  filter(month %in% c(12, 1, 2)) %>%           # austral summer only
+  filter(month %in% c(12, 1, 2)) %>%          
   group_by(site) %>%
   mutate(
-    vpd_p95     = quantile(VPD, 0.95, na.rm = TRUE),  # summer-specific 95th
+    vpd_p95     = quantile(VPD, 0.95, na.rm = TRUE),  
     extreme     = VPD > vpd_p95
   ) %>%
   ungroup()
 
-# ── Step 2: GPP ~ VPD sensitivity per site per year (summer only) ─────────────
+
 vpd_sensitivity_summer <- vpd_summer %>%
   group_by(site, year) %>%
   filter(n() >= 10) %>%
@@ -257,7 +256,7 @@ vpd_sensitivity_summer <- vpd_summer %>%
     .groups   = "drop"
   )
 
-# ── Step 3: Plot sensitivity trend over time — long-term sites ────────────────
+
 vpd_sensitivity_summer %>%
   filter(site %in% long_term_sites) %>%
   ggplot(aes(x = year, y = vpd_slope)) +
@@ -270,7 +269,6 @@ vpd_sensitivity_summer %>%
        title = "Is summer GPP sensitivity to VPD changing over time?") +
   theme_classic()
 
-# ── Step 4: Significance of sensitivity trend ─────────────────────────────────
 vpd_sensitivity_summer %>%
   filter(site %in% long_term_sites) %>%
   group_by(site) %>%
@@ -279,7 +277,6 @@ vpd_sensitivity_summer %>%
     p_value = summary(lm(vpd_slope ~ year))$coefficients[2, 4]
   )
 
-# ── Step 5: Extreme VPD days in summer — frequency trend ─────────────────────
 vpd_summer %>%
   filter(site %in% long_term_sites) %>%
   group_by(site, year) %>%
@@ -293,7 +290,6 @@ vpd_summer %>%
        title = "Are summer VPD extremes becoming more frequent?") +
   theme_classic()
 
-# ── Step 6: Do summer extremes suppress GPP? ─────────────────────────────────
 vpd_summer %>%
   filter(site %in% long_term_sites) %>%
   mutate(extreme_flag = ifelse(extreme, "Extreme VPD", "Normal")) %>%
