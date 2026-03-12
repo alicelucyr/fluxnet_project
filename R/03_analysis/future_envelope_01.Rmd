@@ -462,6 +462,114 @@ for (i in seq_len(n_pages)) {
   print(p)
 }
 ```
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(ggrepel)
+
+# ── Join R² and % change per site per scenario ────────────────────────────────
+r2_sites <- all_scenarios %>%
+  filter(scenario == "Observed") %>%
+  group_by(site) %>%
+  summarise(
+    R2 = cor(GPP_obs, GPP_pred, use = "complete.obs")^2,
+    .groups = "drop"
+  )
+
+pct_change_sites <- all_scenarios %>%
+  group_by(site, scenario) %>%
+  summarise(mean_GPP = mean(GPP_pred, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = scenario, values_from = mean_GPP) %>%
+  mutate(
+    "+15%" = (`+15%` - Observed) / Observed * 100,
+    "+30%" = (`+30%` - Observed) / Observed * 100,
+    "+50%" = (`+50%` - Observed) / Observed * 100
+  ) %>%
+  select(site, `+15%`, `+30%`, `+50%`) %>%
+  pivot_longer(cols = c(`+15%`, `+30%`, `+50%`),
+               names_to  = "scenario",
+               values_to = "pct_change") %>%
+  mutate(scenario = factor(scenario, levels = c("+15%", "+30%", "+50%")))
+
+plot_data <- pct_change_sites %>%
+  left_join(r2_sites, by = "site")
+
+# ── Plot: R² vs % change, faceted by scenario ─────────────────────────────────
+ggplot(plot_data, aes(x = R2, y = pct_change)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey60", linewidth = 0.4) +
+  geom_point(aes(colour = scenario), size = 3) +
+  geom_smooth(method = "lm", se = TRUE,
+              colour = "grey30", fill = "grey80",
+              linewidth = 0.7, linetype = "dotted") +
+  geom_text_repel(aes(label = site), size = 2.8, colour = "grey30",
+                  max.overlaps = 15) +
+  scale_colour_manual(values = c(
+    "+15%" = "#F28C28",
+    "+30%" = "#E06C4B",
+    "+50%" = "#8B1A1A"
+  )) +
+  facet_wrap(~ scenario, ncol = 3) +
+  labs(
+    x      = "R² (leave-one-year-out)",
+    y      = "% change in mean GPP relative to observed",
+    colour = "VPD scenario"
+  ) +
+  theme_bw() +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold"),
+    legend.position  = "none",
+    panel.grid       = element_blank(),
+    panel.border     = element_rect(colour = "black", fill = NA)
+  )
+```
+It doesn't seem like predicted GPP decline is an artefact of poor model fit. Even sites where RF struggles to explain GPP variabiliyt are showing similar declines to well-fitted sites.
+
+```{r}
+cluster_labels <- site_slopes %>%
+  select(site, cluster_multi) %>%
+  mutate(
+    site          = as.character(site),
+    cluster_multi = as.character(cluster_multi)  # strip factor levels before joining
+  )
+
+plot_data <- pct_change_sites %>%
+  mutate(site = as.character(site)) %>%
+  left_join(r2_sites, by = "site") %>%
+  left_join(cluster_labels, by = "site") %>%
+  mutate(cluster_multi = factor(cluster_multi, levels = c("low", "medium", "high")))
+cluster_colours <- c(
+  "Low"    = "steelblue",
+  "Medium" = "orange",
+  "High"   = "firebrick"
+)
+
+ggplot(plot_data, aes(x = R2, y = pct_change)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey60", linewidth = 0.4) +
+  geom_point(aes(colour = cluster_multi), size = 3) +
+  geom_smooth(method = "lm", se = TRUE,
+              colour = "grey30", fill = "grey80",
+              linewidth = 0.7, linetype = "dotted") +
+  geom_text_repel(aes(label = site), size = 2.8, colour = "grey30",
+                  max.overlaps = 15) +
+  scale_colour_manual(values = cluster_colours, na.value = "grey50") +
+  facet_wrap(~ scenario, ncol = 3) +
+  labs(
+    x      = "R² (leave-one-year-out)",
+    y      = "% change in mean GPP relative to observed",
+    colour = "VPD sensitivity"
+  ) +
+  theme_bw() +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold"),
+    legend.position  = "top",
+    panel.grid       = element_blank(),
+    panel.border     = element_rect(colour = "black", fill = NA)
+  )
+```
+
 
 
 
