@@ -738,24 +738,24 @@ plot_data <- sites_summary %>%
   left_join(r2_per_site, by = "site")
 
 # ── Max LAI vs R² ─────────────────────────────────────────────────────────────
-ggplot(plot_data, aes(x = R2, y = max_lai)) +
+ggplot(plot_data, aes(x = max_lai, y = R2)) +
   geom_point(size = 3, colour = "#4682B4") +
   geom_text(aes(label = site), vjust = -0.8, size = 2.8, colour = "grey30") +
-  labs(x = "R²", y = "Max Annual LAI") +
+  labs(x = "Max Annual LAI", y = "R2") +
   theme_classic()
 
 # ── Mean Precip vs R² ─────────────────────────────────────────────────────────
-ggplot(plot_data, aes(x = R2, y = mean_precip)) +
+ggplot(plot_data, aes(x = mean_precip, y = R2)) +
   geom_point(size = 3, colour = "#4682B4") +
   geom_text(aes(label = site), vjust = -0.8, size = 2.8, colour = "grey30") +
-  labs(x = "R²", y = "Mean Annual Precip (mm)") +
+  labs(x = "Mean Annual Precip (mm)", y = "R2") +
   theme_classic()
 
 # ── No. Years vs R² ───────────────────────────────────────────────────────────
-ggplot(plot_data, aes(x = R2, y = n_years)) +
+ggplot(plot_data, aes(x = n_years, y = R2)) +
   geom_point(size = 3, colour = "#4682B4") +
   geom_text(aes(label = site), vjust = -0.8, size = 2.8, colour = "grey30") +
-  labs(x = "R² (With VPD)", y = "No. Years of Observations") +
+  labs(x = "No. of Years of Observations", y = "R2") +
   theme_classic()
 ```
 ```{r}
@@ -769,7 +769,7 @@ plot_data <- site_slopes %>%
   pivot_longer(cols = c(MAP, MAT, MAL), names_to = "variable", values_to = "value")
 
 # ── Plot ──────────────────────────────────────────────────────────────────────
-ggplot(plot_data, aes(x = R2, y = value)) +
+ggplot(plot_data, aes(x = value, y = R2)) +
   geom_point(size = 3, colour = "#4682B4") +
   ggrepel::geom_text_repel(aes(label = site), size = 2.8, colour = "grey30",
                             max.overlaps = 15) +
@@ -780,5 +780,78 @@ ggplot(plot_data, aes(x = R2, y = value)) +
         strip.text = element_text(face = "bold"))
 ```
 
+```{r}
+library(ggrepel)
+
+# ── Plot 1: R² (with_VPD only) — wet to dry order ────────────────────────────
+all_metrics_vpd %>%
+  filter(model == "with_VPD") %>%
+  mutate(site = factor(site, levels = wet_to_dry_order)) %>%
+  ggplot(aes(x = site, y = R2)) +
+  geom_col(width = 0.7, fill = "#4682B4") +
+  coord_flip() +
+  labs(
+    title = "Model R² (with VPD) — Wet to Dry",
+    x     = NULL,
+    y     = "R²"
+  ) +
+  theme_classic(base_size = 13) +
+  theme(axis.text.y = element_text(size = 10))
+
+# ── Plot 2: R² vs climate/LAI — three panels ─────────────────────────────────
+
+# Join R² (with_VPD) onto site summary metrics
+r2_vpd <- all_metrics_vpd %>%
+  filter(model == "with_VPD") %>%
+  select(site, R2)
+
+plot_data <- sites_summary %>%
+  left_join(r2_vpd, by = "site") %>%
+  rename(
+    MAP = mean_precip,
+    MAT = mean_tair,
+    MAL = max_lai
+  ) %>%
+  pivot_longer(
+    cols      = c(MAP, MAT, MAL),
+    names_to  = "variable",
+    values_to = "value"
+  ) %>%
+  mutate(variable = recode(variable,
+    MAP = "Mean Annual Precip (mm)",
+    MAT = "Mean Annual Temp (°C)",
+    MAL = "Max Annual LAI"
+  ))
+
+ggplot(plot_data, aes(x = value, y = R2)) +
+  geom_point(size = 3, colour = "#4682B4") +
+  geom_text_repel(aes(label = site), size = 2.8, colour = "grey30",
+                  max.overlaps = 15) +
+  facet_wrap(~ variable, scales = "free_x", ncol = 3) +
+  labs(y = "R² (RF with VPD)", x = NULL) +
+  theme_classic(base_size = 13) +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold", size = 11),
+    axis.line        = element_line(colour = "black"),
+    axis.ticks       = element_line(colour = "black")
+  )
+
+```
+```{r}
+ggplot(plot_data, aes(x = value, y = R2)) +
+  geom_point(size = 3, colour = "#4682B4") +
+  geom_text_repel(aes(label = site), size = 2.8, colour = "grey30",
+                  max.overlaps = 15) +
+  facet_wrap(~ variable, scales = "free_x", ncol = 3) +
+  labs(y = "R² (RF with VPD)", x = NULL) +
+  theme_bw(base_size = 13) +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold", size = 11),
+    panel.grid       = element_blank(),
+    panel.border     = element_rect(colour = "black", fill = NA)
+  )
+```
 
 
