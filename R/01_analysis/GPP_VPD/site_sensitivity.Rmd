@@ -122,6 +122,57 @@ walk(plots, print)
 ```
 
 ```{r}
+library(ggplot2)
+library(dplyr)
+
+# ── Join cluster labels onto clouds and fitted lines ──────────────────────────
+cluster_labels <- site_slopes %>%
+  select(site, cluster_multi, vpd_at_peak)
+
+all_clouds_clustered <- all_clouds %>%
+  left_join(cluster_labels, by = "site") %>%
+  filter(!is.na(cluster_multi))
+
+fitted_lines_clustered <- fitted_lines %>%
+  left_join(cluster_labels, by = "site") %>%
+  filter(!is.na(cluster_multi))
+
+# Fix factor order
+all_clouds_clustered$cluster_multi  <- factor(all_clouds_clustered$cluster_multi,  levels = c("low", "medium", "high"))
+fitted_lines_clustered$cluster_multi <- factor(fitted_lines_clustered$cluster_multi, levels = c("low", "medium", "high"))
+
+cluster_colours <- c(
+  "low"    = "steelblue",
+  "medium" = "orange",
+  "high"   = "firebrick"
+)
+
+# ── Plot: raw points + per-site slope lines, faceted by cluster ───────────────
+ggplot(all_clouds_clustered, aes(x = VPD, y = gpp_norm)) +
+  geom_point(aes(colour = cluster_multi),
+             size = 0.3, alpha = 0.15) +
+  geom_line(data  = fitted_lines_clustered,
+            aes(x = vpd_mid, y = fitted, group = site, colour = cluster_multi),
+            linewidth = 0.6, alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE,
+              colour = "black", fill = "grey30",
+              linewidth = 1, alpha = 0.2) +
+  scale_colour_manual(values = cluster_colours) +
+  facet_wrap(~ cluster_multi, ncol = 3) +
+  coord_cartesian(ylim = c(0, 1.5)) +
+  labs(x = "VPD (kPa)", y = "Normalised GPP", colour = "Cluster") +
+  theme_classic() +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold"),
+    legend.position  = "none"
+  )
+```
+
+
+
+
+```{r}
 # Check GPP distribution per site
 sites_daily_df <- bind_rows(sites_daily)
 
@@ -214,7 +265,7 @@ Low - Cum, Emr, Gin, Gww, Whr, Wom, Cpr, Tum
 slopes_mat_2 <- site_slopes %>%
   filter(!is.na(slope)) %>%
   column_to_rownames("site") %>%
-  select(slope, intercept, vpd_at_peak) %>%
+  select(slope, vpd_at_peak) %>%
   scale()
 
 hclust_fit_2 <- hclust(dist(slopes_mat_2, method = "euclidean"), method = "ward.D2")
@@ -431,9 +482,9 @@ High LAI but low sensitivity - i believe is Tum, Wac, Wom, Rig (EBF, EBF, EBF, G
 
 ```{r}
 cluster_colours <- c(
-  "low" = "steelblue",  # steel blue
-  "high" = "firebrick",  # raspberry
-  "medium" = "orange"   # amber
+  "Low" = "steelblue",  # steel blue
+  "High" = "firebrick",  # raspberry
+  "Medium" = "orange"   # amber
 )
 
 site_slopes %>%
@@ -447,6 +498,46 @@ site_slopes %>%
   theme_classic() +
   theme(legend.position = "none")
 ```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(scico)
+
+# ── Plot 1: PFT composition by sensitivity cluster ────────────────────────────
+site_slopes %>%
+  count(cluster_multi, PFT) %>%
+  group_by(cluster_multi) %>%
+  mutate(
+    prop          = n / sum(n),
+    cluster_multi = factor(cluster_multi, levels = c("Low", "Medium", "High"))
+  ) %>%
+  ggplot(aes(x = cluster_multi, y = prop, fill = PFT)) +
+  geom_col(width = 0.7) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_scico_d(palette = "batlow") +
+  labs(x = "Sensitivity cluster", y = "Proportion of sites", fill = "PFT") +
+  theme_classic() +
+  theme(legend.position = "right")
+
+# ── Plot 2: Koppen climate composition by sensitivity cluster ─────────────────
+site_slopes %>%
+  count(cluster_multi, koppen_climate) %>%
+  group_by(cluster_multi) %>%
+  mutate(
+    prop          = n / sum(n),
+    cluster_multi = factor(cluster_multi, levels = c("Low", "Medium", "High"))
+  ) %>%
+  ggplot(aes(x = cluster_multi, y = prop, fill = koppen_climate)) +
+  geom_col(width = 0.7) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_scico_d(palette = "batlow") +
+  labs(x = "Sensitivity cluster", y = "Proportion of sites", fill = "Koppen climate") +
+  theme_classic() +
+  theme(legend.position = "right")
+```
+
+
 
 ```{r}
 unique(site_slopes$cluster_multi)
