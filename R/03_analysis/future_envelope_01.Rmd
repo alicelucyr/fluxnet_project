@@ -463,10 +463,6 @@ for (i in seq_len(n_pages)) {
 }
 ```
 
-```{r}
-plot(sites_daily$Ync$date, sites_daily$Ync$GPP)
-```
-
 
 
 ```{r}
@@ -579,7 +575,7 @@ ggplot(plot_data, aes(x = R2, y = pct_change)) +
 
 What about if i increase the number of days VPD <90th percentile in the summer? Increase by 15, 30 and 50%?
 
-Train RF on observed summer seasons - both extreme and normal - so just train on summer?
+Train RF on observed data - both extreme and normal 
 And then test on the 3 inflated VPD summer scenarios?
 
 Replace - swap normal days with extreme days, keeping dataset size constant. 
@@ -593,8 +589,9 @@ library(ggplot2)
 library(zoo)
 library(lubridate)
 
+# ── Setup ─────────────────────────────────────────────────────────────────────
 predictors      <- c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day")
-vpd_scalars     <- c(0, 0.15, 0.30, 0.50)   # extra fraction of days that become extreme
+vpd_scalars     <- c(0, 0.15, 0.30, 0.50)
 scenario_labels <- c("Observed", "+15% extreme days", "+30% extreme days", "+50% extreme days")
 
 scenario_colours <- c(
@@ -604,42 +601,35 @@ scenario_colours <- c(
   "+50% extreme days"  = "#8B1A1A"
 )
 
-# Define summer months — adjust if needed per site
-is_summer <- function(dates) month(dates) %in% c(12, 1, 2)
-
+# ── Function definition ───────────────────────────────────────────────────────
 run_loyo_summer_extreme <- function(df, site_name) {
   
   message("Processing: ", site_name)
   
-  # Prepare base data
   df <- df %>%
     drop_na(GPP, Tair, SW_rad, VPD, cwd, date) %>%
     arrange(date) %>%
     mutate(
-      year = year(date),
-      # Use hydrological year so Dec belongs to next year's summer
-      hydro_year          = ifelse(month(date) == 12, year(date) + 1, year(date)),
-      summer              = is_summer(date),
+      year       = year(date),
+      hydro_year = ifelse(month(date) == 12, year(date) + 1, year(date)),
+      summer     = month(date) %in% c(12, 1, 2),
       cumulative_cwd_7day = rollapply(cwd, width = 7, FUN = function(x) {
         if (sum(!is.na(x)) >= 3) sum(x, na.rm = TRUE) else NA
       }, align = "right", fill = NA)
     ) %>%
     drop_na(all_of(predictors), GPP)
   
-  # Filter to summer only
-  df_summer <- df %>% filter(summer)
-  
-  if (nrow(df_summer) < 50) {
-    warning("Skipping ", site_name, ": insufficient summer data")
+  if (nrow(df) < 50) {
+    warning("Skipping ", site_name, ": insufficient data")
     return(NULL)
   }
   
-  # Compute site-wide 90th percentile VPD threshold from summer obs
-  vpd_90 <- quantile(df_summer$VPD, 0.90, na.rm = TRUE)
-  message("  VPD 90th percentile: ", round(vpd_90, 2))
+  vpd_90 <- df %>%
+    filter(summer) %>%
+    pull(VPD) %>%
+    quantile(0.90, na.rm = TRUE)
   
-  all_years <- unique(df_summer$hydro_year)
-  
+  all_years <- unique(df$hydro_year)
   if (length(all_years) < 2) {
     warning("Skipping ", site_name, ": insufficient years")
     return(NULL)
@@ -647,12 +637,11 @@ run_loyo_summer_extreme <- function(df, site_name) {
   
   loyo_results <- map_dfr(all_years, function(test_year) {
     
-    train_df <- df_summer %>% filter(hydro_year != test_year)
-    test_df  <- df_summer %>% filter(hydro_year == test_year)
+    train_df    <- df %>% filter(hydro_year != test_year)
+    test_summer <- df %>% filter(hydro_year == test_year, summer)
     
-    if (nrow(train_df) < 50 || nrow(test_df) < 10) return(NULL)
+    if (nrow(train_df) < 50 || nrow(test_summer) < 10) return(NULL)
     
-    # Standardise on training data
     scale_means <- colMeans(train_df[predictors], na.rm = TRUE)
     scale_sds   <- apply(train_df[predictors], 2, sd, na.rm = TRUE)
     
@@ -662,36 +651,28 @@ run_loyo_summer_extreme <- function(df, site_name) {
     }
     
     train_scaled <- scale_with_params(train_df, scale_means, scale_sds)
+    formula      <- as.formula(paste("GPP ~", paste(predictors, collapse = " + ")))
+    rf_model     <- randomForest(formula, data = train_scaled,
+                                 ntree = 500, mtry = 3, importance = FALSE)
     
-    formula  <- as.formula(paste("GPP ~", paste(predictors, collapse = " + ")))
-    rf_model <- randomForest(formula, data = train_scaled,
-                             ntree = 500, mtry = 3, importance = FALSE)
-    
-    # Identify extreme vs normal days in test year
-    extreme_days <- test_df %>% filter(VPD >= vpd_90)
-    normal_days  <- test_df %>% filter(VPD <  vpd_90)
-    
-    n_normal   <- nrow(normal_days)
-    n_extreme  <- nrow(extreme_days)
+    extreme_days <- test_summer %>% filter(VPD >= vpd_90)
+    normal_days  <- test_summer %>% filter(VPD <  vpd_90)
+    n_normal     <- nrow(normal_days)
+    n_extreme    <- nrow(extreme_days)
     
     map2_dfr(vpd_scalars, scenario_labels, function(extra_frac, label) {
       
       if (extra_frac == 0) {
-        # Observed: use test year as-is
-        scenario_df <- test_df
-        
+        scenario_df <- test_summer
       } else {
-        # How many normal days to replace with (resampled) extreme days
         n_replace <- round(n_normal * extra_frac)
         
         if (n_replace == 0 || n_extreme == 0) {
-          scenario_df <- test_df  # fallback if no extreme days exist
+          scenario_df <- test_summer
         } else {
-          # Sample extreme days with replacement to get n_replace days
           extra_extreme <- extreme_days %>%
             slice_sample(n = n_replace, replace = TRUE)
           
-          # Remove n_replace normal days (random sample)
           normal_kept <- normal_days %>%
             slice_sample(n = max(0, n_normal - n_replace), replace = FALSE)
           
@@ -701,18 +682,18 @@ run_loyo_summer_extreme <- function(df, site_name) {
       }
       
       scenario_scaled <- scale_with_params(scenario_df, scale_means, scale_sds)
-      preds <- predict(rf_model, scenario_scaled)
+      preds           <- predict(rf_model, scenario_scaled)
       
       data.frame(
-        site          = site_name,
-        date          = scenario_df$date,
-        year          = test_year,
-        scenario      = label,
-        VPD_raw       = scenario_df$VPD,
+        site           = site_name,
+        date           = scenario_df$date,
+        year           = test_year,
+        scenario       = label,
+        VPD_raw        = scenario_df$VPD,
         n_extreme_days = sum(scenario_df$VPD >= vpd_90),
         n_total_days   = nrow(scenario_df),
-        GPP_pred      = preds,
-        GPP_obs       = scenario_df$GPP   # NA for resampled rows
+        GPP_pred       = preds,
+        GPP_obs        = scenario_df$GPP
       )
     })
   })
@@ -720,67 +701,19 @@ run_loyo_summer_extreme <- function(df, site_name) {
   loyo_results
 }
 
-# Run across all sites
+# ── Run across all sites ──────────────────────────────────────────────────────
 loyo_results <- map2(sites_daily, names(sites_daily), run_loyo_summer_extreme)
 loyo_results <- Filter(Negate(is.null), loyo_results)
 
 all_scenarios <- bind_rows(loyo_results) %>%
   mutate(scenario = factor(scenario, levels = scenario_labels))
-```
-```{r}
-# R² on observed summer (out-of-sample)
-r2_summer <- all_scenarios %>%
-  filter(scenario == "Observed") %>%
-  group_by(site) %>%
-  summarise(
-    R2   = cor(GPP_obs, GPP_pred, use = "complete.obs")^2,
-    RMSE = sqrt(mean((GPP_obs - GPP_pred)^2, na.rm = TRUE)),
-    .groups = "drop"
-  ) %>%
-  mutate(site = factor(site, levels = wet_to_dry_order))
 
-# % change in mean summer GPP per scenario
-scenario_summary_long <- all_scenarios %>%
-  group_by(site, scenario) %>%
-  summarise(mean_GPP = mean(GPP_pred, na.rm = TRUE), .groups = "drop") %>%
-  pivot_wider(names_from = scenario, values_from = mean_GPP) %>%
-  mutate(
-    "+15% extreme days" = (`+15% extreme days` - Observed) / Observed * 100,
-    "+30% extreme days" = (`+30% extreme days` - Observed) / Observed * 100,
-    "+50% extreme days" = (`+50% extreme days` - Observed) / Observed * 100
-  ) %>%
-  pivot_longer(cols = ends_with("days"),
-               names_to = "scenario", values_to = "pct_change") %>%
-  mutate(
-    scenario = factor(scenario, levels = scenario_labels[-1]),
-    site     = factor(site, levels = wet_to_dry_order)
-  )
+# Quick sanity check
+message("Sites retained: ", length(unique(all_scenarios$site)))
+message("Total rows: ", nrow(all_scenarios))
+glimpse(all_scenarios)
 
-ggplot(scenario_summary_long, aes(x = site, y = pct_change, fill = scenario)) +
-  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
-  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
-  scale_fill_manual(values = scenario_colours[scenario_labels[-1]]) +
-  coord_flip() +
-  labs(
-    x    = NULL,
-    y    = "% change in mean summer GPP relative to observed",
-    fill = "Extreme VPD scenario"
-  ) +
-  theme_classic() +
-  theme(legend.position = "top", axis.text.y = element_text(size = 10))
-```
-
-```{r}
-all_scenarios %>%
-  group_by(site, scenario) %>%
-  summarise(
-    pct_extreme = mean(n_extreme_days / n_total_days, na.rm = TRUE) * 100,
-    .groups = "drop"
-  ) %>%
-  pivot_wider(names_from = scenario, values_from = pct_extreme)
-```
-
-```{r}
+# ── Plot 1: R² per site ───────────────────────────────────────────────────────
 r2_loyo <- all_scenarios %>%
   filter(scenario == "Observed") %>%
   group_by(site) %>%
@@ -796,8 +729,465 @@ ggplot(r2_loyo, aes(x = site, y = R2)) +
   geom_text(aes(label = round(R2, 2)), hjust = -0.2, size = 3, colour = "grey30") +
   coord_flip(clip = "off") +
   scale_y_continuous(limits = c(0, 1.05)) +
-  labs(x = NULL, y = "R² — leave-one-year-out (out-of-sample)") +
+  labs(x = NULL, y = "R² — leave-one-year-out (out-of-sample, summer)") +
   theme_classic() +
   theme(axis.text.y = element_text(size = 10))
+
+# ── Plot 2: % change in summer GPP per scenario per site ─────────────────────
+scenario_summary_long <- all_scenarios %>%
+  group_by(site, scenario) %>%
+  summarise(mean_GPP = mean(GPP_pred, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = scenario, values_from = mean_GPP) %>%
+  mutate(
+    "+15% extreme days" = (`+15% extreme days` - Observed) / Observed * 100,
+    "+30% extreme days" = (`+30% extreme days` - Observed) / Observed * 100,
+    "+50% extreme days" = (`+50% extreme days` - Observed) / Observed * 100
+  ) %>%
+  select(site, `+15% extreme days`, `+30% extreme days`, `+50% extreme days`) %>%
+  pivot_longer(cols = ends_with("days"),
+               names_to  = "scenario",
+               values_to = "pct_change") %>%
+  mutate(
+    scenario = factor(scenario, levels = c("+15% extreme days",
+                                           "+30% extreme days",
+                                           "+50% extreme days")),
+    site = factor(site, levels = wet_to_dry_order)
+  )
+
+ggplot(scenario_summary_long, aes(x = site, y = pct_change, fill = scenario)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
+  scale_fill_manual(values = c(
+    "+15% extreme days" = "#F28C28",
+    "+30% extreme days" = "#E06C4B",
+    "+50% extreme days" = "#8B1A1A"
+  )) +
+  coord_flip() +
+  labs(
+    x    = NULL,
+    y    = "% change in mean summer GPP relative to observed",
+    fill = "Extreme VPD scenario"
+  ) +
+  theme_classic() +
+  theme(
+    legend.position = "top",
+    axis.text.y     = element_text(size = 10)
+  )
+
+# ── Plot 3: Annual mean summer GPP time series — paginated ───────────────────
+scenario_annual <- all_scenarios %>%
+  group_by(site, year, scenario) %>%
+  summarise(mean_GPP = mean(GPP_pred, na.rm = TRUE), .groups = "drop")
+
+all_sites <- unique(scenario_annual$site)
+n_pages   <- ceiling(length(all_sites) / 4)
+
+for (i in seq_len(n_pages)) {
+  site_subset <- all_sites[((i - 1) * 4 + 1):min(i * 4, length(all_sites))]
+  
+  p <- scenario_annual %>%
+    filter(site %in% site_subset) %>%
+    mutate(site = factor(site, levels = site_subset)) %>%
+    ggplot(aes(x = year, y = mean_GPP, colour = scenario)) +
+    geom_line(linewidth = 0.7) +
+    geom_point(size = 1.2) +
+    scale_colour_manual(values = scenario_colours) +
+    facet_wrap(~ site, scales = "free_y", ncol = 2) +
+    labs(
+      x      = NULL,
+      y      = expression("Mean summer GPP (g C m"^{-2}~"day"^{-1}*")"),
+      colour = "VPD scenario"
+    ) +
+    theme_classic() +
+    theme(
+      strip.background = element_blank(),
+      strip.text       = element_text(face = "bold"),
+      legend.position  = "top"
+    )
+  print(p)
+}
 ```
+
+```{r}
+library(ggrepel)
+
+cluster_labels <- site_slopes %>%
+  select(site, cluster_multi) %>%
+  mutate(
+    site          = as.character(site),
+    cluster_multi = as.character(cluster_multi)  # strip factor levels before joining
+  )
+
+# R² from new model
+r2_sites <- all_scenarios %>%
+  filter(scenario == "Observed") %>%
+  group_by(site) %>%
+  summarise(
+    R2 = cor(GPP_obs, GPP_pred, use = "complete.obs")^2,
+    .groups = "drop"
+  )
+
+# % change per site per scenario
+pct_change_sites <- all_scenarios %>%
+  group_by(site, scenario) %>%
+  summarise(mean_GPP = mean(GPP_pred, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = scenario, values_from = mean_GPP) %>%
+  mutate(
+    "+15% extreme days" = (`+15% extreme days` - Observed) / Observed * 100,
+    "+30% extreme days" = (`+30% extreme days` - Observed) / Observed * 100,
+    "+50% extreme days" = (`+50% extreme days` - Observed) / Observed * 100
+  ) %>%
+  select(site, `+15% extreme days`, `+30% extreme days`, `+50% extreme days`) %>%
+  pivot_longer(cols = ends_with("days"),
+               names_to  = "scenario",
+               values_to = "pct_change") %>%
+  mutate(scenario = factor(scenario, levels = c("+15% extreme days",
+                                                 "+30% extreme days",
+                                                 "+50% extreme days")))
+
+# Join with cluster labels
+cluster_colours <- c(
+  "Low"    = "steelblue",
+  "Medium" = "orange",
+  "High"   = "firebrick"
+)
+
+plot_data <- pct_change_sites %>%
+  mutate(site = as.character(site)) %>%
+  left_join(r2_sites, by = "site") %>%
+  left_join(cluster_labels, by = "site") %>%
+  mutate(cluster_multi = factor(cluster_multi, levels = c("Low", "Medium", "High")))
+
+ggplot(plot_data, aes(x = R2, y = pct_change)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey60", linewidth = 0.4) +
+  geom_point(aes(colour = cluster_multi), size = 3) +
+  geom_smooth(method = "lm", se = TRUE,
+              colour = "grey30", fill = "grey80",
+              linewidth = 0.7, linetype = "dotted") +
+  geom_text_repel(aes(label = site), size = 2.8, colour = "grey30",
+                  max.overlaps = 15) +
+  scale_colour_manual(values = cluster_colours, na.value = "grey50") +
+  facet_wrap(~ scenario, ncol = 3) +
+  labs(
+    x      = "R² (leave-one-year-out, summer)",
+    y      = "% change in mean summer GPP relative to observed",
+    colour = "VPD sensitivity"
+  ) +
+  theme_bw() +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold"),
+    legend.position  = "top",
+    panel.grid       = element_blank(),
+    panel.border     = element_rect(colour = "black", fill = NA)
+  )
+```
+Ok, now I want to train and test on the whole year, not just testing on the summer. 
+
+```{r}
+run_loyo_summer_extreme <- function(df, site_name) {
+  
+  message("Processing: ", site_name)
+  
+  df <- df %>%
+    drop_na(GPP, Tair, SW_rad, VPD, cwd, date) %>%
+    arrange(date) %>%
+    mutate(
+      year       = year(date),
+      hydro_year = ifelse(month(date) == 12, year(date) + 1, year(date)),
+      summer     = month(date) %in% c(12, 1, 2),
+      cumulative_cwd_7day = rollapply(cwd, width = 7, FUN = function(x) {
+        if (sum(!is.na(x)) >= 3) sum(x, na.rm = TRUE) else NA
+      }, align = "right", fill = NA)
+    ) %>%
+    drop_na(all_of(predictors), GPP)
+  
+  if (nrow(df) < 50) {
+    warning("Skipping ", site_name, ": insufficient data")
+    return(NULL)
+  }
+  
+  # 90th percentile VPD from summer obs across all years
+  vpd_90 <- df %>%
+    filter(summer) %>%
+    pull(VPD) %>%
+    quantile(0.90, na.rm = TRUE)
+  
+  all_years <- unique(df$hydro_year)
+  if (length(all_years) < 2) {
+    warning("Skipping ", site_name, ": insufficient years")
+    return(NULL)
+  }
+  
+  loyo_results <- map_dfr(all_years, function(test_year) {
+    
+    train_df <- df %>% filter(hydro_year != test_year)
+    
+    # ── Full held-out year ────────────────────────────────────────────
+    test_nonsummer <- df %>% filter(hydro_year == test_year, !summer)
+    test_summer    <- df %>% filter(hydro_year == test_year,  summer)
+    
+    if (nrow(train_df) < 50 || nrow(test_summer) < 10) return(NULL)
+    
+    # Standardise on full training set
+    scale_means <- colMeans(train_df[predictors], na.rm = TRUE)
+    scale_sds   <- apply(train_df[predictors], 2, sd, na.rm = TRUE)
+    
+    scale_with_params <- function(data, means, sds) {
+      for (v in names(means)) data[[v]] <- (data[[v]] - means[v]) / sds[v]
+      data
+    }
+    
+    train_scaled <- scale_with_params(train_df, scale_means, scale_sds)
+    formula      <- as.formula(paste("GPP ~", paste(predictors, collapse = " + ")))
+    rf_model     <- randomForest(formula, data = train_scaled,
+                                 ntree = 500, mtry = 3, importance = FALSE)
+    
+    # Identify extreme vs normal days in test summer
+    extreme_days <- test_summer %>% filter(VPD >= vpd_90)
+    normal_days  <- test_summer %>% filter(VPD <  vpd_90)
+    n_normal     <- nrow(normal_days)
+    n_extreme    <- nrow(extreme_days)
+    
+    map2_dfr(vpd_scalars, scenario_labels, function(extra_frac, label) {
+      
+      # ── Manipulate summer days only ───────────────────────────────
+      if (extra_frac == 0) {
+        summer_scenario <- test_summer
+        
+      } else {
+        n_replace <- round(n_normal * extra_frac)
+        
+        if (n_replace == 0 || n_extreme == 0) {
+          summer_scenario <- test_summer
+        } else {
+          extra_extreme <- extreme_days %>%
+            slice_sample(n = n_replace, replace = TRUE)
+          
+          normal_kept <- normal_days %>%
+            slice_sample(n = max(0, n_normal - n_replace), replace = FALSE)
+          
+          summer_scenario <- bind_rows(normal_kept, extreme_days, extra_extreme) %>%
+            arrange(date)
+        }
+      }
+      
+      # ── Combine manipulated summer + unchanged non-summer ─────────
+      full_test <- bind_rows(test_nonsummer, summer_scenario) %>%
+        arrange(date)
+      
+      full_scaled <- scale_with_params(full_test, scale_means, scale_sds)
+      preds       <- predict(rf_model, full_scaled)
+      
+      data.frame(
+        site           = site_name,
+        date           = full_test$date,
+        year           = test_year,
+        scenario       = label,
+        summer         = full_test$summer,
+        VPD_raw        = full_test$VPD,
+        n_extreme_days = sum(full_test$summer & full_test$VPD >= vpd_90),
+        n_total_days   = nrow(full_test),
+        GPP_pred       = preds,
+        GPP_obs        = full_test$GPP
+      )
+    })
+  })
+  
+  loyo_results
+}
+
+# ── Run across all sites ──────────────────────────────────────────────────────
+loyo_results <- map2(sites_daily, names(sites_daily), run_loyo_summer_extreme)
+loyo_results <- Filter(Negate(is.null), loyo_results)
+
+all_scenarios <- bind_rows(loyo_results) %>%
+  mutate(scenario = factor(scenario, levels = scenario_labels))
+
+message("Sites retained: ", length(unique(all_scenarios$site)))
+message("Total rows: ", nrow(all_scenarios))
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(ggrepel)
+
+# ── Plot 1: R² per site (full year and summer) ────────────────────────────────
+
+r2_fullyear <- all_scenarios %>%
+  filter(scenario == "Observed") %>%
+  group_by(site) %>%
+  summarise(
+    R2   = cor(GPP_obs, GPP_pred, use = "complete.obs")^2,
+    RMSE = sqrt(mean((GPP_obs - GPP_pred)^2, na.rm = TRUE)),
+    .groups = "drop"
+  ) %>%
+  mutate(site = factor(site, levels = wet_to_dry_order),
+         period = "Full year")
+
+r2_summer <- all_scenarios %>%
+  filter(scenario == "Observed", summer) %>%
+  group_by(site) %>%
+  summarise(
+    R2   = cor(GPP_obs, GPP_pred, use = "complete.obs")^2,
+    RMSE = sqrt(mean((GPP_obs - GPP_pred)^2, na.rm = TRUE)),
+    .groups = "drop"
+  ) %>%
+  mutate(site = factor(site, levels = wet_to_dry_order),
+         period = "Summer only")
+
+r2_combined <- bind_rows(r2_fullyear, r2_summer) %>%
+  mutate(period = factor(period, levels = c("Full year", "Summer only")))
+
+ggplot(r2_combined, aes(x = site, y = R2, fill = period)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+  geom_text(aes(label = round(R2, 2)),
+            position = position_dodge(width = 0.7),
+            hjust = -0.15, size = 2.8, colour = "grey30") +
+  coord_flip(clip = "off") +
+  scale_y_continuous(limits = c(0, 1.1)) +
+  scale_fill_manual(values = c("Full year" = "#4682B4", "Summer only" = "#76B7C8")) +
+  labs(x = NULL, y = "R² — leave-one-year-out (out-of-sample)", fill = NULL) +
+  theme_classic() +
+  theme(
+    legend.position  = "top",
+    axis.text.y      = element_text(size = 10)
+  )
+
+# ── Plot 2: % change in GPP per scenario per site ─────────────────────────────
+
+# Annual GPP change (whole year)
+pct_annual <- all_scenarios %>%
+  group_by(site, scenario) %>%
+  summarise(mean_GPP = mean(GPP_pred, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = scenario, values_from = mean_GPP) %>%
+  mutate(
+    "+15% extreme days" = (`+15% extreme days` - Observed) / Observed * 100,
+    "+30% extreme days" = (`+30% extreme days` - Observed) / Observed * 100,
+    "+50% extreme days" = (`+50% extreme days` - Observed) / Observed * 100
+  ) %>%
+  select(site, `+15% extreme days`, `+30% extreme days`, `+50% extreme days`) %>%
+  pivot_longer(cols = ends_with("days"),
+               names_to  = "scenario",
+               values_to = "pct_change") %>%
+  mutate(period = "Full year")
+
+# Summer GPP change only
+pct_summer <- all_scenarios %>%
+  filter(summer) %>%
+  group_by(site, scenario) %>%
+  summarise(mean_GPP = mean(GPP_pred, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = scenario, values_from = mean_GPP) %>%
+  mutate(
+    "+15% extreme days" = (`+15% extreme days` - Observed) / Observed * 100,
+    "+30% extreme days" = (`+30% extreme days` - Observed) / Observed * 100,
+    "+50% extreme days" = (`+50% extreme days` - Observed) / Observed * 100
+  ) %>%
+  select(site, `+15% extreme days`, `+30% extreme days`, `+50% extreme days`) %>%
+  pivot_longer(cols = ends_with("days"),
+               names_to  = "scenario",
+               values_to = "pct_change") %>%
+  mutate(period = "Summer only")
+
+pct_combined <- bind_rows(pct_annual, pct_summer) %>%
+  mutate(
+    scenario = factor(scenario, levels = c("+15% extreme days",
+                                           "+30% extreme days",
+                                           "+50% extreme days")),
+    period = factor(period, levels = c("Full year", "Summer only")),
+    site   = factor(site, levels = wet_to_dry_order)
+  )
+
+ggplot(pct_combined, aes(x = site, y = pct_change, fill = scenario)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
+  scale_fill_manual(values = c(
+    "+15% extreme days" = "#F28C28",
+    "+30% extreme days" = "#E06C4B",
+    "+50% extreme days" = "#8B1A1A"
+  )) +
+  coord_flip() +
+  facet_wrap(~ period, ncol = 2) +
+  labs(
+    x    = NULL,
+    y    = "% change in mean GPP relative to observed",
+    fill = "Extreme VPD scenario"
+  ) +
+  theme_classic() +
+  theme(
+    legend.position  = "top",
+    axis.text.y      = element_text(size = 10),
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold")
+  )
+
+# ── Plot 3: R² vs % change coloured by cluster group ─────────────────────────
+
+# Use summer R² as most relevant for the scenario
+r2_sites <- all_scenarios %>%
+  filter(scenario == "Observed", summer) %>%
+  group_by(site) %>%
+  summarise(
+    R2 = cor(GPP_obs, GPP_pred, use = "complete.obs")^2,
+    .groups = "drop"
+  )
+
+pct_change_sites <- all_scenarios %>%
+  filter(summer) %>%
+  group_by(site, scenario) %>%
+  summarise(mean_GPP = mean(GPP_pred, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = scenario, values_from = mean_GPP) %>%
+  mutate(
+    "+15% extreme days" = (`+15% extreme days` - Observed) / Observed * 100,
+    "+30% extreme days" = (`+30% extreme days` - Observed) / Observed * 100,
+    "+50% extreme days" = (`+50% extreme days` - Observed) / Observed * 100
+  ) %>%
+  select(site, `+15% extreme days`, `+30% extreme days`, `+50% extreme days`) %>%
+  pivot_longer(cols = ends_with("days"),
+               names_to  = "scenario",
+               values_to = "pct_change") %>%
+  mutate(scenario = factor(scenario, levels = c("+15% extreme days",
+                                                 "+30% extreme days",
+                                                 "+50% extreme days")))
+
+cluster_colours <- c(
+  "Low"    = "steelblue",
+  "Medium" = "orange",
+  "High"   = "firebrick"
+)
+
+plot_data <- pct_change_sites %>%
+  mutate(site = as.character(site)) %>%
+  left_join(r2_sites, by = "site") %>%
+  left_join(cluster_labels, by = "site") %>%
+  mutate(cluster_multi = factor(cluster_multi, levels = c("Low", "Medium", "High")))
+
+ggplot(plot_data, aes(x = R2, y = pct_change)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey60", linewidth = 0.4) +
+  geom_point(aes(colour = cluster_multi), size = 3) +
+  geom_smooth(method = "lm", se = TRUE,
+              colour = "grey30", fill = "grey80",
+              linewidth = 0.7, linetype = "dotted") +
+  geom_text_repel(aes(label = site), size = 2.8, colour = "grey30",
+                  max.overlaps = 15) +
+  scale_colour_manual(values = cluster_colours, na.value = "grey50") +
+  facet_wrap(~ scenario, ncol = 3) +
+  labs(
+    x      = "R² (leave-one-year-out, summer)",
+    y      = "% change in mean summer GPP relative to observed",
+    colour = "VPD sensitivity"
+  ) +
+  theme_bw() +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold"),
+    legend.position  = "top",
+    panel.grid       = element_blank(),
+    panel.border     = element_rect(colour = "black", fill = NA)
+  )
+```
+
+
 
