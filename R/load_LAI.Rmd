@@ -153,50 +153,5 @@ ggplot(all_sites, aes(x = reorder(site, LAI_filled, FUN = median, na.rm = TRUE),
   theme_classic()
 ```
 
-Whittaker biome plot
 
-```{r}
-library(plotbiomes)
-```
-
-```{r}
-#convert precipitation to cm from mm
-
-site_slopes$map_cm <- site_slopes$map / 10
-
-library(plotbiomes)
-library(ggplot2)
-
-ggplot() +
-  whittaker_base_plot() +
-  geom_point(data = site_slopes,
-             aes(x = mat, y = map_cm),
-             size = 3) +
-  theme_classic()
-```
-
-```{r}
-
-ggplot() +
-  whittaker_base_plot() +
-  geom_point(data = site_slopes,
-             aes(x = mat, y = map_cm, colour = cluster_slope),
-             size = 3) +
-  theme_classic() +
-  theme(panel.grid = element_blank(),
-        panel.background = element_rect(fill = "white", colour = NA),
-        plot.background = element_rect(fill = "white", colour = NA))
-```
-3 - high sensitivity
-2 - moderate
-1 - low
-
-```{r}
-ls("package:plotbiomes")
-```
-
-```{r}
-ggsave("whittaker_plot.png", width = 10, height = 8, dpi = 300)
-
-```
 
