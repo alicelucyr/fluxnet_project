@@ -780,4 +780,24 @@ all_scenarios %>%
   pivot_wider(names_from = scenario, values_from = pct_extreme)
 ```
 
+```{r}
+r2_loyo <- all_scenarios %>%
+  filter(scenario == "Observed") %>%
+  group_by(site) %>%
+  summarise(
+    R2   = cor(GPP_obs, GPP_pred, use = "complete.obs")^2,
+    RMSE = sqrt(mean((GPP_obs - GPP_pred)^2, na.rm = TRUE)),
+    .groups = "drop"
+  ) %>%
+  mutate(site = factor(site, levels = wet_to_dry_order))
+
+ggplot(r2_loyo, aes(x = site, y = R2)) +
+  geom_col(width = 0.7, fill = "#4682B4") +
+  geom_text(aes(label = round(R2, 2)), hjust = -0.2, size = 3, colour = "grey30") +
+  coord_flip(clip = "off") +
+  scale_y_continuous(limits = c(0, 1.05)) +
+  labs(x = NULL, y = "R² — leave-one-year-out (out-of-sample)") +
+  theme_classic() +
+  theme(axis.text.y = element_text(size = 10))
+```
 
