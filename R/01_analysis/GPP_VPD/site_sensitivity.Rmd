@@ -121,56 +121,6 @@ walk(plots, print)
 
 ```
 
-```{r}
-library(ggplot2)
-library(dplyr)
-
-# ── Join cluster labels onto clouds and fitted lines ──────────────────────────
-cluster_labels <- site_slopes %>%
-  select(site, cluster_multi, vpd_at_peak)
-
-all_clouds_clustered <- all_clouds %>%
-  left_join(cluster_labels, by = "site") %>%
-  filter(!is.na(cluster_multi))
-
-fitted_lines_clustered <- fitted_lines %>%
-  left_join(cluster_labels, by = "site") %>%
-  filter(!is.na(cluster_multi))
-
-# Fix factor order
-all_clouds_clustered$cluster_multi  <- factor(all_clouds_clustered$cluster_multi,  levels = c("low", "medium", "high"))
-fitted_lines_clustered$cluster_multi <- factor(fitted_lines_clustered$cluster_multi, levels = c("low", "medium", "high"))
-
-cluster_colours <- c(
-  "low"    = "steelblue",
-  "medium" = "orange",
-  "high"   = "firebrick"
-)
-
-# ── Plot: raw points + per-site slope lines, faceted by cluster ───────────────
-ggplot(all_clouds_clustered, aes(x = VPD, y = gpp_norm)) +
-  geom_point(aes(colour = cluster_multi),
-             size = 0.3, alpha = 0.15) +
-  geom_line(data  = fitted_lines_clustered,
-            aes(x = vpd_mid, y = fitted, group = site, colour = cluster_multi),
-            linewidth = 0.6, alpha = 0.7) +
-  geom_smooth(method = "lm", se = TRUE,
-              colour = "black", fill = "grey30",
-              linewidth = 1, alpha = 0.2) +
-  scale_colour_manual(values = cluster_colours) +
-  facet_wrap(~ cluster_multi, ncol = 3) +
-  coord_cartesian(ylim = c(0, 1.5)) +
-  labs(x = "VPD (kPa)", y = "Normalised GPP", colour = "Cluster") +
-  theme_classic() +
-  theme(
-    strip.background = element_blank(),
-    strip.text       = element_text(face = "bold"),
-    legend.position  = "none"
-  )
-```
-
-
-
 
 ```{r}
 # Check GPP distribution per site
@@ -423,35 +373,9 @@ site_slopes <- site_slopes %>%
 
 Is cluster membership non-random?
 
-Categorical (climate, PFT) = Fisher's exact test
-
-```{r}
-# Fisher's exact test (better than chi-square for small n)
-fisher.test(table(site_slopes$cluster_multi, site_slopes$PFT), simulate.p.value = TRUE)
-fisher.test(table(site_slopes$cluster_multi, site_slopes$koppen_climate), simulate.p.value = TRUE)
-
-# look at the raw counts too
-table(site_slopes$cluster_multi, site_slopes$PFT)
-table(site_slopes$cluster_multi, site_slopes$koppen_climate)
-```
-
-
-
-```{r}
-# Kruskal-Wallis (non-parametric ANOVA — better than ANOVA for small n)
-kruskal.test(MAP ~ cluster_multi, data = site_slopes)
-kruskal.test(MAT ~ cluster_multi, data = site_slopes)
-kruskal.test(MAL ~ cluster_multi, data = site_slopes)
-
-# If significant, follow up with pairwise Wilcoxon to see which clusters differ
-pairwise.wilcox.test(site_slopes$MAP, site_slopes$cluster_multi, p.adjust.method = "bonferroni")
-pairwise.wilcox.test(site_slopes$MAT, site_slopes$cluster_multi, p.adjust.method = "bonferroni")
-pairwise.wilcox.test(site_slopes$MAL, site_slopes$cluster_multi, p.adjust.method = "bonferroni")
-```
-
 ```{r}
 site_slopes <- site_slopes %>%
-  mutate(cluster_multi = factor(cluster_multi, levels = c("low", "medium", "high")))
+  mutate(cluster_multi = factor(cluster_multi, levels = c("Low", "Medium", "High")))
 
 library(ggplot2)
 
@@ -545,21 +469,6 @@ unique(site_slopes$cluster_multi)
 
 
 ```{r}
-library(ape)
-
-# build inverse distance weight matrix
-coords  <- site_slopes %>% filter(!is.na(slope)) %>% select(lon, lat) %>% as.matrix()
-slopes  <- site_slopes %>% filter(!is.na(slope)) %>% pull(slope)
-
-dist_mat    <- as.matrix(dist(coords))
-weight_mat  <- 1 / dist_mat
-diag(weight_mat) <- 0
-
-# run Moran's I
-Moran.I(slopes, weight_mat)
-```
-
-```{r}
 library(ggplot2)
 
 # map of sites coloured by sensitivity cluster
@@ -567,10 +476,11 @@ site_slopes %>%
   filter(!is.na(slope)) %>%
   ggplot(aes(x = lon, y = lat, colour = cluster_multi, size = abs(slope))) +
   geom_point() +
-  scale_colour_manual(values = c("low" = "steelblue", "medium" = "orange", "high" = "firebrick")) +
+  scale_colour_manual(values = c("Low" = "steelblue", "Medium" = "orange", "High" = "firebrick")) +
   labs(x = "Longitude", y = "Latitude", colour = "Sensitivity", size = "|Slope|",
        title = "Spatial distribution of GPP~VPD sensitivity") +
   theme_classic()
+
 ```
 Observed value is above expected and the difference is significant. Sensitivity does cluster spatially. Sites that are geographically close tend to have similar GPP ~ VPD responses.
 
@@ -593,13 +503,15 @@ ggplot() +
              alpha = 0.9) +
   ggrepel::geom_text_repel(data = site_slopes,
                             aes(x = lon, y = lat, label = site), size = 3) +
-  scale_colour_manual(values = c("low" = "steelblue",
-                                 "medium" = "orange", 
-                                 "high" = "firebrick")) +
+  scale_colour_manual(values = c("Low" = "steelblue",
+                                 "Medium" = "orange", 
+                                 "High" = "firebrick")) +
   labs(x = "Longitude", y = "Latitude",
        colour = "VPD Sensitivity", size = "|Slope|") +
   theme_classic()
+
 ```
+
 ```{r}
 library(plotbiomes)
 library(ggplot2)
@@ -615,9 +527,9 @@ whittaker_base_plot() +
                   aes(x = MAT, y = map_cm, label = site),
                   size = 3,
                   max.overlaps = 20) +
-  scale_colour_manual(values = c("low"    = "steelblue",
-                                 "medium" = "orange",
-                                 "high"   = "firebrick"),
+  scale_colour_manual(values = c("Low"    = "steelblue",
+                                 "Medium" = "orange",
+                                 "High"   = "firebrick"),
                       name = "VPD Sensitivity") +
   labs(x = "Mean Annual Temperature (°C)",
        y = "Mean Annual Precipitation (cm)") +
