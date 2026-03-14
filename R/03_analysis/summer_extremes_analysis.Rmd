@@ -328,4 +328,57 @@ Wom %>%
   ) %>%
   print(n = Inf)
 ```
+```{r}
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(purrr)
+library(patchwork)
+
+long_term_sites <- c("How", "Tum", "Wom", "Asm", "Cpr")
+group1 <- c("How", "Tum")
+group2 <- c("Wom", "Asm", "Cpr")
+
+# ── Prepare summer daily data ─────────────────────────────────────────────────
+lt_daily <- map_dfr(long_term_sites, function(s) {
+  sites_daily[[s]] %>%
+    mutate(
+      site        = s,
+      date        = as.Date(date),
+      month       = month(date),
+      year        = year(date),
+      summer_year = if_else(month == 12, year + 1L, year)
+    )
+})
+
+# ── Mean annual VPD per site per year (whole year, not just summer) ───────────
+annual_vpd <- lt_daily %>%
+  group_by(site, year) %>%
+  summarise(mean_vpd = mean(VPD, na.rm = TRUE), .groups = "drop") %>%
+  filter(is.finite(mean_vpd))
+
+# ── Plot function ─────────────────────────────────────────────────────────────
+plot_annual_vpd <- function(data, sites) {
+  data %>%
+    filter(site %in% sites) %>%
+    mutate(site = factor(site, levels = sites)) %>%
+    ggplot(aes(x = year, y = mean_vpd)) +
+    geom_line(colour = "grey60", linewidth = 0.5) +
+    geom_point(colour = "#4682B4", size = 2) +
+    geom_smooth(method = "lm", se = TRUE,
+                colour = "#E06C4B", fill = "#E06C4B",
+                alpha = 0.15, linewidth = 0.7, linetype = "dashed") +
+    facet_wrap(~ site, ncol = 1, scales = "free_y") +
+    labs(x = NULL, y = "Mean annual VPD (kPa)") +
+    theme_classic() +
+    theme(
+      strip.background = element_blank(),
+      strip.text       = element_text(face = "bold")
+    )
+}
+
+# ── Print both groups ─────────────────────────────────────────────────────────
+print(plot_annual_vpd(annual_vpd, group1))
+print(plot_annual_vpd(annual_vpd, group2))
+```
 
