@@ -1014,9 +1014,9 @@ library(ggplot2)
 library(tidyr)
 library(ggrepel)
 
-# ── Plot 1: R² per site (full year and summer) ────────────────────────────────
+# ── Plot 1: R² per site (full year only) ─────────────────────────────────────
 
-r2_fullyear <- all_scenarios %>%
+r2_loyo <- all_scenarios %>%
   filter(scenario == "Observed") %>%
   group_by(site) %>%
   summarise(
@@ -1024,42 +1024,23 @@ r2_fullyear <- all_scenarios %>%
     RMSE = sqrt(mean((GPP_obs - GPP_pred)^2, na.rm = TRUE)),
     .groups = "drop"
   ) %>%
-  mutate(site = factor(site, levels = wet_to_dry_order),
-         period = "Full year")
+  mutate(site = factor(site, levels = wet_to_dry_order))
 
-r2_summer <- all_scenarios %>%
-  filter(scenario == "Observed", summer) %>%
-  group_by(site) %>%
-  summarise(
-    R2   = cor(GPP_obs, GPP_pred, use = "complete.obs")^2,
-    RMSE = sqrt(mean((GPP_obs - GPP_pred)^2, na.rm = TRUE)),
-    .groups = "drop"
-  ) %>%
-  mutate(site = factor(site, levels = wet_to_dry_order),
-         period = "Summer only")
-
-r2_combined <- bind_rows(r2_fullyear, r2_summer) %>%
-  mutate(period = factor(period, levels = c("Full year", "Summer only")))
-
-ggplot(r2_combined, aes(x = site, y = R2, fill = period)) +
-  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
-  geom_text(aes(label = round(R2, 2)),
-            position = position_dodge(width = 0.7),
-            hjust = -0.15, size = 2.8, colour = "grey30") +
+ggplot(r2_loyo, aes(x = site, y = R2)) +
+  geom_col(width = 0.7, fill = "#4682B4") +
+  geom_text(aes(label = round(R2, 2)), hjust = -0.2, size = 3, colour = "grey30") +
   coord_flip(clip = "off") +
   scale_y_continuous(limits = c(0, 1.1)) +
-  scale_fill_manual(values = c("Full year" = "#4682B4", "Summer only" = "#76B7C8")) +
-  labs(x = NULL, y = "R² — leave-one-year-out (out-of-sample)", fill = NULL) +
+  labs(x = NULL, y = "R² — leave-one-year-out (out-of-sample)") +
   theme_classic() +
   theme(
-    legend.position  = "top",
-    axis.text.y      = element_text(size = 10)
+    legend.position = "top",
+    axis.text.y     = element_text(size = 10)
   )
 
-# ── Plot 2: % change in GPP per scenario per site ─────────────────────────────
+# ── Plot 2: % change in annual GPP per scenario per site ─────────────────────
 
-# Annual GPP change (whole year)
-pct_annual <- all_scenarios %>%
+scenario_summary_long <- all_scenarios %>%
   group_by(site, scenario) %>%
   summarise(mean_GPP = mean(GPP_pred, na.rm = TRUE), .groups = "drop") %>%
   pivot_wider(names_from = scenario, values_from = mean_GPP) %>%
@@ -1072,35 +1053,14 @@ pct_annual <- all_scenarios %>%
   pivot_longer(cols = ends_with("days"),
                names_to  = "scenario",
                values_to = "pct_change") %>%
-  mutate(period = "Full year")
-
-# Summer GPP change only
-pct_summer <- all_scenarios %>%
-  filter(summer) %>%
-  group_by(site, scenario) %>%
-  summarise(mean_GPP = mean(GPP_pred, na.rm = TRUE), .groups = "drop") %>%
-  pivot_wider(names_from = scenario, values_from = mean_GPP) %>%
-  mutate(
-    "+15% extreme days" = (`+15% extreme days` - Observed) / Observed * 100,
-    "+30% extreme days" = (`+30% extreme days` - Observed) / Observed * 100,
-    "+50% extreme days" = (`+50% extreme days` - Observed) / Observed * 100
-  ) %>%
-  select(site, `+15% extreme days`, `+30% extreme days`, `+50% extreme days`) %>%
-  pivot_longer(cols = ends_with("days"),
-               names_to  = "scenario",
-               values_to = "pct_change") %>%
-  mutate(period = "Summer only")
-
-pct_combined <- bind_rows(pct_annual, pct_summer) %>%
   mutate(
     scenario = factor(scenario, levels = c("+15% extreme days",
                                            "+30% extreme days",
                                            "+50% extreme days")),
-    period = factor(period, levels = c("Full year", "Summer only")),
-    site   = factor(site, levels = wet_to_dry_order)
+    site = factor(site, levels = wet_to_dry_order)
   )
 
-ggplot(pct_combined, aes(x = site, y = pct_change, fill = scenario)) +
+ggplot(scenario_summary_long, aes(x = site, y = pct_change, fill = scenario)) +
   geom_col(position = position_dodge(width = 0.7), width = 0.6) +
   geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
   scale_fill_manual(values = c(
@@ -1109,18 +1069,15 @@ ggplot(pct_combined, aes(x = site, y = pct_change, fill = scenario)) +
     "+50% extreme days" = "#8B1A1A"
   )) +
   coord_flip() +
-  facet_wrap(~ period, ncol = 2) +
   labs(
     x    = NULL,
-    y    = "% change in mean GPP relative to observed",
+    y    = "% change in mean annual GPP relative to observed",
     fill = "Extreme VPD scenario"
   ) +
   theme_classic() +
   theme(
-    legend.position  = "top",
-    axis.text.y      = element_text(size = 10),
-    strip.background = element_blank(),
-    strip.text       = element_text(face = "bold")
+    legend.position = "top",
+    axis.text.y     = element_text(size = 10)
   )
 
 # ── Plot 3: R² vs % change coloured by cluster group ─────────────────────────
