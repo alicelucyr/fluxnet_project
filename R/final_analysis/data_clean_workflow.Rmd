@@ -1,0 +1,479 @@
+---
+title: "02_site_analysis"
+output: html_document
+date: "2026-02-09"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Updated data cleaning pipeline:
+1. Load in flux data
+2. store in sites_clean
+3. Remove -9999 values
+4. Filter low coverage days
+5. Convert to daily
+6. NaN back to NA
+7. Growing season filter
+
+```{r}
+rm(list = ls())
+```
+
+```{r}
+library(tidyverse)
+read_flux <- function(fname) {
+  
+  #Ensure it reads one file at a time
+  if (length(fname) != 1) {
+    stop("read_flux() expects a single filename")
+  }
+  
+  df <- read.csv(fname)
+  
+  #extract site code from file name
+  base <- basename(fname)
+  no_ext <- gsub("\\.csv$", "", base)
+  
+ site <- regmatches(
+  no_ext,
+  regexpr("[A-Z]{2}-[A-Za-z]{2,3}[0-9]?", no_ext)
+)
+ 
+ if(length(site) == 0) {
+   stop(paste("Could not extract site code from filename:", base))
+ }
+ 
+  #add site column
+  df$site <- site
+  
+   # Convert TIMESTAMP_START to datetime and set as index
+  df <- df %>%
+    mutate(date = ymd_hm(TIMESTAMP_START)) %>%
+    select(-TIMESTAMP_START, -TIMESTAMP_END) %>%
+    relocate(date)
+
+  df <- df %>%
+    mutate(
+      year = year(date),
+      doy = yday(date),
+      hod = hour(date)
+    )
+  
+#renaming some variables
+  
+   df <- df %>%
+    rename(
+      GPP = GPP_NT_VUT_REF,
+      Qle = LE_F_MDS,
+      Precip = P_ERA,
+      Tair = TA_F_MDS,
+      SW_rad = SW_IN_F_MDS,
+      Rn = NETRAD,
+      Pa = PA_F,
+      VPD = VPD_F_MDS
+    )
+
+  vars_to_keep <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "VPD", "Precip", "Pa", "Rn")
+  df <- df %>% select(date, all_of(vars_to_keep), year, doy, hod, site)
+  
+  return(df)
+  
+}
+```
+
+Load in 21 sites across Aus
+```{r}
+How <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-How_FLUXNET2015_FULLSET_HH_2001-2014_1-4.csv")
+
+Dap <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-DaP_FLUXNET2015_FULLSET_HH_2007-2013_2-4.csv")
+
+Das <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-DaS_FLUXNET2015_FULLSET_HH_2008-2014_2-4.csv")
+
+Dry <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Dry_FLUXNET2015_FULLSET_HH_2008-2014_2-4.csv")
+
+Stp <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Stp_FLUXNET2015_FULLSET_HH_2008-2014_1-4.csv")
+
+Emr <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Emr_FLUXNET2015_FULLSET_HH_2011-2013_1-4.csv")
+
+Fog <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Fog_FLUXNET2015_FULLSET_HH_2006-2008_1-4.csv")
+
+Gin <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Gin_FLUXNET2015_FULLSET_HH_2011-2014_1-4.csv")
+
+Gww <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-GWW_FLUXNET2015_FULLSET_HH_2013-2014_1-4.csv")
+
+Rdf <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-RDF_FLUXNET2015_FULLSET_HH_2011-2013_1-4.csv")
+
+Rig <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Rig_FLUXNET2015_FULLSET_HH_2011-2014_2-4.csv")
+
+Wac <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Wac_FLUXNET2015_FULLSET_HH_2005-2008_1-4.csv")
+
+Whr <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Whr_FLUXNET2015_FULLSET_HH_2011-2014_2-4.csv")
+
+Ync <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Ync_FLUXNET2015_FULLSET_HH_2012-2014_1-4.csv")
+
+Rob <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Rob_FLUXNET2015_FULLSET_HH_2014-2014_1-4.csv")
+
+Ade <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Ade_FLUXNET2015_FULLSET_HH_2007-2009_1-4.csv")
+
+Boy <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/TERN/TERN_AU-Boy_FLUXNET_FLUXMET_HH_2017-2024_v1.3_r1.csv")
+
+Wom <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/TERN/TERN_AU-Wom_FLUXNET_FLUXMET_HH_2010-2024_v1.3_r1.csv")
+
+Cpr <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/TERN/TERN_AU-Cpr_FLUXNET_FLUXMET_HH_2010-2024_v1.3_r1.csv")
+
+Asm <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/TERN/TERN_AU-ASM_FLUXNET_FLUXMET_HH_2010-2024_v1.3_r1.csv")
+
+Cum <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/TERN/TERN_AU-Cum_FLUXNET_FLUXMET_HH_2014-2024_v1.3_r1.csv")
+
+Tum <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/hourly_2/FLX_AU-Tum_FLUXNET2015_FULLSET_HR_2001-2014_2-4.csv") #remember AU-Tum is hourly
+
+```
+
+Remove -9999 values:
+
+```{r}
+#make a function that removes -9999 values to NA
+
+flux_vars <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "Precip", "Pa", "VPD")
+
+flux_nas <- function(df, flux_vars, na_vals = c(-9999, -9999.9)) {
+  df %>%
+    mutate(across(
+      all_of(flux_vars),
+      ~replace(., . %in% na_vals, NA)
+    ))
+}
+```
+
+
+```{r}
+#names of datasets I have loaded in so R knows what I'm yapping about
+
+site_names <- c("How", "Das", "Dap", "Dry", "Stp", "Asm", "Cum", "Emr", "Fog", "Gin", "Gww", "Rdf", "Rig", "Wac", "Whr", "Wom", "Ync", "Cpr", "Tum", "Rob", "Ade", "Boy")
+
+#pulls the objects from the environment - sites is a list of dataframes
+sites <- mget(site_names)
+
+#sites_clean is another list of dataframes, every -9999 has been replaced by NA, only work with site_clean now
+sites_clean <- map(sites, ~flux_nas(.x, flux_vars))
+
+```
+
+
+Filter low coverage days:
+
+```{r}
+
+library(dplyr)
+library(lubridate)
+library(purrr)
+
+filter_low_coverage_days <- function(df, min_frac = 0.8, steps_per_day = 48) {
+
+  min_steps <- ceiling(min_frac * steps_per_day)
+
+  df %>%
+    group_by(date = floor_date(date, "day")) %>%
+    filter(n() >= min_steps) %>%
+    ungroup()
+}
+
+sites_clean <- sites_clean %>%
+  imap(~ filter_low_coverage_days(.x, steps_per_day = if (.y=="Tum") 24 else 48))
+
+#Basically saying if it is Tum, it is hourly, so should be 24 not 48. There might be a quicker way to do this, but this is what it will be for now. For reproducibility, just plonk in the known hourly sites into this part. 
+  
+```
+
+So all the cleaned AU dataframes are in the object sites_clean. The external site in the environment is the raw data
+
+Convert to daily:
+
+```{r}
+####
+##  Convert the 30 min to daily ... someone should add something to check
+##. if the data is hourly ...
+##
+##
+##  author: Martin De Kauwe
+##  date: 27th February, 2025
+##  email: mdekauwe@gmail.com
+####
+library(tidyverse)
+
+convert_to_daily <- function(df) {
+
+  # Conversion constants
+  UMOL_TO_MOL <- 1E-6
+  MOL_C_TO_GRAMS_C <- 12.0
+  SEC_2_HLFHOUR <- 1800.
+  WM2_TO_KG_M2_S <- 1.0 / ( 2.45 * 1E6 )
+  PA_2_KPA = 0.001
+  HPA_2_KPA = 0.1
+
+  df <- df %>%
+    mutate(
+      GPP = GPP * UMOL_TO_MOL * MOL_C_TO_GRAMS_C * SEC_2_HLFHOUR,
+      ET = Qle * WM2_TO_KG_M2_S * SEC_2_HLFHOUR,
+      VPD = VPD * HPA_2_KPA
+    )
+
+
+  # Resample to daily
+  #I have added in GPP_n_valid - basically tracks how many values are valid (should be 48 or 24 with Tum), if a day has a lot of missing GPP, the daily total sum may be smaller than it actually is, producing an underestimated GPP
+  df <- df %>%
+    mutate(date = floor_date(date, "day")) %>%
+    group_by(date) %>%
+    summarise(
+      GPP_n_valid = sum(!is.na(GPP)),
+      GPP = sum(GPP, na.rm=TRUE),
+      ET = sum(ET, na.rm=TRUE),
+      Precip = sum(Precip, na.rm=TRUE),
+      Qle = mean(Qle, na.rm=TRUE),
+      Tair = mean(Tair, na.rm=TRUE),
+      SW_rad = mean(SW_rad, na.rm=TRUE),
+      Rn = mean(Rn, na.rm=TRUE),
+      Pa = mean(Pa, na.rm=TRUE),
+      VPD = mean(VPD, na.rm=TRUE),
+      .groups = "drop"
+    )
+
+  return(df)
+}
+```
+
+Convert hourly to daily (AU_Tum)
+```{r}
+library(tidyverse)
+library(lubridate)
+
+convert_hourly_to_daily <- function(df) {
+
+  # Conversion constants
+  UMOL_TO_MOL <- 1E-6
+  MOL_C_TO_GRAMS_C <- 12.0
+  SEC_2_HOUR <- 3600.
+  WM2_TO_KG_M2_S <- 1.0 / (2.45 * 1E6)
+  PA_2_KPA <- 0.001
+  HPA_2_KPA <- 0.1
+
+  df <- df %>%
+    mutate(
+      GPP = GPP * UMOL_TO_MOL * MOL_C_TO_GRAMS_C * SEC_2_HOUR,
+      ET = Qle * WM2_TO_KG_M2_S * SEC_2_HOUR,
+      VPD = VPD * HPA_2_KPA
+    )
+
+  # Resample to daily
+  df <- df %>%
+    mutate(date = floor_date(date, "day")) %>%
+    group_by(date) %>%
+    summarise(
+      GPP_n_valid = sum(!is.na(GPP)),
+      GPP = sum(GPP, na.rm = TRUE),
+      ET = sum(ET, na.rm = TRUE),
+      Precip = sum(Precip, na.rm = TRUE),
+      Qle = mean(Qle, na.rm = TRUE),
+      Tair = mean(Tair, na.rm = TRUE),
+      SW_rad = mean(SW_rad, na.rm = TRUE),
+      Rn = mean(Rn, na.rm = TRUE),
+      Pa = mean(Pa, na.rm = TRUE),
+      VPD = mean(VPD, na.rm = TRUE),
+      .groups = "drop"
+    )
+
+  return(df)
+}
+
+```
+
+```{r}
+#so basically, apply hourly to daily if it equals Tum, but if not apply half-hourly to daily conversion. Save in a list called sites_daily
+
+sites_daily <- sites_clean %>%
+  imap(~ if (.y == "Tum") {
+    convert_hourly_to_daily(.x)
+  } else {
+    convert_to_daily(.x)
+  })
+```
+
+```{r}
+plot(sites_daily$Boy$date, sites_daily$Boy$GPP)
+```
+
+```{r}
+#convert everything back to NA
+
+sites_daily <- sites_daily %>%
+  map(~ .x %>% mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .))))
+
+```
+
+Growing season:
+
+```{r}
+#growing season - for now, it is going to be above a certain temp threshold 5°C and above a short-wave radiation threshold
+
+filter_gs <- function(df) {
+  df %>%
+    filter(
+      GPP > 0
+    )
+}
+
+sites_daily <- sites_daily %>%
+  map(filter_gs)
+```
+
+Add in water stress component (pet and cwd) and leaf chlorophyll content (LCC)
+```{r}
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(zoo)
+library(mgcv)
+library(lattice)
+
+priestley_taylor_pet <- function(Rn, Tair, P) {
+  
+  alpha = 1.26      # PT constant
+  cp <- 1.013e-3    # Specific heat of air (MJ/kg°C)
+  epsilon <- 0.622  # Ratio of molecular weights of water vapor to dry air
+  lambda <- 2.45    # Latent heat of vaporization (MJ/kg)
+  G = 0             # Going to assume no ground heat flux on daily timescales
+  
+  # Psychrometric constant (kPa/°C)
+  gamma <- (cp * P) / (epsilon * lambda)
+  
+  # Saturation vapor pressure (kPa)
+  es <- 0.6108 * exp((17.27 * Tair) / (Tair + 237.3))
+  
+  # Slope of saturation vapor pressure curve (kPa/°C)
+  delta <- (4098 * es) / ((Tair+ 237.3)^2)
+  
+  # Priestley-Taylor PET calculation (mm/day)
+  pet <- alpha * (delta / (delta + gamma)) * ((Rn - G) / (lambda * 1e6)) * 86400
+
+  return(pet)
+}
+
+sites_daily <- sites_daily %>%
+  map(~ .x %>%
+        mutate(
+          pet = priestley_taylor_pet(Rn, Tair, Pa),
+          cwd = pet - ET
+        ))
+ 
+```
+
+```{r}
+library(dplyr)
+library(lubridate)
+
+# Define a function to add year and day-of-year
+add_year_doy <- function(df) {
+  df %>%
+    mutate(
+      year = year(date),
+      doy  = yday(date)
+    )
+}
+
+sites_daily <- sites_daily %>%
+  map(add_year_doy)
+```
+
+```{r}
+library(dplyr)
+library(lubridate)
+library(purrr)
+library(terra)
+library(ncdf4)
+
+gome_file <- "/Users/alicerolfe/year_4_project/fluxnet_project/Data/GOME2_VcmaxTg_05deg.tif"
+vcmax_raster <- rast(gome_file)
+
+lcc_nc <- "/Users/alicerolfe/year_4_project/fluxnet_project/Chl_2003_2011_weeklyAll_01Deg_sf100.nc"
+
+# --- 1. Functions to get VCmax and daily LCC ---
+get_vcmax <- function(lat, lon, vcmax_raster) {
+  coords <- data.frame(lon = lon, lat = lat)
+  vcmax <- terra::extract(vcmax_raster, coords)
+  as.numeric(vcmax[1,2])
+}
+
+latlon_to_line_sample <- function(lat, lon, nlines = 1800, nsamples = 3600) {
+  lat_res <- 180 / nlines  
+  line <- round((90 - lat) / lat_res)
+  lon_res <- 360 / nsamples
+  sample <- round((lon + 180) / lon_res)
+  list(
+    line   = pmin(pmax(line, 1), nlines),
+    sample = pmin(pmax(sample, 1), nsamples)
+  )
+}
+
+get_daily_LCC <- function(lcc_nc, lat, lon) {
+  nc <- nc_open(lcc_nc)
+  coords <- latlon_to_line_sample(lat, lon)
+  
+  pixel <- ncvar_get(nc, "chl_all",
+                     start = c(coords$line, coords$sample, 1, 1),
+                     count = c(1, 1, -1, -1))
+  
+  fillvalue <- ncatt_get(nc, "chl_all", "_FillValue")$value
+  pixel[pixel == fillvalue] <- NA
+  nc_close(nc)
+  
+  LCC <- pixel / 100
+  weekly_clim <- rowMeans(LCC, na.rm = TRUE)
+  
+  weeks <- 1:length(weekly_clim)
+  daily_weeks <- seq(1, max(weeks), by = 1/7)
+  approx(weeks, weekly_clim, xout = daily_weeks)$y
+}
+
+# --- 2. Function to attach VCmax and LCC to a site dataframe ---
+attach_site_data <- function(df, lat, lon, vcmax_raster, lcc_nc) {
+  vcmax_val <- get_vcmax(lat, lon, vcmax_raster)
+  daily_LCC <- get_daily_LCC(lcc_nc, lat, lon)  # ~365 values
+  
+  df %>%
+    mutate(
+      vcmax = vcmax_val,
+      LCC_daily = daily_LCC[yday(date)],  # index by actual DOY
+      year = year(date),
+      doy = yday(date)
+    )
+}
+
+# --- 3. Map over sites_daily using site metadata ---
+site_meta <- tibble(
+  name = names(sites_daily),
+  lat  = c(-12.4943, 14.1593, -14.0633, -15.2588, -17.1507, -22.2830, -33.6152, -23.8587, -12.5452, -31.3764, -30.1913, -14.5636, -36.6499, -37.4259, -36.6732, -37.4222, -34.9893, -34.0021, -35.6566, -17.1175, -13.0769, -32.4771),
+  lon  = c(131.1523, 131.3881, 131.3181, 132.3706, 133.3502, 133.2490, 150.7236, 148.4746, 131.3072, 115.7138, 120.6541, 132.4776, 145.5759, 145.1878, 145.0294, 144.0944, 146.2907, 140.5891, 148.1517, 145.6301, 131.1178, 116.9386) 
+
+)
+sites_daily <- pmap(
+  list(sites_daily, site_meta$lat, site_meta$lon),
+  function(df, lat, lon) attach_site_data(df, lat, lon, vcmax_raster, lcc_nc)
+)
+
+```
+
+```{r}
+list2env(
+  setNames(sites_daily, paste0(names(sites_daily), "_daily")),
+  envir = .GlobalEnv
+)
+```
+
+
+```{r}
+wet_to_dry_order <- c("Wac", "Rob", "How", "Das", "Fog", "Ade", "Dap", "Rdf", "Tum", "Dry", "Cum", "Wom", "Stp", "Gin", "Emr", "Boy", "Rig", "Whr", "Gww", "Ync", "Cpr", "Asm")
+```
+
+
