@@ -503,7 +503,4 @@ ggplot(canopy_order, aes(x = reorder(site, desc(max_LAI)), y = max_LAI)) +
   theme_classic()
 ```
 
-```{r}
-LAI_order <- c("Tum", "Wom", "Rob", "Wac", "Rig", "Dap", "How", "Fog", "Das", "Cum", "Ade", "Dry", "Rdf", "Whr", "Emr", "Boy", "Stp", "Gin", "Ync", "Cpr", "Asm", "Gww")
-```
 
