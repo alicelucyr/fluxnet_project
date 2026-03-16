@@ -16,6 +16,7 @@ Updated data cleaning pipeline:
 5. Convert to daily
 6. NaN back to NA
 7. Growing season filter
+8. Add in pet and cwd 
 
 ```{r}
 rm(list = ls())
@@ -328,7 +329,7 @@ sites_daily <- sites_daily %>%
   map(filter_gs)
 ```
 
-Add in water stress component (pet and cwd) and leaf chlorophyll content (LCC)
+Add in water stress component (pet and cwd) 
 ```{r}
 library(tidyverse)
 library(caret)
@@ -386,83 +387,6 @@ sites_daily <- sites_daily %>%
   map(add_year_doy)
 ```
 
-```{r}
-library(dplyr)
-library(lubridate)
-library(purrr)
-library(terra)
-library(ncdf4)
-
-gome_file <- "/Users/alicerolfe/year_4_project/fluxnet_project/Data/GOME2_VcmaxTg_05deg.tif"
-vcmax_raster <- rast(gome_file)
-
-lcc_nc <- "/Users/alicerolfe/year_4_project/fluxnet_project/Chl_2003_2011_weeklyAll_01Deg_sf100.nc"
-
-# --- 1. Functions to get VCmax and daily LCC ---
-get_vcmax <- function(lat, lon, vcmax_raster) {
-  coords <- data.frame(lon = lon, lat = lat)
-  vcmax <- terra::extract(vcmax_raster, coords)
-  as.numeric(vcmax[1,2])
-}
-
-latlon_to_line_sample <- function(lat, lon, nlines = 1800, nsamples = 3600) {
-  lat_res <- 180 / nlines  
-  line <- round((90 - lat) / lat_res)
-  lon_res <- 360 / nsamples
-  sample <- round((lon + 180) / lon_res)
-  list(
-    line   = pmin(pmax(line, 1), nlines),
-    sample = pmin(pmax(sample, 1), nsamples)
-  )
-}
-
-get_daily_LCC <- function(lcc_nc, lat, lon) {
-  nc <- nc_open(lcc_nc)
-  coords <- latlon_to_line_sample(lat, lon)
-  
-  pixel <- ncvar_get(nc, "chl_all",
-                     start = c(coords$line, coords$sample, 1, 1),
-                     count = c(1, 1, -1, -1))
-  
-  fillvalue <- ncatt_get(nc, "chl_all", "_FillValue")$value
-  pixel[pixel == fillvalue] <- NA
-  nc_close(nc)
-  
-  LCC <- pixel / 100
-  weekly_clim <- rowMeans(LCC, na.rm = TRUE)
-  
-  weeks <- 1:length(weekly_clim)
-  daily_weeks <- seq(1, max(weeks), by = 1/7)
-  approx(weeks, weekly_clim, xout = daily_weeks)$y
-}
-
-# --- 2. Function to attach VCmax and LCC to a site dataframe ---
-attach_site_data <- function(df, lat, lon, vcmax_raster, lcc_nc) {
-  vcmax_val <- get_vcmax(lat, lon, vcmax_raster)
-  daily_LCC <- get_daily_LCC(lcc_nc, lat, lon)  # ~365 values
-  
-  df %>%
-    mutate(
-      vcmax = vcmax_val,
-      LCC_daily = daily_LCC[yday(date)],  # index by actual DOY
-      year = year(date),
-      doy = yday(date)
-    )
-}
-
-# --- 3. Map over sites_daily using site metadata ---
-site_meta <- tibble(
-  name = names(sites_daily),
-  lat  = c(-12.4943, 14.1593, -14.0633, -15.2588, -17.1507, -22.2830, -33.6152, -23.8587, -12.5452, -31.3764, -30.1913, -14.5636, -36.6499, -37.4259, -36.6732, -37.4222, -34.9893, -34.0021, -35.6566, -17.1175, -13.0769, -32.4771),
-  lon  = c(131.1523, 131.3881, 131.3181, 132.3706, 133.3502, 133.2490, 150.7236, 148.4746, 131.3072, 115.7138, 120.6541, 132.4776, 145.5759, 145.1878, 145.0294, 144.0944, 146.2907, 140.5891, 148.1517, 145.6301, 131.1178, 116.9386) 
-
-)
-sites_daily <- pmap(
-  list(sites_daily, site_meta$lat, site_meta$lon),
-  function(df, lat, lon) attach_site_data(df, lat, lon, vcmax_raster, lcc_nc)
-)
-
-```
 
 ```{r}
 list2env(
@@ -471,9 +395,115 @@ list2env(
 )
 ```
 
+Add in LAI data
 
 ```{r}
-wet_to_dry_order <- c("Wac", "Rob", "How", "Das", "Fog", "Ade", "Dap", "Rdf", "Tum", "Dry", "Cum", "Wom", "Stp", "Gin", "Emr", "Boy", "Rig", "Whr", "Gww", "Ync", "Cpr", "Asm")
+library(tidyverse)
+library(data.table)
+library(zoo)
+
+sites_daily <- imap(sites_daily, function(df, name) {
+  df %>% mutate(site = name)
+})
 ```
 
+```{r}
+lai_data <- read.csv("/Users/alicerolfe/year_4_project/fluxnet_project/Data/site_LAI_MCD15A3H_2000_2024_3.csv") %>%
+  mutate(date = as.Date(date, format = "%Y-%m-%d"))
+```
+
+```{r}
+cat("LAI site names:\n")
+print(unique(lai_data$site))
+cat("\nFlux site names:\n")
+print(names(sites_daily))
+```
+
+```{r}
+sites_daily <- map(sites_daily, function(df) {
+  df %>% mutate(date = as.Date(date))
+})
+```
+
+```{r}
+# Step 5: Exact join first to preserve NAs between 4-day obs
+sites_daily <- map(sites_daily, function(df) {
+  site_name <- df$site[1]
+  
+  lai_site <- lai_data %>%
+    filter(site == site_name) %>%
+    select(date, mean) %>%
+    rename(LAI_4day = mean) %>%
+    arrange(date)
+  
+  if (nrow(lai_site) == 0) {
+    warning(paste("No LAI data found for site:", site_name))
+    return(df %>% mutate(LAI_4day = NA_real_, LAI_filled = NA_real_))
+  }
+  
+  # Exact join - non-matching dates get NA, which is what we want
+  left_join(df, lai_site, by = "date")
+})
+
+# Step 6: Interpolate between the 4-day obs
+sites_daily <- map(sites_daily, function(df) {
+  df %>%
+    arrange(date) %>%
+    mutate(LAI_filled = na.approx(LAI_4day, x = date, maxgap = 8, na.rm = FALSE))
+})
+  
+```
+
+```{r}
+# Step 7: Check how many valid LAI days each site has
+walk(names(sites_daily), function(name) {
+  df <- sites_daily[[name]]
+  n_valid <- sum(!is.na(df$LAI_filled))
+  n_total <- nrow(df)
+  cat(sprintf("%s - valid LAI days: %d / %d\n", name, n_valid, n_total))
+})
+
+# Step 8: Visual check - line = interpolated, red dots = raw 4-day obs
+walk(names(sites_daily), function(name) {
+  df <- sites_daily[[name]]
+  plot(df$date, df$LAI_filled,
+       main  = name,
+       xlab  = "Date", 
+       ylab  = "LAI",
+       type  = "l", 
+       col   = "darkgreen",
+       ylim  = range(c(df$LAI_filled, df$LAI_4day), na.rm = TRUE))
+  points(df$date, df$LAI_4day, col = "red", pch = 16, cex = 0.5)
+  legend("topright", 
+         legend = c("Interpolated", "Raw 4-day"),
+         col    = c("darkgreen", "red"), 
+         lty    = c(1, NA), 
+         pch    = c(NA, 16))
+})
+```
+
+```{r}
+# get max LAI per site from sites_daily
+canopy_order <- map_dfr(sites_daily, function(df) {
+  tibble(
+    site = unique(df$site),
+    max_LAI = max(df$LAI_filled, na.rm = TRUE)
+  )
+}) %>%
+  arrange(desc(max_LAI))
+
+print(canopy_order)
+```
+
+```{r}
+ggplot(canopy_order, aes(x = reorder(site, desc(max_LAI)), y = max_LAI)) +
+  geom_point(size = 3) +
+  coord_flip() +
+  labs(x = "Site", y = "Mean LAI") +
+  theme_classic()
+```
+
+```{r}
+LAI_order <- c("Tum", "Wom", "Rob", "Wac", "Rig", "Dap", "How", "Fog", "Das", "Cum", "Ade", "Dry", "Rdf", "Whr", "Emr", "Boy", "Stp", "Gin", "Ync", "Cpr", "Asm", "Gww")
+```
 
