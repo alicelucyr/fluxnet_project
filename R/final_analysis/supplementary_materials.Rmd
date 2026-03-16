@@ -32,18 +32,17 @@ site_meta <- tibble(
                 "Fog", "Gin", "Gww", "Rdf", "Rig", "Wac", "Whr", "Wom",
                 "Ync", "Cpr", "Tum", "Rob", "Ade", "Boy"),
   lat       = c(-12.4943, -14.1593, -14.0633, -15.2588, -17.1507, -22.2830, -33.6152, -23.8587, -12.5452,  -31.3764, -30.1913, -14.5636, -36.6499, -37.4259, -36.6732, -37.4222, -34.9893, -34.0021, -35.6566, -17.1175, -13.0769, -32.4771),
-  lon       = c(131.1523, 131.3881, 131.3181, 132.3706, 133.3502, 133.2490, 150.7236, 148.4746, 131.3072, 115.7138, 120.6541, 132.4776, 145.5759, 145.1878, 145.0294, 144.0944, 146.2907, 140.5891, 148.1517, 145.6301, 131.1178, 116.9386)
+  lon       = c(131.1523, 131.3881, 131.3181, 132.3706, 133.3502, 133.2490, 150.7236, 148.4746, 131.3072, 115.7138, 120.6541, 132.4776, 145.5759, 145.1878, 145.0294, 144.0944, 146.2907, 140.5891, 148.1517, 145.6301, 131.1178, 116.9386),
+PFT              = c("WSA", "SAV", "GRA", "SAV", "GRA", "SAV", "EBF", "GRA",
+                       "WET", "WSA", "SAV", "WSA", "GRA", "EBF", "EBF", "EBF",
+                       "GRA", "SAV", "EBF", "EBF", "WSA", "WSA"),
+
+  koppen           = c("Tropical", "Tropical", "Tropical", "Tropical", "Grassland", "Desert", "Temperate", "Grassland", "Tropical", "Subtropical", "Grassland", "Tropical", "Temperate", "Temperate", "Temperate", "Temperate", "Grassland", "Grassland", "Temperate", "Tropical", "Tropical", "Temperate")
 )
 
-PFT              = c(NA, NA, NA, NA, NA, NA, NA, NA,
-                       NA, NA, NA, NA, NA, NA, NA, NA,
-                       NA, NA, NA, NA, NA, NA),
-  koppen           = c(NA, NA, NA, NA, NA, NA, NA, NA,
-                       NA, NA, NA, NA, NA, NA, NA, NA,
-                       NA, NA, NA, NA, NA, NA),
-  rainfall_season  = c(NA, NA, NA, NA, NA, NA, NA, NA,
-                       NA, NA, NA, NA, NA, NA, NA, NA,
-                       NA, NA, NA, NA, NA, NA)
+```
+
+```{r}
 
 # Map
 
@@ -72,6 +71,54 @@ ggplot() +
     y = "Latitude"
   ) +
   theme_bw()
+```
+
+MAP, MAT and MAL:
+
+```{r}
+site_summary <- map_dfr(sites_daily, function(df) {
+  df %>%
+    group_by(site) %>%
+    summarise(
+      MAT = mean(Tair, na.rm = TRUE),
+      MAP = sum(Precip, na.rm = TRUE) / n_distinct(year),
+      MAL = max(LAI_filled, na.rm = TRUE),
+      .groups = "drop"
+    )
+})
+
+site_meta <- site_meta %>%
+  left_join(site_summary, by = "site")
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(site_meta %>% arrange(desc(MAP)),
+       aes(x = reorder(site, MAP), y = MAP)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +
+  labs(x = NULL, y = "MAP (mm/year)", title = "Mean Annual Precipitation") +
+  theme_bw()
+
+ggplot(site_meta %>% arrange(desc(MAT)),
+       aes(x = reorder(site, MAT), y = MAT)) +
+  geom_bar(stat = "identity", fill = "firebrick") +
+  coord_flip() +
+  labs(x = NULL, y = "MAT (°C)", title = "Mean Annual Temperature") +
+  theme_bw()
+
+ggplot(site_meta %>% arrange(desc(MAL)),
+       aes(x = reorder(site, MAL), y = MAL)) +
+  geom_bar(stat = "identity", fill = "forestgreen") +
+  coord_flip() +
+  labs(x = NULL, y = "MAL (m²/m²)", title = "Maximum Annual LAI") +
+  theme_bw()
+```
+```{r}
+LAI_order <- c("Tum", "Wom", "Rob", "Wac", "Rig", "Dap", "How", "Fog", "Das", "Cum", "Ade", "Dry", "Rdf", "Whr", "Emr", "Boy", "Stp", "Gin", "Ync", "Cpr", "Asm", "Gww")
+
+wet_to_dry_order <- c("Wac", "Rob", "How", "Das", "Fog", "Ade", "Dap", "Rdf", "Tum", "Dry", "Cum", "Wom", "Stp", "Gin", "Emr", "Boy", "Rig", "Whr", "Gww", "Ync", "Cpr", "Asm")
 ```
 
 
