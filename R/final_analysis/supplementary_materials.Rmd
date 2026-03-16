@@ -1,0 +1,79 @@
+---
+title: "supplementary_materials"
+output: html_document
+date: "2026-03-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Supplementary materials and data:
+- Create site metadata - consistent use of this
+- Latitude and longitude for each site
+- PFT for each site
+- Climate for each site
+- Mean annual precip
+- Mean annual temp
+- Maximum LAI across all years
+
+```{r}
+
+library(tidyverse)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(ggrepel)
+
+# Site Metadata - fill in lat/lon values here
+
+site_meta <- tibble(
+  site      = c("How", "Das", "Dap", "Dry", "Stp", "Asm", "Cum", "Emr",
+                "Fog", "Gin", "Gww", "Rdf", "Rig", "Wac", "Whr", "Wom",
+                "Ync", "Cpr", "Tum", "Rob", "Ade", "Boy"),
+  lat       = c(-12.4943, -14.1593, -14.0633, -15.2588, -17.1507, -22.2830, -33.6152, -23.8587, -12.5452,  -31.3764, -30.1913, -14.5636, -36.6499, -37.4259, -36.6732, -37.4222, -34.9893, -34.0021, -35.6566, -17.1175, -13.0769, -32.4771),
+  lon       = c(131.1523, 131.3881, 131.3181, 132.3706, 133.3502, 133.2490, 150.7236, 148.4746, 131.3072, 115.7138, 120.6541, 132.4776, 145.5759, 145.1878, 145.0294, 144.0944, 146.2907, 140.5891, 148.1517, 145.6301, 131.1178, 116.9386)
+)
+
+PFT              = c(NA, NA, NA, NA, NA, NA, NA, NA,
+                       NA, NA, NA, NA, NA, NA, NA, NA,
+                       NA, NA, NA, NA, NA, NA),
+  koppen           = c(NA, NA, NA, NA, NA, NA, NA, NA,
+                       NA, NA, NA, NA, NA, NA, NA, NA,
+                       NA, NA, NA, NA, NA, NA),
+  rainfall_season  = c(NA, NA, NA, NA, NA, NA, NA, NA,
+                       NA, NA, NA, NA, NA, NA, NA, NA,
+                       NA, NA, NA, NA, NA, NA)
+
+# Map
+
+australia <- ne_countries(scale = "medium", country = "Australia", returnclass = "sf")
+
+sites_sf <- site_meta %>%
+  st_as_sf(coords = c("lon", "lat"), crs = 4326)
+
+ggplot() +
+  geom_sf(data = australia, fill = "grey95", colour = "grey50") +
+  geom_sf(data = sites_sf, colour = "firebrick", size = 2.5) +
+  geom_text_repel(
+    data = site_meta,
+    aes(x = lon, y = lat, label = site),
+    size = 3,
+    segment.colour = "grey40",
+    segment.size = 0.4,
+    box.padding = 0.5,
+    point.padding = 0.3,
+    max.overlaps = Inf        # forces all labels to be drawn
+  ) +
+  coord_sf(xlim = c(110, 155), ylim = c(-45, -10)) +
+  labs(
+    title = "OzFlux study sites",
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  theme_bw()
+```
+
+
+
+
