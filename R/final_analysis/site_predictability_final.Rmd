@@ -268,7 +268,7 @@ ggplot(plot_data %>% distinct(site, R2, n_years.x), aes(x = n_years.x, y = R2)) 
   labs(x = "No. of Years of Observations", y = "R²") +
   theme_classic()
 ```
-
-
+Units on the MAP, MAT and MAL? 
+Also a line of best fit to show the trend?
 
 
