@@ -177,47 +177,78 @@ Plots:
 3. MAP, MAT and MAL with R-squared
 4. No. of years of observation against R-squared
 
+
+```{r}
+# --- Compute number of years per site ---
+n_years_df <- purrr::map_df(rf_results_vpd, function(res) {
+  if (is.null(res)) return(NULL)
+  data.frame(
+    site    = res$site,
+    n_years = length(unique(res$predictions$year))
+  )
+})
+
+# --- Add n_years to site_meta ---
+site_meta <- site_meta %>%
+  left_join(n_years_df, by = "site")
+
+```
+
 ```{r}
 
+# --- Prepare plot_data for MAP, MAT, MAL vs R² ---
+plot_data <- all_metrics_vpd %>%
+  filter(model == "with_VPD") %>%
+  select(site, R2) %>%
+  left_join(
+    site_meta %>%
+      select(site, MAP, MAT, MAL, n_years.x),
+    by = "site"
+  ) %>%
+  pivot_longer(
+    cols = c(MAP, MAT, MAL),
+    names_to = "variable",
+    values_to = "value"
+  )
 
-#1) Change in R-squared across sites
-
+# 1) Change in R² across sites
 all_metrics_vpd %>%
   select(site, model, R2) %>%
   pivot_wider(names_from = model, values_from = R2) %>%
-  mutate(site    = factor(site, levels = wet_to_dry_order),
-         R2_gain = with_VPD - without_VPD) %>%
-  ggplot(aes(x = site, y = R2_gain, fill = R2_gain > 0)) +
-  geom_col(width = 0.7) +
+  mutate(
+    site    = factor(site, levels = wet_to_dry_order),
+    R2_gain = with_VPD - without_VPD
+  ) %>%
+  ggplot(aes(x = site, y = R2_gain)) +
+  geom_col(width = 0.7, fill = thesis_cols["main"]) +   
   geom_hline(yintercept = 0, linewidth = 0.4, linetype = "dashed") +
-  scale_fill_manual(values = c("TRUE" = thesis_cols["main"], "FALSE" = thesis_cols["extra"]),
-                    labels = c("TRUE" = "VPD improves R²", "FALSE" = "VPD reduces R²")) +
   coord_flip() +
-  labs(title = "ΔR² from adding VPD — Dry to Wet order", x = NULL, y = "ΔR² (with − without)", fill = NULL) +
+  labs(
+    title = "ΔR² from adding VPD",
+    y = "ΔR² (with − without)",
+    x = "Sites (Wet to Dry)"   
+  ) +
   theme_classic() +
-  theme(legend.position = "top")
+  theme(legend.position = "none")
 
-library(ggrepel)
-
-#2) R² (with_VPD only) — wet to dry order 
+# 2) R² (with_VPD only) - wet to dry order
 all_metrics_vpd %>%
   filter(model == "with_VPD") %>%
   mutate(site = factor(site, levels = wet_to_dry_order)) %>%
   ggplot(aes(x = site, y = R2)) +
-  geom_col(width = 0.7, fill = "#4682B4") +
+  geom_col(width = 0.7, fill = thesis_cols["main"]) +
   coord_flip() +
   labs(
-    title = "Model R² (with VPD) — Wet to Dry",
-    x     = NULL,
-    y     = "R²"
-  ) +
+    title = "Model R² (with VPD)",
+    y = "R²",
+    x = "Sites (Wet to Dry)") +
   theme_classic(base_size = 13) +
   theme(axis.text.y = element_text(size = 10))
 
-#3) Mean annual precip, mean annual temp and maximum LAI and R-squared across sites
-
+# 3) MAP, MAT, MAL vs R²
+library(ggrepel)
 ggplot(plot_data, aes(x = value, y = R2)) +
-  geom_point(size = 3, colour = "#4682B4") +
+  geom_point(size = 3, colour = thesis_cols["main"]) +
   geom_text_repel(aes(label = site), size = 2.8, colour = "grey30",
                   max.overlaps = 15) +
   facet_wrap(~ variable, scales = "free_x", ncol = 3) +
@@ -230,12 +261,11 @@ ggplot(plot_data, aes(x = value, y = R2)) +
     panel.border     = element_rect(colour = "black", fill = NA)
   )
 
-#4) Number of years of observation
-
-ggplot(plot_data, aes(x = n_years, y = R2)) +
-  geom_point(size = 3, colour = "#4682B4") +
+# 4) Number of years vs R² 
+ggplot(plot_data %>% distinct(site, R2, n_years.x), aes(x = n_years.x, y = R2)) +
+  geom_point(size = 3, colour = thesis_cols["main"]) +
   geom_text(aes(label = site), vjust = -0.8, size = 2.8, colour = "grey30") +
-  labs(x = "No. of Years of Observations", y = "R2") +
+  labs(x = "No. of Years of Observations", y = "R²") +
   theme_classic()
 ```
 
