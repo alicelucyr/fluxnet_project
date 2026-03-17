@@ -314,8 +314,6 @@ ggplot(all_importance_norm, aes(x = variable, y = site, fill = importance_norm))
 ```
 ```{r}
 
-wet_dry_order <- c("Wac", "Rob", "How", "Das", "Fog", "Ade", "Dap", "Rdf", "Wom", "Tum", "Dry", "Stp", "Gin", "Cum", "Emr", "Rig", "Whr", "Asm", "Gww", "Cpr", "Ync")
-
 all_importance_norm <- all_importance_norm %>%
   mutate(site = factor(site, levels = rev(wet_dry_order)))  # rev() so wet is at top
 
