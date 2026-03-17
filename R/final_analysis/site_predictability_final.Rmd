@@ -8,3 +8,237 @@ date: "2026-03-16"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+1. Model without and with VPD to get VPD importance
+2. Total site predictability with full model of VPD
+
+Need to ensure all models are leave-one-year out validation
+
+Compare model without VPD and model with VPD
+
+meta data of MAP, MAT and MAL stored in site_meta
+
+```{r}
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(zoo)
+
+set.seed(42) # Added for reproducibility
+
+standardise_train_test <- function(train_df, test_df, predictors) {
+  # Fix: compute mean/SD from training data only to avoid data leakage
+  train_means <- colMeans(train_df[predictors], na.rm = TRUE)
+  train_sds   <- apply(train_df[predictors], 2, sd, na.rm = TRUE)
+  
+  train_df[predictors] <- scale(train_df[predictors],
+                                 center = train_means, scale = train_sds)
+  test_df[predictors]  <- scale(test_df[predictors],
+                                 center = train_means, scale = train_sds)
+  list(train = train_df, test = test_df)
+}
+```
+
+
+```{r}
+run_rf_with_without_vpd <- function(df, site_name) {
+  
+  # Removed Precip from drop_na and everywhere below
+  df <- df %>% drop_na(GPP, Tair, SW_rad, VPD, cwd, date)
+  
+  if (nrow(df) < 100) {
+    warning(paste("Site", site_name, "has insufficient data"))
+    return(NULL)
+  }
+  
+  df <- df %>%
+    arrange(date) %>%
+    mutate(
+      year = lubridate::year(date),
+      cumulative_cwd_7day = rollapply(cwd, width = 7, FUN = sum,
+                                      align = "right", fill = NA, na.rm = TRUE)
+    )
+  
+  # Removed Precip from both predictor sets
+  predictors_with    <- c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day")
+  predictors_without <- c("Tair", "SW_rad", "cumulative_cwd_7day")
+  
+  fit_rf_loyo <- function(predictors, label) {
+    
+    model_df <- df %>% drop_na(GPP, all_of(predictors))
+    
+    if (nrow(model_df) < 100) {
+      message("  Skipping ", label, " at ", site_name, ": insufficient data")
+      return(NULL)
+    }
+    
+    # Removed global standardise() call — now done per fold inside the loop
+    
+    years <- unique(model_df$year)
+    
+    all_preds      <- list()
+    all_importance <- list()
+    
+    for (year_i in years) {
+      
+      train_data <- model_df %>% filter(year != year_i)
+      test_data  <- model_df %>% filter(year == year_i)
+      
+      if (nrow(test_data) < 10 || nrow(train_data) < 50) next
+      
+      # Fix: standardise using training fold statistics only (no leakage)
+      scaled      <- standardise_train_test(train_data, test_data, predictors)
+      train_data  <- scaled$train
+      test_data   <- scaled$test
+      
+      # Tune mtry: floor(sqrt(p)) instead of hardcoded 3
+      mtry_val <- max(2, floor(sqrt(length(predictors))))
+      
+      formula <- as.formula(paste("GPP ~", paste(predictors, collapse = " + ")))
+      
+      model <- randomForest(formula, data = train_data,
+                            ntree = 500, mtry = mtry_val, importance = TRUE)
+      
+      preds <- predict(model, test_data)
+      
+      all_preds[[as.character(year_i)]] <- data.frame(
+        Observed  = test_data$GPP,
+        Predicted = preds,
+        year      = year_i
+      )
+      
+      all_importance[[as.character(year_i)]] <- data.frame(
+        variable   = rownames(importance(model)),
+        importance = importance(model, type = 1)[, 1],
+        year       = year_i
+      )
+    }
+    
+    results <- bind_rows(all_preds)
+    
+    if (nrow(results) == 0) return(NULL)
+    
+    rmse     <- sqrt(mean((results$Observed - results$Predicted)^2))
+    rsq      <- cor(results$Observed, results$Predicted)^2
+    mean_obs <- mean(results$Observed)
+    nse      <- 1 - sum((results$Observed - results$Predicted)^2) /
+                     sum((results$Observed - mean_obs)^2)
+    
+    importance_df <- bind_rows(all_importance) %>%
+      group_by(variable) %>%
+      summarise(importance = mean(importance), .groups = "drop") %>%
+      mutate(model = label, site = site_name)
+    
+    list(
+      metrics     = data.frame(site = site_name, model = label,
+                               RMSE = rmse, R2 = rsq, NSE = nse),
+      importance  = importance_df,
+      predictions = results %>% mutate(site = site_name, model = label)
+    )
+  }
+  
+  with_vpd    <- fit_rf_loyo(predictors_with,    "with_VPD")
+  without_vpd <- fit_rf_loyo(predictors_without, "without_VPD")
+  
+  if (is.null(with_vpd) || is.null(without_vpd)) return(NULL)
+  
+  list(
+    site        = site_name,
+    metrics     = bind_rows(with_vpd$metrics,     without_vpd$metrics),
+    importance  = bind_rows(with_vpd$importance,  without_vpd$importance),
+    predictions = bind_rows(with_vpd$predictions, without_vpd$predictions)
+  )
+}
+```
+
+Run model
+
+```{r}
+rf_results_vpd <- purrr::map2(
+  sites_daily,
+  names(sites_daily),
+  run_rf_with_without_vpd
+)
+```
+
+```{r}
+all_metrics_vpd <- purrr::map_df(rf_results_vpd, ~ .x$metrics)
+```
+
+Set.seed(42) at the top - ensure reproducibility
+New standardise train and test takes train and test separately
+Precip removed
+mtry will now be 2 for without VPD and 2 for with VPD
+
+
+
+Plots:
+1. Total R-squared across sites
+2. Change in R-squared when adding VPD
+3. MAP, MAT and MAL with R-squared
+4. No. of years of observation against R-squared
+
+```{r}
+
+
+#1) Change in R-squared across sites
+
+all_metrics_vpd %>%
+  select(site, model, R2) %>%
+  pivot_wider(names_from = model, values_from = R2) %>%
+  mutate(site    = factor(site, levels = wet_to_dry_order),
+         R2_gain = with_VPD - without_VPD) %>%
+  ggplot(aes(x = site, y = R2_gain, fill = R2_gain > 0)) +
+  geom_col(width = 0.7) +
+  geom_hline(yintercept = 0, linewidth = 0.4, linetype = "dashed") +
+  scale_fill_manual(values = c("TRUE" = thesis_cols["main"], "FALSE" = thesis_cols["extra"]),
+                    labels = c("TRUE" = "VPD improves R²", "FALSE" = "VPD reduces R²")) +
+  coord_flip() +
+  labs(title = "ΔR² from adding VPD — Dry to Wet order", x = NULL, y = "ΔR² (with − without)", fill = NULL) +
+  theme_classic() +
+  theme(legend.position = "top")
+
+library(ggrepel)
+
+#2) R² (with_VPD only) — wet to dry order 
+all_metrics_vpd %>%
+  filter(model == "with_VPD") %>%
+  mutate(site = factor(site, levels = wet_to_dry_order)) %>%
+  ggplot(aes(x = site, y = R2)) +
+  geom_col(width = 0.7, fill = "#4682B4") +
+  coord_flip() +
+  labs(
+    title = "Model R² (with VPD) — Wet to Dry",
+    x     = NULL,
+    y     = "R²"
+  ) +
+  theme_classic(base_size = 13) +
+  theme(axis.text.y = element_text(size = 10))
+
+#3) Mean annual precip, mean annual temp and maximum LAI and R-squared across sites
+
+ggplot(plot_data, aes(x = value, y = R2)) +
+  geom_point(size = 3, colour = "#4682B4") +
+  geom_text_repel(aes(label = site), size = 2.8, colour = "grey30",
+                  max.overlaps = 15) +
+  facet_wrap(~ variable, scales = "free_x", ncol = 3) +
+  labs(y = "R² (RF with VPD)", x = NULL) +
+  theme_bw(base_size = 13) +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold", size = 11),
+    panel.grid       = element_blank(),
+    panel.border     = element_rect(colour = "black", fill = NA)
+  )
+
+#4) Number of years of observation
+
+ggplot(plot_data, aes(x = n_years, y = R2)) +
+  geom_point(size = 3, colour = "#4682B4") +
+  geom_text(aes(label = site), vjust = -0.8, size = 2.8, colour = "grey30") +
+  labs(x = "No. of Years of Observations", y = "R2") +
+  theme_classic()
+```
+
+
+
+
