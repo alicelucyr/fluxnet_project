@@ -68,15 +68,16 @@ read_flux <- function(fname) {
     rename(
       GPP = GPP_NT_VUT_REF,
       Qle = LE_F_MDS,
-      Precip = P_ERA,
+      Precip = P_F,
       Tair = TA_F_MDS,
       SW_rad = SW_IN_F_MDS,
       Rn = NETRAD,
       Pa = PA_F,
-      VPD = VPD_F_MDS
+      VPD = VPD_F_MDS,
+      VPD_QC = VPD_F_QC
     )
 
-  vars_to_keep <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "VPD", "Precip", "Pa", "Rn")
+  vars_to_keep <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "VPD", "Precip", "Pa", "VPD_QC")
   df <- df %>% select(date, all_of(vars_to_keep), year, doy, hod, site)
   
   return(df)
@@ -137,7 +138,7 @@ Remove -9999 values:
 ```{r}
 #make a function that removes -9999 values to NA
 
-flux_vars <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "Precip", "Pa", "VPD")
+flux_vars <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "Precip", "Pa", "VPD", "VPD_QC")
 
 flux_nas <- function(df, flux_vars, na_vals = c(-9999, -9999.9)) {
   df %>%
@@ -316,7 +317,7 @@ sites_daily <- sites_daily %>%
 Growing season:
 
 ```{r}
-#growing season - for now, it is going to be above a certain temp threshold 5°C and above a short-wave radiation threshold
+#growing season - for now, it is going to be above 0 GPP
 
 filter_gs <- function(df) {
   df %>%
@@ -387,13 +388,6 @@ sites_daily <- sites_daily %>%
   map(add_year_doy)
 ```
 
-
-```{r}
-list2env(
-  setNames(sites_daily, paste0(names(sites_daily), "_daily")),
-  envir = .GlobalEnv
-)
-```
 
 Add in LAI data
 
@@ -487,7 +481,7 @@ walk(names(sites_daily), function(name) {
 canopy_order <- map_dfr(sites_daily, function(df) {
   tibble(
     site = unique(df$site),
-    max_LAI = max(df$LAI_filled, na.rm = TRUE)
+    max_LAI = max(df$LAI_4day, na.rm = TRUE)
   )
 }) %>%
   arrange(desc(max_LAI))
