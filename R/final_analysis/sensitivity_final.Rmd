@@ -9,3 +9,305 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 Sensitivity analysis final script
+
+```{r}
+#cap for anomalous GPP
+
+sites_daily <- map(sites_daily, function(df) {
+  cap <- quantile(df$GPP, 0.99, na.rm = TRUE)
+  df %>% mutate(GPP = ifelse(GPP > cap, NA, GPP))
+})
+```
+
+```{r}
+site_slopes <- map_dfr(names(sites_daily), function(site) {
+  
+  df <- sites_daily[[site]]
+  
+  binned <- df %>%
+    drop_na(VPD, GPP) %>%
+    mutate(vpd_bin = cut(VPD, breaks = seq(0, 6, by = 0.2))) %>%
+    group_by(vpd_bin) %>%
+    summarise(
+      gpp_max = quantile(GPP, 0.95, na.rm = TRUE),
+      vpd_mid = mean(VPD, na.rm = TRUE),
+      n = n(),
+      .groups = "drop"
+    ) %>%
+    filter(n >= 3) %>%
+    mutate(gpp_norm = gpp_max / max(gpp_max, na.rm = TRUE))
+  
+  vpd_at_peak <- binned$vpd_mid[which.max(binned$gpp_norm)]
+  descending  <- binned %>% filter(vpd_mid >= vpd_at_peak)
+  
+  if (nrow(descending) < 3) {
+    return(tibble(site = site, intercept = NA, slope = NA,
+                  vpd_at_peak = NA, n_bins = nrow(descending)))
+  }
+  
+  model <- lm(gpp_norm ~ vpd_mid, data = descending)
+  coefs <- coef(model)
+  
+  tibble(
+    site        = site,
+    intercept   = coefs[1],
+    slope       = coefs[2],
+    vpd_at_peak = vpd_at_peak,
+    n_bins      = nrow(descending)
+  )
+}) %>%
+  mutate(site = str_remove(site, "_HH_daily"))  # this closing }) was also missing
+
+
+# Step 2: Build point cloud — raw daily points normalised per site
+all_clouds <- map_dfr(names(sites_daily), function(site) {
+  
+  df <- sites_daily[[site]]
+  
+  
+gpp_max_site <- max(df$GPP, na.rm = TRUE)
+  
+  df %>%
+    drop_na(VPD, GPP) %>%
+    mutate(
+      gpp_norm = GPP / gpp_max_site,
+      site     = str_remove(site, "_HH_daily")
+    ) %>%
+    select(site, VPD, gpp_norm)
+})
+
+
+# Step 3: Build fitted lines from slopes + intercepts
+fitted_lines <- site_slopes %>%
+  filter(!is.na(slope)) %>%
+  rowwise() %>%
+  reframe(
+    site    = site,
+    vpd_mid = seq(vpd_at_peak, 6, by = 0.1),
+    fitted  = intercept + slope * vpd_mid
+  )
+
+
+# Step 4: Plot — cloud + slope line per site
+site_names  <- unique(all_clouds$site)
+site_groups <- split(site_names, ceiling(seq_along(site_names) / 6))
+
+plots <- map(site_groups, function(sites_subset) {
+  
+  all_clouds %>%
+    filter(site %in% sites_subset) %>%
+    ggplot(aes(x = VPD, y = gpp_norm)) +
+    geom_point(size = 0.4, alpha = 0.2, colour = "grey40") +
+    geom_line(data = filter(fitted_lines, site %in% sites_subset),
+              aes(x = vpd_mid, y = fitted),
+              colour = "firebrick", linewidth = 1) +
+    geom_vline(data = filter(site_slopes, site %in% sites_subset),
+               aes(xintercept = vpd_at_peak),
+               linetype = "dashed", alpha = 0.4) +
+    facet_wrap(~ site, scales = "free_x", ncol = 2) +
+    coord_cartesian(ylim = c(0, 1.5)) +
+    labs(x = "VPD (kPa)", y = "Normalised GPP") +
+    theme_classic(base_size = 10) +
+    theme(strip.background = element_blank(),
+          strip.text = element_text(face = "bold"))
+})
+
+walk(plots, print)
+
+```
+
+```{r}
+# Step 1: fit and assign clusters
+slopes_mat_2 <- site_slopes %>%
+  filter(!is.na(slope)) %>%
+  column_to_rownames("site") %>%
+  select(slope, vpd_at_peak) %>%
+  scale()
+
+hclust_fit_2 <- hclust(dist(slopes_mat_2, method = "euclidean"), method = "ward.D2")
+
+# Step 2: derive level order from hclust_fit_2 specifically
+cluster_means_2 <- site_slopes %>%
+  filter(!is.na(slope)) %>%
+  mutate(cluster_raw = factor(cutree(hclust_fit_2, k = 3))) %>%
+  group_by(cluster_raw) %>%
+  summarise(mean_slope = mean(slope)) %>%
+  arrange(mean_slope)  # most negative = high sensitivity
+
+level_order_2 <- cluster_means_2$cluster_raw
+
+# Step 3: assign and recode in one clean step
+site_slopes <- site_slopes %>%
+  filter(!is.na(slope)) %>%
+  mutate(
+    cluster_multi = factor(cutree(hclust_fit_2, k = 3)),
+    cluster_multi = fct_recode(cluster_multi,
+      "high"   = as.character(level_order_2[1]),
+      "medium" = as.character(level_order_2[2]),
+      "low"    = as.character(level_order_2[3])
+    ),
+    cluster_multi = factor(cluster_multi, levels = c("low", "medium", "high"))
+  )
+```
+
+```{r}
+# ── Step 1: scale and fit ─────────────────────────────────────────────────────
+slopes_mat_2 <- site_slopes %>%
+  filter(!is.na(slope)) %>%
+  column_to_rownames("site") %>%
+  select(slope, intercept, vpd_at_peak) %>%
+  scale()
+
+hclust_fit_2 <- hclust(dist(slopes_mat_2, method = "euclidean"), method = "ward.D2")
+
+# ── Step 2: verify cluster number is justified ────────────────────────────────
+# Silhouette score — confirm k=3 is optimal
+library(cluster)
+sil_scores <- map_dbl(2:6, function(k) {
+  clusters <- cutree(hclust_fit_2, k = k)
+  mean(silhouette(clusters, dist(slopes_mat_2))[, 3])
+})
+tibble(k = 2:6, silhouette = sil_scores)  # highest score = best k
+
+# ── Step 3: derive label order from mean slope ────────────────────────────────
+cluster_means_2 <- site_slopes %>%
+  filter(!is.na(slope)) %>%
+  mutate(cluster_raw = factor(cutree(hclust_fit_2, k = 3))) %>%
+  group_by(cluster_raw) %>%
+  summarise(
+    mean_slope     = mean(slope),
+    mean_intercept = mean(intercept),
+    mean_peak_vpd  = mean(vpd_at_peak),
+    n_sites        = n()             # useful to check cluster sizes
+  ) %>%
+  arrange(mean_slope)                # most negative = high sensitivity
+
+print(cluster_means_2)               # sanity check before labelling
+level_order_2 <- cluster_means_2$cluster_raw
+
+# ── Step 4: assign labels ─────────────────────────────────────────────────────
+site_slopes <- site_slopes %>%
+  filter(!is.na(slope)) %>%
+  mutate(
+    cluster_multi = factor(cutree(hclust_fit_2, k = 3)),
+    cluster_multi = fct_recode(cluster_multi,
+      "High"   = as.character(level_order_2[1]),
+      "Medium" = as.character(level_order_2[2]),
+      "Low"    = as.character(level_order_2[3])
+    ),
+    cluster_multi = factor(cluster_multi, levels = c("Low", "Medium", "High"))
+  )
+
+# ── Step 5: verify — check mean slope per labelled cluster ───────────────────
+site_slopes %>%
+  group_by(cluster_multi) %>%
+  summarise(mean_slope = mean(slope), n = n())
+```
+
+```{r}
+unique(site_slopes$cluster_multi)
+```
+
+
+```{r}
+# Step 4: plot
+ggplot(site_slopes %>% mutate(site = factor(site, levels = wet_to_dry_order)),
+       aes(x = site, y = slope, colour = cluster_multi)) +
+  geom_point(size = 3) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+  coord_flip() +
+  scale_colour_manual(values = c(
+    "Low"    = "#44AA99",
+    "Medium" = "#999933",
+    "High"   = "#CC6677"
+  )) +
+  labs(
+    x = "Site (Wet to Dry)",
+    y = "GPP~VPD Slope",
+    colour = "Sensitivity",
+    title = "GPP sensitivity clusters"
+  ) +
+  theme_classic()
+```
+```{r}
+site_slopes <- site_slopes %>%
+  left_join(site_meta, by = "site")
+```
+
+```{r}
+site_slopes <- site_slopes %>%
+  mutate(cluster_multi = factor(cluster_multi, levels = c("Low", "Medium", "High")))
+
+cluster_colours <- c(
+ "Low"    = "#44AA99",
+    "Medium" = "#999933",
+    "High"   = "#CC6677" 
+)
+
+site_slopes %>%
+  pivot_longer(cols = c(MAP, MAT, MAL), names_to = "variable", values_to = "value") %>%
+  ggplot(aes(x = cluster_multi, y = value, fill = cluster_multi)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(width = 0.1, size = 2) +
+  scale_fill_manual(values = cluster_colours) +
+  facet_wrap(~ variable, scales = "free_y") +
+  labs(x = "Sensitivity cluster", y = NULL) +
+  theme_classic() +
+  theme(legend.position = "none")
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(scico)
+
+# Define a colourblind-friendly palette that matches your thesis style
+pft_cols <- c(
+  "WSA" = "#DDCC77",   
+  "SAV"  = "#CC6677",    
+  "WET" = "#88CCEE",    
+  "EBF" = "#999933", 
+  "GRA" = "#661100"
+)
+
+site_slopes %>%
+  count(cluster_multi, PFT) %>%
+  group_by(cluster_multi) %>%
+  mutate(
+    prop          = n / sum(n),
+    cluster_multi = factor(cluster_multi, levels = c("Low", "Medium", "High"))
+  ) %>%
+  ggplot(aes(x = cluster_multi, y = prop, fill = PFT)) +
+  geom_col(width = 0.7) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = pft_cols) +  # <-- use custom colourblind palette
+  labs(x = "Sensitivity cluster", y = "Proportion of sites", fill = "PFT") +
+  theme_classic() +
+  theme(legend.position = "right")
+
+# Define a colourblind-friendly palette that matches your thesis style
+climate_cols <- c(
+  "Tropical" = "#DDCC77",    
+  "Temperate"  = "#CC6677",    
+  "Desert" = "#88CCEE",    
+  "Subtropical" = "#999933",
+  "Grassland" = "#661100"
+)
+
+site_slopes %>%
+  count(cluster_multi, koppen) %>%
+  group_by(cluster_multi) %>%
+  mutate(
+    prop          = n / sum(n),
+    cluster_multi = factor(cluster_multi, levels = c("Low", "Medium", "High"))
+  ) %>%
+  ggplot(aes(x = cluster_multi, y = prop, fill = koppen)) +
+  geom_col(width = 0.7) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = climate_cols) +  # <-- use custom colourblind palette
+  labs(x = "Sensitivity cluster", y = "Proportion of sites", fill = "Climate") +
+  theme_classic() +
+  theme(legend.position = "right")
+```
+
+
