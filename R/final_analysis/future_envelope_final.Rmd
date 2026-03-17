@@ -10,25 +10,24 @@ knitr::opts_chunk$set(echo = TRUE)
 
 Future envelope final script
 
-1) Background
+1) *Frequency vs magnitude*
+Is GPP more sensitive to increases in frequency of VPD extremes or magnitude of VPD extremes?
+
+15, 30 and 50% increase in number of days above 90th percentile in the summer (Extreme VPD events become more common)
+
+15, 30 and 50% increase in magnitude of the 90th percentile VPD extremes (Extremes get more intense)
+
+Then both?
+
+2) *Baseline and extremes*
+
+Sort into tropical, arid and temperate
 Tropical (+0.524 kPa), Arid (+0.644 kPa) and Temperate (+0.344 Kpa) increase (Fang et al., 2022)
 
 Biome-specific background increases, accounts for the fact that arid systems will face larger increases in VPD stress than temperate ones.
 Make sure site biome assignment is unambiguous
 Clearly state you are applying a uniform shift to every daily value in the whole dataset
 
-2) Is GPP more sensitive to increases in frequency of VPD extremes or magnitude of VPD extremes
+Background rising VPD for each
+Both +28% magnitude and rising VPD for each (Zhou et al., 2019)
 
-VPD 90th percentile increase by 28% (Zhou et al., 2019) across all sites 
-
-Targets extremes rather than background
-
-Magnitude vs frequency?
-
-Could increase VPD within each sites 90th percentile by 1.28 (28%) - only apply to values above 90th percentile (Extremes get more intense)
-Increase the number of VPD at 90th percentile by 28% (Extreme VPD events become more common)
-
-
-3) Both background and 90th percentile summer VPD increase
-
-High-end compound stress scenario
