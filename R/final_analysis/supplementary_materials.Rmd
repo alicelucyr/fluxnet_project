@@ -17,6 +17,28 @@ Supplementary materials and data:
 - Mean annual temp
 - Maximum LAI across all years
 
+
+Need to ensure that plots are colour-blind friendly and consistent across the thesis - one main accent colour followed by consistent supporting colours.
+
+
+```{r}
+library(khroma)
+tol_muted <- khroma::colour("muted")(9)
+tol_muted
+```
+
+```{r}
+thesis_cols <- c(
+  main = "#44AA99",
+  secondary = "#88CCEE",
+  highlight = "#CC6677",
+  extra = "#999933",
+  neutral = "grey60"
+)
+```
+
+Supplementary materials:
+
 ```{r}
 
 library(tidyverse)
@@ -53,7 +75,7 @@ sites_sf <- site_meta %>%
 
 ggplot() +
   geom_sf(data = australia, fill = "grey95", colour = "grey50") +
-  geom_sf(data = sites_sf, colour = "firebrick", size = 2.5) +
+  geom_sf(data = sites_sf, colour = thesis_cols["highlight"], size = 2.5) +
   geom_text_repel(
     data = site_meta,
     aes(x = lon, y = lat, label = site),
@@ -72,6 +94,8 @@ ggplot() +
   ) +
   theme_bw()
 ```
+Can I add in precipitation/PFT?
+
 
 MAP, MAT and MAL:
 
@@ -82,7 +106,7 @@ site_summary <- map_dfr(sites_daily, function(df) {
     summarise(
       MAT = mean(Tair, na.rm = TRUE),
       MAP = sum(Precip, na.rm = TRUE) / n_distinct(year),
-      MAL = max(LAI_filled, na.rm = TRUE),
+      MAL = max(LAI_4day, na.rm = TRUE),
       .groups = "drop"
     )
 })
@@ -96,21 +120,21 @@ library(ggplot2)
 
 ggplot(site_meta %>% arrange(desc(MAP)),
        aes(x = reorder(site, MAP), y = MAP)) +
-  geom_bar(stat = "identity", fill = "steelblue") +
+  geom_bar(stat = "identity", fill = thesis_cols["neutral"]) +
   coord_flip() +
   labs(x = NULL, y = "MAP (mm/year)", title = "Mean Annual Precipitation") +
   theme_bw()
 
 ggplot(site_meta %>% arrange(desc(MAT)),
        aes(x = reorder(site, MAT), y = MAT)) +
-  geom_bar(stat = "identity", fill = "firebrick") +
+  geom_bar(stat = "identity", fill = thesis_cols["neutral"]) +
   coord_flip() +
   labs(x = NULL, y = "MAT (°C)", title = "Mean Annual Temperature") +
   theme_bw()
 
 ggplot(site_meta %>% arrange(desc(MAL)),
        aes(x = reorder(site, MAL), y = MAL)) +
-  geom_bar(stat = "identity", fill = "forestgreen") +
+  geom_bar(stat = "identity", fill = thesis_cols["neutral"]) +
   coord_flip() +
   labs(x = NULL, y = "MAL (m²/m²)", title = "Maximum Annual LAI") +
   theme_bw()
@@ -121,6 +145,64 @@ LAI_order <- c("Tum", "Wom", "Rob", "Wac", "Rig", "Dap", "How", "Fog", "Das", "C
 wet_to_dry_order <- c("Wac", "Rob", "How", "Das", "Fog", "Ade", "Dap", "Rdf", "Tum", "Dry", "Cum", "Wom", "Stp", "Gin", "Emr", "Boy", "Rig", "Whr", "Gww", "Ync", "Cpr", "Asm")
 ```
 
+```{r}
+ggplot(site_meta %>% arrange(desc(MAP)),
+       aes(x = reorder(site, -MAP), y = MAP, fill = MAP)) +
+  geom_col() +
+  scale_fill_gradient(
+    low  = thesis_cols["neutral"],
+    high = thesis_cols["extra"],
+    name = NULL
+  ) +
+  labs(
+    x = NULL,
+    y = "Mean Annual Precipitation (mm)",
+    title = "Sites by Mean Annual Precipitation"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "none"
+  )
 
+ggplot(site_meta %>% arrange(desc(MAT)),
+       aes(x = reorder(site, -MAT), y = MAT, fill = MAT)) +
+  geom_col() +
+  scale_fill_gradient(
+    low  = thesis_cols["neutral"],
+    high = thesis_cols["extra"],
+    name = NULL
+  ) +
+  labs(
+    x = NULL,
+    y = "Mean Annual Temperature (°C)",
+    title = "Sites by Mean Annual Temperature"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "none"
+  )
+
+ggplot(site_meta %>% arrange(desc(MAL)),
+       aes(x = reorder(site, -MAL), y = MAL, fill = MAL)) +
+  geom_col() +
+  scale_fill_gradient(
+  low  = thesis_cols["neutral"],
+    high = thesis_cols["extra"],
+    name = NULL
+  ) +
+  labs(
+    x = NULL,
+    y = "Maximum LAI",
+    title = "Sites by Leaf Area Index (LAI)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "none"
+  )
+
+```
 
 
