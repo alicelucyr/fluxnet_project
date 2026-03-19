@@ -52,14 +52,14 @@ library(ggrepel)
 site_meta <- tibble(
   site      = c("How", "Das", "Dap", "Dry", "Stp", "Asm", "Cum", "Emr",
                 "Fog", "Gin", "Gww", "Rdf", "Rig", "Wac", "Whr", "Wom",
-                "Ync", "Cpr", "Tum", "Rob", "Ade", "Boy"),
-  lat       = c(-12.4943, -14.1593, -14.0633, -15.2588, -17.1507, -22.2830, -33.6152, -23.8587, -12.5452,  -31.3764, -30.1913, -14.5636, -36.6499, -37.4259, -36.6732, -37.4222, -34.9893, -34.0021, -35.6566, -17.1175, -13.0769, -32.4771),
-  lon       = c(131.1523, 131.3881, 131.3181, 132.3706, 133.3502, 133.2490, 150.7236, 148.4746, 131.3072, 115.7138, 120.6541, 132.4776, 145.5759, 145.1878, 145.0294, 144.0944, 146.2907, 140.5891, 148.1517, 145.6301, 131.1178, 116.9386),
+                "Ync", "Cpr", "Tum", "Ade", "Boy"),
+  lat       = c(-12.4943, -14.1593, -14.0633, -15.2588, -17.1507, -22.2830, -33.6152, -23.8587, -12.5452,  -31.3764, -30.1913, -14.5636, -36.6499, -37.4259, -36.6732, -37.4222, -34.9893, -34.0021, -35.6566, -13.0769, -32.4771),
+  lon       = c(131.1523, 131.3881, 131.3181, 132.3706, 133.3502, 133.2490, 150.7236, 148.4746, 131.3072, 115.7138, 120.6541, 132.4776, 145.5759, 145.1878, 145.0294, 144.0944, 146.2907, 140.5891, 148.1517, 131.1178, 116.9386),
 PFT              = c("WSA", "SAV", "GRA", "SAV", "GRA", "SAV", "EBF", "GRA",
                        "WET", "WSA", "SAV", "WSA", "GRA", "EBF", "EBF", "EBF",
-                       "GRA", "SAV", "EBF", "EBF", "WSA", "WSA"),
+                       "GRA", "SAV", "EBF", "WSA", "WSA"),
 
-  koppen           = c("Tropical", "Tropical", "Tropical", "Tropical", "Grassland", "Desert", "Temperate", "Grassland", "Tropical", "Subtropical", "Grassland", "Tropical", "Temperate", "Temperate", "Temperate", "Temperate", "Grassland", "Grassland", "Temperate", "Tropical", "Tropical", "Temperate")
+  koppen           = c("Tropical", "Tropical", "Tropical", "Tropical", "Grassland", "Desert", "Temperate", "Grassland", "Tropical", "Subtropical", "Grassland", "Tropical", "Temperate", "Temperate", "Temperate", "Temperate", "Grassland", "Grassland", "Temperate", "Tropical", "Temperate")
 )
 
 ```
@@ -140,9 +140,9 @@ ggplot(site_meta %>% arrange(desc(MAL)),
   theme_bw()
 ```
 ```{r}
-LAI_order <- c("Tum", "Wom", "Rob", "Wac", "Rig", "Dap", "How", "Fog", "Das", "Cum", "Ade", "Dry", "Rdf", "Whr", "Emr", "Boy", "Stp", "Gin", "Ync", "Cpr", "Asm", "Gww")
+LAI_order <- c("Tum", "Wom", "Wac", "Rig", "Dap", "How", "Fog", "Das", "Cum", "Ade", "Dry", "Rdf", "Whr", "Emr", "Boy", "Stp", "Gin", "Ync", "Cpr", "Asm", "Gww")
 
-wet_to_dry_order <- c("Wac", "Rob", "How", "Das", "Fog", "Ade", "Dap", "Rdf", "Tum", "Dry", "Cum", "Wom", "Stp", "Gin", "Emr", "Boy", "Rig", "Whr", "Gww", "Ync", "Cpr", "Asm")
+wet_to_dry_order <- c("Wac", "How", "Das", "Fog", "Ade", "Dap", "Rdf", "Tum", "Dry", "Cum", "Wom", "Stp", "Gin", "Emr", "Boy", "Rig", "Whr", "Gww", "Ync", "Cpr", "Asm")
 ```
 
 ```{r}

@@ -115,8 +115,6 @@ Whr <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/hal
 
 Ync <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Ync_FLUXNET2015_FULLSET_HH_2012-2014_1-4.csv")
 
-Rob <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Rob_FLUXNET2015_FULLSET_HH_2014-2014_1-4.csv")
-
 Ade <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Ade_FLUXNET2015_FULLSET_HH_2007-2009_1-4.csv")
 
 Boy <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/TERN/TERN_AU-Boy_FLUXNET_FLUXMET_HH_2017-2024_v1.3_r1.csv")
@@ -153,7 +151,7 @@ flux_nas <- function(df, flux_vars, na_vals = c(-9999, -9999.9)) {
 ```{r}
 #names of datasets I have loaded in so R knows what I'm yapping about
 
-site_names <- c("How", "Das", "Dap", "Dry", "Stp", "Asm", "Cum", "Emr", "Fog", "Gin", "Gww", "Rdf", "Rig", "Wac", "Whr", "Wom", "Ync", "Cpr", "Tum", "Rob", "Ade", "Boy")
+site_names <- c("How", "Das", "Dap", "Dry", "Stp", "Asm", "Cum", "Emr", "Fog", "Gin", "Gww", "Rdf", "Rig", "Wac", "Whr", "Wom", "Ync", "Cpr", "Tum", "Ade", "Boy")
 
 #pulls the objects from the environment - sites is a list of dataframes
 sites <- mget(site_names)
@@ -302,9 +300,6 @@ sites_daily <- sites_clean %>%
   })
 ```
 
-```{r}
-plot(sites_daily$Boy$date, sites_daily$Boy$GPP)
-```
 
 ```{r}
 #convert everything back to NA
@@ -407,6 +402,12 @@ lai_data <- read.csv("/Users/alicerolfe/year_4_project/fluxnet_project/Data/site
 ```
 
 ```{r}
+lai_data <- lai_data %>%
+  filter(site != "AU-Rob")
+```
+
+
+```{r}
 cat("LAI site names:\n")
 print(unique(lai_data$site))
 cat("\nFlux site names:\n")
@@ -418,6 +419,14 @@ sites_daily <- map(sites_daily, function(df) {
   df %>% mutate(date = as.Date(date))
 })
 ```
+
+Add site name back in
+```{r}
+sites_daily <- imap(sites_daily, function(df, name) {
+  df %>% mutate(site = name)
+})
+```
+
 
 ```{r}
 # Step 5: Exact join first to preserve NAs between 4-day obs
