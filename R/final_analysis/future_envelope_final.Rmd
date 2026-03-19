@@ -718,7 +718,7 @@ library(zoo)
 library(lubridate)
 library(ggrepel)
 
-# ── Setup ─────────────────────────────────────────────────────────────────────
+#Setup 
 
 predictors <- c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day")
 
@@ -747,7 +747,7 @@ biome_colours <- c(
   "Temperate" = "#4682B4"
 )
 
-# ── LOYO function ─────────────────────────────────────────────────────────────
+# LOYO function
 
 run_loyo_biome_vpd <- function(df, site_name) {
 
@@ -832,7 +832,7 @@ run_loyo_biome_vpd <- function(df, site_name) {
   loyo_results
 }
 
-# ── Run across all sites ──────────────────────────────────────────────────────
+# Run across all sites 
 
 loyo_results <- map2(sites_daily, names(sites_daily), run_loyo_biome_vpd)
 loyo_results <- Filter(Negate(is.null), loyo_results)
@@ -846,7 +846,7 @@ all_scenarios <- bind_rows(loyo_results) %>%
 message("Sites retained: ", length(unique(all_scenarios$site)))
 message("Total rows: ", nrow(all_scenarios))
 
-# ── Plot 1: R² per site coloured by biome ────────────────────────────────────
+#Plot 1: R² per site coloured by biome 
 
 r2_loyo <- all_scenarios %>%
   filter(scenario == "Observed") %>%
@@ -871,7 +871,7 @@ ggplot(r2_loyo, aes(x = site, y = R2, fill = biome)) +
   theme_classic() +
   theme(legend.position = "top", axis.text.y = element_text(size = 10))
 
-# ── Plot 2: % change in GPP per site, faceted by biome ───────────────────────
+#Plot 2: % change in GPP per site, faceted by biome
 
 scenario_summary_long <- all_scenarios %>%
   group_by(site, scenario) %>%
@@ -898,7 +898,7 @@ ggplot(scenario_summary_long, aes(x = site, y = pct_change, fill = biome)) +
   theme(legend.position = "none", axis.text.y = element_text(size = 10),
         strip.text = element_text(face = "bold"))
 
-# ── Plot 3: R² vs % change coloured by cluster group, faceted by biome ───────
+#Plot 3: R² vs % change coloured by cluster group, faceted by biome
 
 r2_sites <- all_scenarios %>%
   filter(scenario == "Observed", summer) %>%
@@ -948,6 +948,250 @@ ggplot(plot_data, aes(x = R2, y = pct_change)) +
 
 ```
 
+Now need to do +28% magnitude 
 
+```{r}
+library(dplyr)
+library(purrr)
+library(randomForest)
+library(tidyr)
+library(ggplot2)
+library(zoo)
+library(lubridate)
+library(ggrepel)
+
+# ── Setup ─────────────────────────────────────────────────────────────────────
+
+predictors <- c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day")
+
+scenario_labels  <- c("Observed", "+28% extreme VPD")
+scenario_colours <- c("Observed" = "#4682B4", "+28% extreme VPD" = "#C0392B")
+
+biome_labels <- c(
+  Ade = "Tropical", Dap = "Tropical", Das = "Tropical", Dry = "Tropical",
+  Fog = "Tropical", Gin = "Tropical", How = "Tropical", Rdf = "Tropical", Stp = "Tropical",
+  Asm = "Arid", Cpr = "Arid", Emr = "Arid", Gww = "Arid", Ync = "Arid",
+  Boy = "Temperate", Cum = "Temperate", Rig = "Temperate", Tum = "Temperate",
+  Wac = "Temperate", Whr = "Temperate", Wom = "Temperate"
+)
+
+biome_colours <- c(
+  "Tropical"  = "#2E8B57",
+  "Arid"      = "#C8860A",
+  "Temperate" = "#4682B4"
+)
+
+vpd_increase <- 0.28  # 28% multiplicative increase on extreme days
+
+# ── LOYO function ─────────────────────────────────────────────────────────────
+
+run_loyo_vpd_magnitude <- function(df, site_name) {
+
+  message("Processing: ", site_name)
+
+  if (!site_name %in% names(biome_labels)) {
+    warning("Skipping ", site_name, ": no biome defined")
+    return(NULL)
+  }
+
+  df <- df %>%
+    drop_na(GPP, Tair, SW_rad, VPD, cwd, date) %>%
+    arrange(date) %>%
+    mutate(
+      year       = year(date),
+      hydro_year = ifelse(month(date) == 12, year(date) + 1, year(date)),
+      summer     = month(date) %in% c(12, 1, 2),
+      cumulative_cwd_7day = rollapply(cwd, width = 7, FUN = function(x) {
+        if (sum(!is.na(x)) >= 3) sum(x, na.rm = TRUE) else NA
+      }, align = "right", fill = NA)
+    ) %>%
+    drop_na(all_of(predictors), GPP)
+
+  if (nrow(df) < 50) {
+    warning("Skipping ", site_name, ": insufficient data")
+    return(NULL)
+  }
+
+  # 90th percentile VPD from summer obs across all years, per site
+  vpd_90 <- df %>%
+    filter(summer) %>%
+    pull(VPD) %>%
+    quantile(0.90, na.rm = TRUE)
+
+  all_years <- unique(df$hydro_year)
+  if (length(all_years) < 2) {
+    warning("Skipping ", site_name, ": insufficient years")
+    return(NULL)
+  }
+
+  loyo_results <- map_dfr(all_years, function(test_year) {
+
+    train_df <- df %>% filter(hydro_year != test_year)
+    test_df  <- df %>% filter(hydro_year == test_year)
+
+    if (nrow(train_df) < 50 || nrow(test_df) < 10) return(NULL)
+
+    # Standardise on training set parameters
+    scale_means <- colMeans(train_df[predictors], na.rm = TRUE)
+    scale_sds   <- apply(train_df[predictors], 2, sd, na.rm = TRUE)
+
+    scale_with_params <- function(data, means, sds) {
+      for (v in names(means)) data[[v]] <- (data[[v]] - means[v]) / sds[v]
+      data
+    }
+
+    train_scaled <- scale_with_params(train_df, scale_means, scale_sds)
+    formula      <- as.formula(paste("GPP ~", paste(predictors, collapse = " + ")))
+    rf_model     <- randomForest(formula, data = train_scaled,
+                                 ntree = 500, mtry = 3, importance = FALSE)
+
+    map_dfr(scenario_labels, function(label) {
+
+      test_scenario <- if (label == "Observed") {
+        test_df
+      } else {
+        # Increase VPD by 28% on summer extreme days only
+        test_df %>%
+          mutate(VPD = ifelse(summer & VPD >= vpd_90, VPD * (1 + vpd_increase), VPD))
+      }
+
+      test_scaled <- scale_with_params(test_scenario, scale_means, scale_sds)
+      preds       <- predict(rf_model, test_scaled)
+
+      data.frame(
+        site             = site_name,
+        date             = test_scenario$date,
+        year             = test_year,
+        scenario         = label,
+        summer           = test_scenario$summer,
+        VPD_raw          = test_scenario$VPD,
+        n_extreme_days   = sum(test_scenario$summer & test_scenario$VPD >= vpd_90),
+        n_total_days     = nrow(test_scenario),
+        GPP_pred         = preds,
+        GPP_obs          = test_scenario$GPP
+      )
+    })
+  })
+
+  loyo_results
+}
+
+# ── Run across all sites ──────────────────────────────────────────────────────
+
+loyo_results <- map2(sites_daily, names(sites_daily), run_loyo_vpd_magnitude)
+loyo_results <- Filter(Negate(is.null), loyo_results)
+
+all_scenarios <- bind_rows(loyo_results) %>%
+  mutate(
+    scenario = factor(scenario, levels = scenario_labels),
+    biome    = biome_labels[site]
+  )
+
+message("Sites retained: ", length(unique(all_scenarios$site)))
+message("Total rows: ", nrow(all_scenarios))
+
+# ── Plot 1: R² per site coloured by biome ────────────────────────────────────
+
+r2_loyo <- all_scenarios %>%
+  filter(scenario == "Observed") %>%
+  group_by(site) %>%
+  summarise(
+    R2   = cor(GPP_obs, GPP_pred, use = "complete.obs")^2,
+    RMSE = sqrt(mean((GPP_obs - GPP_pred)^2, na.rm = TRUE)),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    biome = biome_labels[site],
+    site  = factor(site, levels = wet_to_dry_order)
+  )
+
+ggplot(r2_loyo, aes(x = site, y = R2, fill = biome)) +
+  geom_col(width = 0.7) +
+  geom_text(aes(label = round(R2, 2)), hjust = -0.2, size = 3, colour = "grey30") +
+  coord_flip(clip = "off") +
+  scale_y_continuous(limits = c(0, 1.1)) +
+  scale_fill_manual(values = biome_colours) +
+  labs(x = NULL, y = "R² — leave-one-year-out (out-of-sample)", fill = "Biome") +
+  theme_classic() +
+  theme(legend.position = "top", axis.text.y = element_text(size = 10))
+
+# ── Plot 2: % change in GPP per site, faceted by biome ───────────────────────
+
+scenario_summary_long <- all_scenarios %>%
+  group_by(site, scenario) %>%
+  summarise(mean_GPP = mean(GPP_pred, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = scenario, values_from = mean_GPP) %>%
+  mutate(
+    pct_change = (`+28% extreme VPD` - Observed) / Observed * 100,
+    biome      = biome_labels[site],
+    site       = factor(site, levels = wet_to_dry_order)
+  )
+
+ggplot(scenario_summary_long, aes(x = site, y = pct_change, fill = biome)) +
+  geom_col(width = 0.7) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
+  scale_fill_manual(values = biome_colours) +
+  coord_flip() +
+  facet_wrap(~ biome, scales = "free_y", ncol = 1) +
+  labs(
+    x    = NULL,
+    y    = "% change in mean annual GPP relative to observed",
+    fill = "Biome"
+  ) +
+  theme_classic() +
+  theme(
+    legend.position = "none",
+    axis.text.y     = element_text(size = 10),
+    strip.text      = element_text(face = "bold")
+  )
+
+# ── Plot 3: R² vs % change coloured by cluster group, faceted by biome ───────
+
+r2_sites <- all_scenarios %>%
+  filter(scenario == "Observed", summer) %>%
+  group_by(site) %>%
+  summarise(R2 = cor(GPP_obs, GPP_pred, use = "complete.obs")^2, .groups = "drop")
+
+pct_change_sites <- all_scenarios %>%
+  filter(summer) %>%
+  group_by(site, scenario) %>%
+  summarise(mean_GPP = mean(GPP_pred, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = scenario, values_from = mean_GPP) %>%
+  mutate(pct_change = (`+28% extreme VPD` - Observed) / Observed * 100)
+
+cluster_colours <- c("Low" = "steelblue", "Medium" = "orange", "High" = "firebrick")
+
+plot_data <- pct_change_sites %>%
+  mutate(site = as.character(site)) %>%
+  left_join(r2_sites, by = "site") %>%
+  left_join(cluster_labels, by = "site") %>%
+  mutate(
+    cluster_multi = factor(cluster_multi, levels = c("Low", "Medium", "High")),
+    biome         = biome_labels[site]
+  )
+
+ggplot(plot_data, aes(x = R2, y = pct_change)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey60", linewidth = 0.4) +
+  geom_point(aes(colour = cluster_multi), size = 3) +
+  geom_smooth(method = "lm", se = TRUE,
+              colour = "grey30", fill = "grey80",
+              linewidth = 0.7, linetype = "dotted") +
+  geom_text_repel(aes(label = site), size = 2.8, colour = "grey30", max.overlaps = 15) +
+  scale_colour_manual(values = cluster_colours, na.value = "grey50") +
+  facet_wrap(~ biome, ncol = 3) +
+  labs(
+    x      = "R² (leave-one-year-out, summer)",
+    y      = "% change in mean summer GPP relative to observed",
+    colour = "VPD sensitivity"
+  ) +
+  theme_bw() +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold"),
+    legend.position  = "top",
+    panel.grid       = element_blank(),
+    panel.border     = element_rect(colour = "black", fill = NA)
+  )
+```
 
 
