@@ -13,21 +13,941 @@ Future envelope final script
 1) *Frequency vs magnitude*
 Is GPP more sensitive to increases in frequency of VPD extremes or magnitude of VPD extremes?
 
-15, 30 and 50% increase in number of days above 90th percentile in the summer (Extreme VPD events become more common)
+15, 30 and 50% increase in the number of days above 90th percentile in the summer (Extreme VPD events become more common). Replace summer days with 90th percentile value. Replace days that are close to the threshold already
 
-15, 30 and 50% increase in magnitude of the 90th percentile VPD extremes (Extremes get more intense)
+15, 30 and 50% increase in magnitude of the 90th percentile VPD extremes (Extremes get more intense). Summer VPD values equal to or above 90th percentile get increased in magnitude. Whilst the other days stay the same.
 
-Then both?
+Random Forest is leave-one-year out trained and tested for each scenario. Trained on all years bar one, tested on one year. Repeated for all years and concatenated together. 
+
+```{r}
+library(tidyverse)
+library(randomForest)
+library(purrr)
+library(zoo)
+library(lubridate)
+
+# ── Config ────────────────────────────────────────────────────────────────────
+FEATURES      <- c("VPD", "Tair", "SW_rad", "cwd_7day")
+TARGET        <- "GPP"
+SUMMER_MONTHS <- c(12, 1, 2)
+FREQ_INCREASES <- c(0.15, 0.30, 0.50)
+MAG_INCREASES  <- c(0.15, 0.30, 0.50)
+
+# ── Step 1: Prep — rolling CWD sum, hydro year, month ────────────────────────
+sites_daily <- map(sites_daily, function(df) {
+  df %>%
+    arrange(date) %>%
+    mutate(
+      month    = month(date),
+      year     = year(date),
+      # Hydrological year: December counts toward the following year
+      # so that DJF summer is never split across two folds
+      hydro_year = ifelse(month == 12, year + 1, year),
+      # Cumulative sum over 7 days (min 3 obs required), not rolling mean
+      cwd_7day = rollapply(cwd, width = 7,
+                           FUN = function(x) {
+                             if (sum(!is.na(x)) >= 3) sum(x, na.rm = TRUE) else NA
+                           },
+                           align = "right", fill = NA)
+    )
+})
+
+# ── Step 2: Scenario builders ─────────────────────────────────────────────────
+
+get_vpd90 <- function(df) {
+  df %>%
+    filter(month %in% SUMMER_MONTHS) %>%
+    pull(VPD) %>%
+    quantile(0.90, na.rm = TRUE)
+}
+
+make_freq_scenario <- function(df, pct_increase) {
+  vpd90         <- get_vpd90(df)
+  summer_idx    <- which(df$month %in% SUMMER_MONTHS)
+  n_extreme_now <- sum(df$VPD[summer_idx] >= vpd90, na.rm = TRUE)
+  n_to_add      <- round(n_extreme_now * pct_increase)
+
+  below_thresh        <- summer_idx[!is.na(df$VPD[summer_idx]) & df$VPD[summer_idx] < vpd90]
+  below_thresh_sorted <- below_thresh[order(df$VPD[below_thresh], decreasing = TRUE)]
+  to_replace          <- head(below_thresh_sorted, n_to_add)
+
+  df_new <- df
+  df_new$VPD[to_replace] <- vpd90
+  df_new$scenario <- paste0("freq_+", pct_increase * 100, "%")
+  df_new
+}
+
+make_mag_scenario <- function(df, pct_increase) {
+  vpd90       <- get_vpd90(df)
+  summer_idx  <- which(df$month %in% SUMMER_MONTHS)
+  extreme_idx <- summer_idx[!is.na(df$VPD[summer_idx]) & df$VPD[summer_idx] >= vpd90]
+
+  df_new <- df
+  df_new$VPD[extreme_idx] <- df_new$VPD[extreme_idx] * (1 + pct_increase)
+  df_new$scenario <- paste0("mag_+", pct_increase * 100, "%")
+  df_new
+}
+
+make_baseline <- function(df) {
+  df %>% mutate(scenario = "baseline")
+}
+
+# ── Step 3: Scaling helper ────────────────────────────────────────────────────
+scale_with_params <- function(data, means, sds) {
+  for (v in names(means)) {
+    data[[v]] <- (data[[v]] - means[v]) / sds[v]
+  }
+  data
+}
+
+# ── Step 4: LOYO RF for a single scenario dataframe ──────────────────────────
+run_loyo_rf <- function(df) {
+  df_clean <- df %>%
+    select(all_of(c(TARGET, FEATURES, "year", "hydro_year", "date", "scenario", "site"))) %>%
+    drop_na()
+
+  hydro_years <- unique(df_clean$hydro_year)
+
+  results <- map_dfr(hydro_years, function(yr) {
+    train <- df_clean %>% filter(hydro_year != yr)
+    test  <- df_clean %>% filter(hydro_year == yr)
+
+    if (nrow(train) < 30 || nrow(test) < 1) return(NULL)
+
+    # Compute scaling params from training data only
+    scale_means <- colMeans(train[, FEATURES], na.rm = TRUE)
+    scale_sds   <- apply(train[, FEATURES], 2, sd, na.rm = TRUE)
+
+    train_scaled <- scale_with_params(train, scale_means, scale_sds)
+    test_scaled  <- scale_with_params(test,  scale_means, scale_sds)
+
+    rf <- randomForest(
+      x         = train_scaled[, FEATURES],
+      y         = train_scaled[[TARGET]],
+      ntree     = 500,
+      mtry      = 3,
+      importance = FALSE
+    )
+
+    test %>%
+      mutate(GPP_pred = predict(rf, newdata = test_scaled[, FEATURES]))
+  })
+
+  results
+}
+
+# ── Step 5: Run all scenarios across all sites ────────────────────────────────
+all_results <- imap_dfr(sites_daily, function(df, site_name) {
+  message("Processing site: ", site_name)
+
+  scenarios <- c(
+    list(make_baseline(df)),
+    map(FREQ_INCREASES, ~ make_freq_scenario(df, .x)),
+    map(MAG_INCREASES,  ~ make_mag_scenario(df, .x))
+  )
+
+  map_dfr(scenarios, function(scen_df) {
+    run_loyo_rf(scen_df)
+  })
+})
+
+# ── Step 6: Summary stats per site per scenario ───────────────────────────────
+summary_stats <- all_results %>%
+  group_by(site, scenario) %>%
+  summarise(
+    mean_GPP_pred = mean(GPP_pred, na.rm = TRUE),
+    mean_GPP_obs  = mean(GPP,      na.rm = TRUE),
+    ss_res    = sum((GPP - GPP_pred)^2,                  na.rm = TRUE),
+    ss_tot    = sum((GPP - mean(GPP, na.rm = TRUE))^2,   na.rm = TRUE),
+    r_squared = 1 - (ss_res / ss_tot),
+    .groups = "drop"
+  ) %>%
+  left_join(
+    filter(., scenario == "baseline") %>%
+      select(site, baseline_mean = mean_GPP_pred),
+    by = "site"
+  ) %>%
+  mutate(pct_change_GPP = ((mean_GPP_pred - baseline_mean) / baseline_mean) * 100)
+```
+
+```{r}
+
+#Plots
+
+scenario_colours <- c(
+  "baseline"   = "grey40",
+  "freq_+15%"  = "#fee8c8",
+  "freq_+30%"  = "#fd8d3c",
+  "freq_+50%"  = "#b30000",
+  "mag_+15%"   = "#d4e8fb",
+  "mag_+30%"   = "#3182bd",
+  "mag_+50%"   = "#08306b"
+)
+
+# Plot 1: % change in mean GPP per site per scenario
+p1 <- summary_stats %>%
+  filter(scenario != "baseline") %>%
+  mutate(scenario = factor(scenario, levels = names(scenario_colours))) %>%
+  ggplot(aes(x = reorder(site, pct_change_GPP), y = pct_change_GPP, fill = scenario)) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = scenario_colours) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey30") +
+  coord_flip() +
+  labs(
+    title = "% Change in Mean GPP vs Baseline by Scenario",
+    x = "Site", y = "% Change in Mean GPP", fill = "Scenario"
+  ) +
+  theme_bw()
+
+print(p1)
+
+# Plot 2: Time series observed vs predicted per scenario (faceted by site)
+# Scenario options: "baseline", "freq_+15%", "freq_+30%", "freq_+50%",
+#                   "mag_+15%",  "mag_+30%",  "mag_+50%"
+scenario_to_plot <- "freq_+30%"
+
+p2 <- all_results %>%
+  filter(scenario == scenario_to_plot) %>%
+  pivot_longer(cols = c(GPP, GPP_pred), names_to = "type", values_to = "value") %>%
+  mutate(type = recode(type, GPP = "Observed", GPP_pred = "Predicted")) %>%
+  ggplot(aes(x = date, y = value, colour = type)) +
+  geom_line(alpha = 0.7, linewidth = 0.4) +
+  scale_colour_manual(values = c("Observed" = "grey30", "Predicted" = "#fd8d3c")) +
+  facet_wrap(~ site, scales = "free_y") +
+  labs(
+    title = paste("Observed vs Predicted GPP —", scenario_to_plot),
+    x = "Date", y = "GPP", colour = NULL
+  ) +
+  theme_bw(base_size = 9)
+
+print(p2)
+
+# Plot 3: R-squared per site per scenario
+p3 <- summary_stats %>%
+  filter(scenario != "baseline") %>%
+  mutate(scenario = factor(scenario, levels = names(scenario_colours))) %>%
+  ggplot(aes(x = reorder(site, r_squared), y = r_squared, fill = scenario)) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = scenario_colours) +
+  coord_flip() +
+  labs(
+    title = "R² of Random Forest per Site per Scenario",
+    x = "Site", y = "R²", fill = "Scenario"
+  ) +
+  theme_bw()
+
+print(p3)
+
+# Plot 4: R² vs % GPP change, coloured by cluster
+p4 <- summary_stats %>%
+  filter(scenario != "baseline") %>%
+  left_join(site_slopes %>% select(site, cluster_multi), by = "site") %>%
+  mutate(scenario_type = if_else(str_detect(scenario, "freq"), "Frequency", "Magnitude")) %>%
+  ggplot(aes(x = r_squared, y = pct_change_GPP, colour = cluster_multi, shape = scenario_type)) +
+  geom_point(size = 3, alpha = 0.8) +
+  scale_colour_manual(values = c("Low" = "#2196F3", "Medium" = "#FF9800", "High" = "#4CAF50")) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+  labs(
+    title = "R² vs % Change in GPP, by Cluster and Scenario Type",
+    x = "R²", y = "% Change in Mean GPP",
+    colour = "Cluster", shape = "Scenario type"
+  ) +
+  theme_bw()
+
+print(p4)
+
+# Plot 5: Frequency vs magnitude % GPP change scatter per site
+freq_mag_wide <- summary_stats %>%
+  filter(scenario != "baseline") %>%
+  mutate(
+    scenario_type = if_else(str_detect(scenario, "freq"), "freq", "mag"),
+    pct_level     = str_extract(scenario, "\\d+")
+  ) %>%
+  select(site, scenario_type, pct_level, pct_change_GPP) %>%
+  pivot_wider(names_from = scenario_type, values_from = pct_change_GPP)
+
+p5 <- freq_mag_wide %>%
+  left_join(site_slopes %>% select(site, cluster_multi), by = "site") %>%
+  ggplot(aes(x = freq, y = mag, colour = cluster_multi, label = site)) +
+  geom_point(size = 3) +
+  geom_text(vjust = -0.7, size = 2.8) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey50") +
+  scale_colour_manual(values = c("Low" = "#2196F3", "Medium" = "#FF9800", "High" = "#4CAF50")) +
+  facet_wrap(~ pct_level, labeller = label_both) +
+  labs(
+    title = "Frequency vs Magnitude: % Change in GPP per Site",
+    x = "% Change GPP (Frequency increase)",
+    y = "% Change GPP (Magnitude increase)",
+    colour = "Cluster"
+  ) +
+  theme_bw()
+
+print(p5)
+```
+```{r}
+library(ggrepel)
+
+cluster_labels <- site_slopes %>%
+  select(site, cluster_multi) %>%
+  mutate(
+    site          = as.character(site),
+    cluster_multi = as.character(cluster_multi)
+  )
+
+cluster_colours <- c(
+  "Low"    = "steelblue",
+  "Medium" = "orange",
+  "High"   = "firebrick"
+)
+
+plot_data_freqmag <- summary_stats %>%
+  filter(scenario != "baseline") %>%
+  mutate(site = as.character(site)) %>%
+  left_join(cluster_labels, by = "site") %>%
+  mutate(cluster_multi = factor(cluster_multi, levels = c("Low", "Medium", "High")))
+
+ggplot(plot_data_freqmag, aes(x = r_squared, y = pct_change_GPP)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey60", linewidth = 0.4) +
+  geom_point(aes(colour = cluster_multi), size = 3) +
+  geom_smooth(method = "lm", se = TRUE,
+              colour = "grey30", fill = "grey80",
+              linewidth = 0.7, linetype = "dotted") +
+  geom_text_repel(aes(label = site), size = 2.8, colour = "grey30",
+                  max.overlaps = 15) +
+  scale_colour_manual(values = cluster_colours, na.value = "grey50") +
+  facet_wrap(~ scenario, ncol = 3) +
+  labs(
+    x      = "R² (leave-one-year-out)",
+    y      = "% change in mean GPP relative to baseline",
+    colour = "VPD sensitivity"
+  ) +
+  theme_bw() +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold"),
+    legend.position  = "top",
+    panel.grid       = element_blank(),
+    panel.border     = element_rect(colour = "black", fill = NA)
+  )
+```
+
+```{r}
+# Frequency scenarios
+p_freq <- plot_data_freqmag %>%
+  filter(str_detect(scenario, "freq")) %>%
+  ggplot(aes(x = r_squared, y = pct_change_GPP)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey60", linewidth = 0.4) +
+  geom_point(aes(colour = cluster_multi), size = 3) +
+  geom_smooth(method = "lm", se = TRUE,
+              colour = "grey30", fill = "grey80",
+              linewidth = 0.7, linetype = "dotted") +
+  geom_text_repel(aes(label = site), size = 2.8, colour = "grey30",
+                  max.overlaps = 15) +
+  scale_colour_manual(values = cluster_colours, na.value = "grey50") +
+  facet_wrap(~ scenario, ncol = 3) +
+  labs(
+    title  = "Frequency scenarios",
+    x      = "R² (leave-one-year-out)",
+    y      = "% change in mean GPP relative to baseline",
+    colour = "VPD sensitivity"
+  ) +
+  theme_bw() +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold"),
+    legend.position  = "top",
+    panel.grid       = element_blank(),
+    panel.border     = element_rect(colour = "black", fill = NA)
+  )
+
+# Magnitude scenarios
+p_mag <- plot_data_freqmag %>%
+  filter(str_detect(scenario, "mag")) %>%
+  ggplot(aes(x = r_squared, y = pct_change_GPP)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey60", linewidth = 0.4) +
+  geom_point(aes(colour = cluster_multi), size = 3) +
+  geom_smooth(method = "lm", se = TRUE,
+              colour = "grey30", fill = "grey80",
+              linewidth = 0.7, linetype = "dotted") +
+  geom_text_repel(aes(label = site), size = 2.8, colour = "grey30",
+                  max.overlaps = 15) +
+  scale_colour_manual(values = cluster_colours, na.value = "grey50") +
+  facet_wrap(~ scenario, ncol = 3) +
+  labs(
+    title  = "Magnitude scenarios",
+    x      = "R² (leave-one-year-out)",
+    y      = "% change in mean GPP relative to baseline",
+    colour = "VPD sensitivity"
+  ) +
+  theme_bw() +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold"),
+    legend.position  = "top",
+    panel.grid       = element_blank(),
+    panel.border     = element_rect(colour = "black", fill = NA)
+  )
+
+print(p_freq)
+print(p_mag)
+```
+
+
+Lets try this again:
+- Increase in frequency
+
+```{r}
+library(dplyr)
+library(purrr)
+library(randomForest)
+library(tidyr)
+library(ggplot2)
+library(zoo)
+library(lubridate)
+
+#Setup
+predictors      <- c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day")
+vpd_scalars     <- c(0, 0.15, 0.30, 0.50)
+scenario_labels <- c("Observed", "+15% extreme days", "+30% extreme days", "+50% extreme days")
+
+scenario_colours <- c(
+  "Observed"           = "#4682B4",
+  "+15% extreme days"  = "#F28C28",
+  "+30% extreme days"  = "#E06C4B",
+  "+50% extreme days"  = "#8B1A1A"
+)
+```
+
+```{r}
+run_loyo_summer_extreme <- function(df, site_name) {
+  
+  message("Processing: ", site_name)
+  
+  df <- df %>%
+    drop_na(GPP, Tair, SW_rad, VPD, cwd, date) %>%
+    arrange(date) %>%
+    mutate(
+      year       = year(date),
+      hydro_year = ifelse(month(date) == 12, year(date) + 1, year(date)),
+      summer     = month(date) %in% c(12, 1, 2),
+      cumulative_cwd_7day = rollapply(cwd, width = 7, FUN = function(x) {
+        if (sum(!is.na(x)) >= 3) sum(x, na.rm = TRUE) else NA
+      }, align = "right", fill = NA)
+    ) %>%
+    drop_na(all_of(predictors), GPP)
+  
+  if (nrow(df) < 50) {
+    warning("Skipping ", site_name, ": insufficient data")
+    return(NULL)
+  }
+  
+  # 90th percentile VPD from summer obs across all years
+  vpd_90 <- df %>%
+    filter(summer) %>%
+    pull(VPD) %>%
+    quantile(0.90, na.rm = TRUE)
+  
+  all_years <- unique(df$hydro_year)
+  if (length(all_years) < 2) {
+    warning("Skipping ", site_name, ": insufficient years")
+    return(NULL)
+  }
+  
+  loyo_results <- map_dfr(all_years, function(test_year) {
+    
+    train_df <- df %>% filter(hydro_year != test_year)
+    
+    # ── Full held-out year ────────────────────────────────────────────
+    test_nonsummer <- df %>% filter(hydro_year == test_year, !summer)
+    test_summer    <- df %>% filter(hydro_year == test_year,  summer)
+    
+    if (nrow(train_df) < 50 || nrow(test_summer) < 10) return(NULL)
+    
+    # Standardise on full training set
+    scale_means <- colMeans(train_df[predictors], na.rm = TRUE)
+    scale_sds   <- apply(train_df[predictors], 2, sd, na.rm = TRUE)
+    
+    scale_with_params <- function(data, means, sds) {
+      for (v in names(means)) data[[v]] <- (data[[v]] - means[v]) / sds[v]
+      data
+    }
+    
+    train_scaled <- scale_with_params(train_df, scale_means, scale_sds)
+    formula      <- as.formula(paste("GPP ~", paste(predictors, collapse = " + ")))
+    rf_model     <- randomForest(formula, data = train_scaled,
+                                 ntree = 500, mtry = 3, importance = FALSE)
+    
+    # Identify extreme vs normal days in test summer
+    extreme_days <- test_summer %>% filter(VPD >= vpd_90)
+    normal_days  <- test_summer %>% filter(VPD <  vpd_90)
+    n_normal     <- nrow(normal_days)
+    n_extreme    <- nrow(extreme_days)
+    
+    map2_dfr(vpd_scalars, scenario_labels, function(extra_frac, label) {
+      
+      # ── Manipulate summer days only ───────────────────────────────
+      if (extra_frac == 0) {
+        summer_scenario <- test_summer
+        
+      } else {
+        n_replace <- round(n_normal * extra_frac)
+        
+        if (n_replace == 0 || n_extreme == 0) {
+          summer_scenario <- test_summer
+        } else {
+          extra_extreme <- extreme_days %>%
+            slice_sample(n = n_replace, replace = TRUE)
+          
+          normal_kept <- normal_days %>%
+            slice_sample(n = max(0, n_normal - n_replace), replace = FALSE)
+          
+          summer_scenario <- bind_rows(normal_kept, extreme_days, extra_extreme) %>%
+            arrange(date)
+        }
+      }
+      
+      # ── Combine manipulated summer + unchanged non-summer ─────────
+      full_test <- bind_rows(test_nonsummer, summer_scenario) %>%
+        arrange(date)
+      
+      full_scaled <- scale_with_params(full_test, scale_means, scale_sds)
+      preds       <- predict(rf_model, full_scaled)
+      
+      data.frame(
+        site           = site_name,
+        date           = full_test$date,
+        year           = test_year,
+        scenario       = label,
+        summer         = full_test$summer,
+        VPD_raw        = full_test$VPD,
+        n_extreme_days = sum(full_test$summer & full_test$VPD >= vpd_90),
+        n_total_days   = nrow(full_test),
+        GPP_pred       = preds,
+        GPP_obs        = full_test$GPP
+      )
+    })
+  })
+  
+  loyo_results
+}
+
+# ── Run across all sites ──────────────────────────────────────────────────────
+loyo_results <- map2(sites_daily, names(sites_daily), run_loyo_summer_extreme)
+loyo_results <- Filter(Negate(is.null), loyo_results)
+
+all_scenarios <- bind_rows(loyo_results) %>%
+  mutate(scenario = factor(scenario, levels = scenario_labels))
+
+message("Sites retained: ", length(unique(all_scenarios$site)))
+message("Total rows: ", nrow(all_scenarios))
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(ggrepel)
+
+# ── Plot 1: R² per site (full year only) ─────────────────────────────────────
+
+r2_loyo <- all_scenarios %>%
+  filter(scenario == "Observed") %>%
+  group_by(site) %>%
+  summarise(
+    R2   = cor(GPP_obs, GPP_pred, use = "complete.obs")^2,
+    RMSE = sqrt(mean((GPP_obs - GPP_pred)^2, na.rm = TRUE)),
+    .groups = "drop"
+  ) %>%
+  mutate(site = factor(site, levels = wet_to_dry_order))
+
+ggplot(r2_loyo, aes(x = site, y = R2)) +
+  geom_col(width = 0.7, fill = "#4682B4") +
+  geom_text(aes(label = round(R2, 2)), hjust = -0.2, size = 3, colour = "grey30") +
+  coord_flip(clip = "off") +
+  scale_y_continuous(limits = c(0, 1.1)) +
+  labs(x = NULL, y = "R² — leave-one-year-out (out-of-sample)") +
+  theme_classic() +
+  theme(
+    legend.position = "top",
+    axis.text.y     = element_text(size = 10)
+  )
+
+# ── Plot 2: % change in annual GPP per scenario per site ─────────────────────
+
+scenario_summary_long <- all_scenarios %>%
+  group_by(site, scenario) %>%
+  summarise(mean_GPP = mean(GPP_pred, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = scenario, values_from = mean_GPP) %>%
+  mutate(
+    "+15% extreme days" = (`+15% extreme days` - Observed) / Observed * 100,
+    "+30% extreme days" = (`+30% extreme days` - Observed) / Observed * 100,
+    "+50% extreme days" = (`+50% extreme days` - Observed) / Observed * 100
+  ) %>%
+  select(site, `+15% extreme days`, `+30% extreme days`, `+50% extreme days`) %>%
+  pivot_longer(cols = ends_with("days"),
+               names_to  = "scenario",
+               values_to = "pct_change") %>%
+  mutate(
+    scenario = factor(scenario, levels = c("+15% extreme days",
+                                           "+30% extreme days",
+                                           "+50% extreme days")),
+    site = factor(site, levels = wet_to_dry_order)
+  )
+
+ggplot(scenario_summary_long, aes(x = site, y = pct_change, fill = scenario)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
+  scale_fill_manual(values = c(
+    "+15% extreme days" = "#F28C28",
+    "+30% extreme days" = "#E06C4B",
+    "+50% extreme days" = "#8B1A1A"
+  )) +
+  coord_flip() +
+  labs(
+    x    = NULL,
+    y    = "% change in mean annual GPP relative to observed",
+    fill = "Extreme VPD scenario"
+  ) +
+  theme_classic() +
+  theme(
+    legend.position = "top",
+    axis.text.y     = element_text(size = 10)
+  )
+
+# ── Plot 3: R² vs % change coloured by cluster group ─────────────────────────
+
+# Use summer R² as most relevant for the scenario
+r2_sites <- all_scenarios %>%
+  filter(scenario == "Observed", summer) %>%
+  group_by(site) %>%
+  summarise(
+    R2 = cor(GPP_obs, GPP_pred, use = "complete.obs")^2,
+    .groups = "drop"
+  )
+
+pct_change_sites <- all_scenarios %>%
+  filter(summer) %>%
+  group_by(site, scenario) %>%
+  summarise(mean_GPP = mean(GPP_pred, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = scenario, values_from = mean_GPP) %>%
+  mutate(
+    "+15% extreme days" = (`+15% extreme days` - Observed) / Observed * 100,
+    "+30% extreme days" = (`+30% extreme days` - Observed) / Observed * 100,
+    "+50% extreme days" = (`+50% extreme days` - Observed) / Observed * 100
+  ) %>%
+  select(site, `+15% extreme days`, `+30% extreme days`, `+50% extreme days`) %>%
+  pivot_longer(cols = ends_with("days"),
+               names_to  = "scenario",
+               values_to = "pct_change") %>%
+  mutate(scenario = factor(scenario, levels = c("+15% extreme days",
+                                                 "+30% extreme days",
+                                                 "+50% extreme days")))
+
+cluster_colours <- c(
+  "Low"    = "steelblue",
+  "Medium" = "orange",
+  "High"   = "firebrick"
+)
+
+plot_data <- pct_change_sites %>%
+  mutate(site = as.character(site)) %>%
+  left_join(r2_sites, by = "site") %>%
+  left_join(cluster_labels, by = "site") %>%
+  mutate(cluster_multi = factor(cluster_multi, levels = c("Low", "Medium", "High")))
+
+ggplot(plot_data, aes(x = R2, y = pct_change)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey60", linewidth = 0.4) +
+  geom_point(aes(colour = cluster_multi), size = 3) +
+  geom_smooth(method = "lm", se = TRUE,
+              colour = "grey30", fill = "grey80",
+              linewidth = 0.7, linetype = "dotted") +
+  geom_text_repel(aes(label = site), size = 2.8, colour = "grey30",
+                  max.overlaps = 15) +
+  scale_colour_manual(values = cluster_colours, na.value = "grey50") +
+  facet_wrap(~ scenario, ncol = 3) +
+  labs(
+    x      = "R² (leave-one-year-out, summer)",
+    y      = "% change in mean summer GPP relative to observed",
+    colour = "VPD sensitivity"
+  ) +
+  theme_bw() +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold"),
+    legend.position  = "top",
+    panel.grid       = element_blank(),
+    panel.border     = element_rect(colour = "black", fill = NA)
+  )
+```
+
+Increase in magnitude:
+
+Need to do
+
+
+
+
+
 
 2) *Baseline and extremes*
 
-Sort into tropical, arid and temperate
-Tropical (+0.524 kPa), Arid (+0.644 kPa) and Temperate (+0.344 Kpa) increase (Fang et al., 2022)
+Sort sites into tropical, arid and temperate
+Tropical (+0.524 kPa), Arid (+0.644 kPa) and Temperate (+0.344 Kpa) increase to ALL daily VPD values (Fang et al., 2022)
 
 Biome-specific background increases, accounts for the fact that arid systems will face larger increases in VPD stress than temperate ones.
 Make sure site biome assignment is unambiguous
 Clearly state you are applying a uniform shift to every daily value in the whole dataset
 
-Background rising VPD for each
-Both +28% magnitude and rising VPD for each (Zhou et al., 2019)
+Background rising VPD for each climate AND +28% magnitude of VPD values equal to and above the 90th percentile of VPD in the summer (Zhou et al., 2019)
+
+Random Forest is leave-one-year out trained and tested for each scenario. Trained on all years bar one, tested on one year. Repeated for all years and concatenated together. 
+
+Tropical - Ade, Dap, Das, Dry, Fog, Gin, How, Rdf, Stp
+Arid - Asm, Cpr, Emr Gww, Ync
+Temperate - Boy, Cum, Rig, Tum, Wac, Whr, Wom
+
+Beck et al., 2018
+
+```{r}
+library(dplyr)
+library(purrr)
+library(randomForest)
+library(tidyr)
+library(ggplot2)
+library(zoo)
+library(lubridate)
+library(ggrepel)
+
+# ── Setup ─────────────────────────────────────────────────────────────────────
+
+predictors <- c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day")
+
+scenario_labels  <- c("Observed", "Future VPD")
+scenario_colours <- c("Observed" = "#4682B4", "Future VPD" = "#C0392B")
+
+biome_vpd_increase <- c(
+  Ade = 0.524, Dap = 0.524, Das = 0.524, Dry = 0.524,
+  Fog = 0.524, Gin = 0.524, How = 0.524, Rdf = 0.524, Stp = 0.524,
+  Asm = 0.644, Cpr = 0.644, Emr = 0.644, Gww = 0.644, Ync = 0.644,
+  Boy = 0.344, Cum = 0.344, Rig = 0.344, Tum = 0.344,
+  Wac = 0.344, Whr = 0.344, Wom = 0.344
+)
+
+biome_labels <- c(
+  Ade = "Tropical", Dap = "Tropical", Das = "Tropical", Dry = "Tropical",
+  Fog = "Tropical", Gin = "Tropical", How = "Tropical", Rdf = "Tropical", Stp = "Tropical",
+  Asm = "Arid", Cpr = "Arid", Emr = "Arid", Gww = "Arid", Ync = "Arid",
+  Boy = "Temperate", Cum = "Temperate", Rig = "Temperate", Tum = "Temperate",
+  Wac = "Temperate", Whr = "Temperate", Wom = "Temperate"
+)
+
+biome_colours <- c(
+  "Tropical"  = "#2E8B57",
+  "Arid"      = "#C8860A",
+  "Temperate" = "#4682B4"
+)
+
+# ── LOYO function ─────────────────────────────────────────────────────────────
+
+run_loyo_biome_vpd <- function(df, site_name) {
+
+  message("Processing: ", site_name)
+
+  vpd_delta <- biome_vpd_increase[site_name]
+  if (is.na(vpd_delta)) {
+    warning("Skipping ", site_name, ": no biome VPD delta defined")
+    return(NULL)
+  }
+
+  df <- df %>%
+    drop_na(GPP, Tair, SW_rad, VPD, cwd, date) %>%
+    arrange(date) %>%
+    mutate(
+      year       = year(date),
+      hydro_year = ifelse(month(date) == 12, year(date) + 1, year(date)),
+      summer     = month(date) %in% c(12, 1, 2),
+      cumulative_cwd_7day = rollapply(cwd, width = 7, FUN = function(x) {
+        if (sum(!is.na(x)) >= 3) sum(x, na.rm = TRUE) else NA
+      }, align = "right", fill = NA)
+    ) %>%
+    drop_na(all_of(predictors), GPP)
+
+  if (nrow(df) < 50) {
+    warning("Skipping ", site_name, ": insufficient data")
+    return(NULL)
+  }
+
+  all_years <- unique(df$hydro_year)
+  if (length(all_years) < 2) {
+    warning("Skipping ", site_name, ": insufficient years")
+    return(NULL)
+  }
+
+  loyo_results <- map_dfr(all_years, function(test_year) {
+
+    train_df <- df %>% filter(hydro_year != test_year)
+    test_df  <- df %>% filter(hydro_year == test_year)
+
+    if (nrow(train_df) < 50 || nrow(test_df) < 10) return(NULL)
+
+    # Standardise on training set parameters
+    scale_means <- colMeans(train_df[predictors], na.rm = TRUE)
+    scale_sds   <- apply(train_df[predictors], 2, sd, na.rm = TRUE)
+
+    scale_with_params <- function(data, means, sds) {
+      for (v in names(means)) data[[v]] <- (data[[v]] - means[v]) / sds[v]
+      data
+    }
+
+    train_scaled <- scale_with_params(train_df, scale_means, scale_sds)
+    formula      <- as.formula(paste("GPP ~", paste(predictors, collapse = " + ")))
+    rf_model     <- randomForest(formula, data = train_scaled,
+                                 ntree = 500, mtry = 3, importance = FALSE)
+
+    map_dfr(scenario_labels, function(label) {
+
+      test_scenario <- if (label == "Observed") {
+        test_df
+      } else {
+        test_df %>% mutate(VPD = VPD + vpd_delta)
+      }
+
+      test_scaled <- scale_with_params(test_scenario, scale_means, scale_sds)
+      preds       <- predict(rf_model, test_scaled)
+
+      data.frame(
+        site        = site_name,
+        date        = test_scenario$date,
+        year        = test_year,
+        scenario    = label,
+        summer      = test_scenario$summer,
+        VPD_raw     = test_scenario$VPD,
+        n_total_days = nrow(test_scenario),
+        GPP_pred    = preds,
+        GPP_obs     = test_scenario$GPP
+      )
+    })
+  })
+
+  loyo_results
+}
+
+# ── Run across all sites ──────────────────────────────────────────────────────
+
+loyo_results <- map2(sites_daily, names(sites_daily), run_loyo_biome_vpd)
+loyo_results <- Filter(Negate(is.null), loyo_results)
+
+all_scenarios <- bind_rows(loyo_results) %>%
+  mutate(
+    scenario = factor(scenario, levels = scenario_labels),
+    biome    = biome_labels[site]
+  )
+
+message("Sites retained: ", length(unique(all_scenarios$site)))
+message("Total rows: ", nrow(all_scenarios))
+
+# ── Plot 1: R² per site coloured by biome ────────────────────────────────────
+
+r2_loyo <- all_scenarios %>%
+  filter(scenario == "Observed") %>%
+  group_by(site) %>%
+  summarise(
+    R2   = cor(GPP_obs, GPP_pred, use = "complete.obs")^2,
+    RMSE = sqrt(mean((GPP_obs - GPP_pred)^2, na.rm = TRUE)),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    biome = biome_labels[site],
+    site  = factor(site, levels = wet_to_dry_order)
+  )
+
+ggplot(r2_loyo, aes(x = site, y = R2, fill = biome)) +
+  geom_col(width = 0.7) +
+  geom_text(aes(label = round(R2, 2)), hjust = -0.2, size = 3, colour = "grey30") +
+  coord_flip(clip = "off") +
+  scale_y_continuous(limits = c(0, 1.1)) +
+  scale_fill_manual(values = biome_colours) +
+  labs(x = NULL, y = "R² — leave-one-year-out (out-of-sample)", fill = "Biome") +
+  theme_classic() +
+  theme(legend.position = "top", axis.text.y = element_text(size = 10))
+
+# ── Plot 2: % change in GPP per site, faceted by biome ───────────────────────
+
+scenario_summary_long <- all_scenarios %>%
+  group_by(site, scenario) %>%
+  summarise(mean_GPP = mean(GPP_pred, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = scenario, values_from = mean_GPP) %>%
+  mutate(
+    pct_change = (`Future VPD` - Observed) / Observed * 100,
+    biome      = biome_labels[site],
+    site       = factor(site, levels = wet_to_dry_order)
+  )
+
+ggplot(scenario_summary_long, aes(x = site, y = pct_change, fill = biome)) +
+  geom_col(width = 0.7) +
+  geom_hline(yintercept = 0, linetype = "dashed", linewidth = 0.4) +
+  scale_fill_manual(values = biome_colours) +
+  coord_flip() +
+  facet_wrap(~ biome, scales = "free_y", ncol = 1) +
+  labs(
+    x    = NULL,
+    y    = "% change in mean annual GPP relative to observed",
+    fill = "Biome"
+  ) +
+  theme_classic() +
+  theme(legend.position = "none", axis.text.y = element_text(size = 10),
+        strip.text = element_text(face = "bold"))
+
+# ── Plot 3: R² vs % change coloured by cluster group, faceted by biome ───────
+
+r2_sites <- all_scenarios %>%
+  filter(scenario == "Observed", summer) %>%
+  group_by(site) %>%
+  summarise(R2 = cor(GPP_obs, GPP_pred, use = "complete.obs")^2, .groups = "drop")
+
+pct_change_sites <- all_scenarios %>%
+  filter(summer) %>%
+  group_by(site, scenario) %>%
+  summarise(mean_GPP = mean(GPP_pred, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = scenario, values_from = mean_GPP) %>%
+  mutate(pct_change = (`Future VPD` - Observed) / Observed * 100)
+
+cluster_colours <- c("Low" = "steelblue", "Medium" = "orange", "High" = "firebrick")
+
+plot_data <- pct_change_sites %>%
+  mutate(site = as.character(site)) %>%
+  left_join(r2_sites, by = "site") %>%
+  left_join(cluster_labels, by = "site") %>%
+  mutate(
+    cluster_multi = factor(cluster_multi, levels = c("Low", "Medium", "High")),
+    biome         = biome_labels[site]
+  )
+
+ggplot(plot_data, aes(x = R2, y = pct_change)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey60", linewidth = 0.4) +
+  geom_point(aes(colour = cluster_multi), size = 3) +
+  geom_smooth(method = "lm", se = TRUE,
+              colour = "grey30", fill = "grey80",
+              linewidth = 0.7, linetype = "dotted") +
+  geom_text_repel(aes(label = site), size = 2.8, colour = "grey30", max.overlaps = 15) +
+  scale_colour_manual(values = cluster_colours, na.value = "grey50") +
+  facet_wrap(~ biome, ncol = 3) +
+  labs(
+    x      = "R² (leave-one-year-out, summer)",
+    y      = "% change in mean summer GPP relative to observed",
+    colour = "VPD sensitivity"
+  ) +
+  theme_bw() +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold"),
+    legend.position  = "top",
+    panel.grid       = element_blank(),
+    panel.border     = element_rect(colour = "black", fill = NA)
+  )
+
+```
+
+
+
 
