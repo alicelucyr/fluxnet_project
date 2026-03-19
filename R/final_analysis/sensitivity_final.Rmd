@@ -155,7 +155,7 @@ site_slopes <- site_slopes %>%
 slopes_mat_2 <- site_slopes %>%
   filter(!is.na(slope)) %>%
   column_to_rownames("site") %>%
-  select(slope, intercept, vpd_at_peak) %>%
+  select(slope, vpd_at_peak) %>%
   scale()
 
 hclust_fit_2 <- hclust(dist(slopes_mat_2, method = "euclidean"), method = "ward.D2")
