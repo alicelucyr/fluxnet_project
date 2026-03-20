@@ -1,0 +1,1900 @@
+---
+title: "Model_diagnosis"
+output: html_document
+date: "2026-03-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+plot(sites_daily$Tum$date, sites_daily$Tum$cwd)
+```
+
+
+
+
+```{r}
+library(tidyverse)
+library(randomForest)
+library(zoo)
+library(lubridate)
+
+# ── Setup ─────────────────────────────────────────────────────────────────────
+predictors <- c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day")
+
+standardise_train_test <- function(train_df, test_df, predictors) {
+  train_means <- colMeans(train_df[predictors], na.rm = TRUE)
+  train_sds   <- apply(train_df[predictors], 2, sd, na.rm = TRUE)
+  train_df[predictors] <- scale(train_df[predictors], center = train_means, scale = train_sds)
+  test_df[predictors]  <- scale(test_df[predictors],  center = train_means, scale = train_sds)
+  list(train = train_df, test = test_df)
+}
+
+#Extract AU-Tum, drops rows with missing values, calculates 7 day rolling cwd sum
+tum <- sites_daily[["Tum"]] %>%
+  drop_na(GPP, Tair, SW_rad, VPD, cwd, date) %>%
+  arrange(date) %>%
+  mutate(
+    year = year(date),
+    cumulative_cwd_7day = rollapply(
+      cwd, width = 7, FUN = sum,
+      align = "right", fill = NA, na.rm = TRUE
+    )
+  ) %>%
+  drop_na(all_of(predictors), GPP)
+
+formula <- as.formula(paste("GPP ~", paste(predictors, collapse = " + ")))
+mtry_val <- max(2, floor(sqrt(length(predictors))))
+
+# LOYO Random Forest - for each year in the record it holds that year out, trains on all other years and then predicts on the held-out year
+years <- unique(tum$year)
+loyo_preds <- map_dfr(years, function(yr) {
+  
+  train_df <- tum %>% filter(year != yr)
+  test_df  <- tum %>% filter(year == yr)
+  
+  if (nrow(train_df) < 50 || nrow(test_df) < 10) return(NULL)
+  
+  scaled     <- standardise_train_test(train_df, test_df, predictors)
+  rf_model   <- randomForest(formula, data = scaled$train,
+                             ntree = 500, mtry = mtry_val, importance = FALSE)
+  preds      <- predict(rf_model, scaled$test)
+  
+  data.frame(
+    date      = test_df$date,
+    GPP_obs   = test_df$GPP,
+    GPP_pred  = preds,
+    method    = "LOYO"
+  )
+})
+
+# 80/20 split model - first 80% of rows chronologically as training and the last 20% as the test set
+split_idx  <- floor(0.8 * nrow(tum))
+train_8020 <- tum[1:split_idx, ]
+test_8020  <- tum[(split_idx + 1):nrow(tum), ]
+
+scaled_8020  <- standardise_train_test(train_8020, test_8020, predictors)
+rf_8020      <- randomForest(formula, data = scaled_8020$train,
+                             ntree = 500, mtry = mtry_val, importance = FALSE)
+preds_8020   <- predict(rf_8020, scaled_8020$test)
+
+split_preds <- data.frame(
+  date     = test_8020$date,
+  GPP_obs  = test_8020$GPP,
+  GPP_pred = preds_8020,
+  method   = "80/20 Split"
+)
+
+#Metrics
+compute_metrics <- function(df) {
+  obs  <- df$GPP_obs
+  pred <- df$GPP_pred
+  r2   <- cor(obs, pred)^2
+  rmse <- sqrt(mean((obs - pred)^2))
+  nse  <- 1 - sum((obs - pred)^2) / sum((obs - mean(obs))^2)
+  data.frame(R2 = round(r2, 3), RMSE = round(rmse, 3), NSE = round(nse, 3))
+}
+
+loyo_metrics  <- compute_metrics(loyo_preds)
+split_metrics <- compute_metrics(split_preds)
+
+cat("── LOYO metrics ──\n");  print(loyo_metrics)
+cat("── 80/20 metrics ──\n"); print(split_metrics)
+
+#Plot
+plot_df <- bind_rows(loyo_preds, split_preds) %>%
+  pivot_longer(cols = c(GPP_obs, GPP_pred),
+               names_to = "type", values_to = "GPP") %>%
+  mutate(
+    method = factor(method, levels = c("LOYO", "80/20 Split")),
+    type   = recode(type, GPP_obs = "Observed", GPP_pred = "Predicted")
+  )
+
+# Label data for facet annotations
+label_df <- data.frame(
+  method = factor(c("LOYO", "80/20 Split"), levels = c("LOYO", "80/20 Split")),
+  label  = c(
+    paste0("R² = ", loyo_metrics$R2,  "  NSE = ", loyo_metrics$NSE),
+    paste0("R² = ", split_metrics$R2, "  NSE = ", split_metrics$NSE)
+  )
+)
+
+p <- ggplot(plot_df, aes(x = date, y = GPP, colour = type, alpha = type)) +
+  geom_line(linewidth = 0.5) +
+  geom_text(
+    data    = label_df,
+    aes(label = label),
+    x       = -Inf, y = Inf,
+    hjust   = -0.05, vjust = 1.5,
+    inherit.aes = FALSE,
+    size    = 3.5, colour = "grey20", fontface = "bold"
+  ) +
+  facet_wrap(~ method, ncol = 1, scales = "free_x") +
+  scale_colour_manual(values = c("Observed" = "#2c2c2c", "Predicted" = "#E06C4B")) +
+  scale_alpha_manual(values  = c("Observed" = 0.5,      "Predicted" = 0.9)) +
+  labs(
+    title    = "AU-Tum: Observed vs Predicted GPP",
+    subtitle = "Comparing Leave-One-Year-Out vs 80/20 chronological split",
+    x        = NULL,
+    y        = expression(GPP ~ (µmol ~ C ~ m^{-2} ~ d^{-1})),
+    colour   = NULL, alpha = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title      = element_text(face = "bold", size = 14),
+    plot.subtitle   = element_text(colour = "grey40", size = 10),
+    strip.text      = element_text(face = "bold", size = 11),
+    legend.position = "bottom",
+    panel.grid.minor = element_blank()
+  )
+
+ggsave("AU_Tum_RF_comparison.png", plot = p,
+       width = 12, height = 7, dpi = 200, bg = "white")
+
+print(p)
+```
+Removed cwd and added in precip
+
+```{r}
+library(tidyverse)
+library(randomForest)
+library(zoo)
+library(lubridate)
+
+# ── Setup ─────────────────────────────────────────────────────────────────────
+predictors <- c("Tair", "SW_rad", "VPD", "Precip")
+
+standardise_train_test <- function(train_df, test_df, predictors) {
+  train_means <- colMeans(train_df[predictors], na.rm = TRUE)
+  train_sds   <- apply(train_df[predictors], 2, sd, na.rm = TRUE)
+  train_df[predictors] <- scale(train_df[predictors], center = train_means, scale = train_sds)
+  test_df[predictors]  <- scale(test_df[predictors],  center = train_means, scale = train_sds)
+  list(train = train_df, test = test_df)
+}
+
+# ── Extract AU-Tum ────────────────────────────────────────────────────────────
+tum <- sites_daily[["Tum"]] %>%
+  drop_na(GPP, Tair, SW_rad, VPD, Precip, date) %>%
+  arrange(date) %>%
+  drop_na(all_of(predictors), GPP)
+
+formula  <- as.formula(paste("GPP ~", paste(predictors, collapse = " + ")))
+mtry_val <- max(2, floor(sqrt(length(predictors))))
+
+# ── 1. LOYO Random Forest ─────────────────────────────────────────────────────
+years <- unique(tum$year)
+loyo_preds <- map_dfr(years, function(yr) {
+  
+  train_df <- tum %>% filter(year != yr)
+  test_df  <- tum %>% filter(year == yr)
+  
+  if (nrow(train_df) < 50 || nrow(test_df) < 10) return(NULL)
+  
+  scaled   <- standardise_train_test(train_df, test_df, predictors)
+  rf_model <- randomForest(formula, data = scaled$train,
+                           ntree = 500, mtry = mtry_val, importance = FALSE)
+  preds    <- predict(rf_model, scaled$test)
+  
+  data.frame(
+    date     = test_df$date,
+    GPP_obs  = test_df$GPP,
+    GPP_pred = preds,
+    method   = "LOYO",
+    period   = "Test (held-out year)"
+  )
+})
+
+# ── 2. 80/20 Chronological Train/Test Split ───────────────────────────────────
+split_idx  <- floor(0.8 * nrow(tum))
+train_8020 <- tum[1:split_idx, ]
+test_8020  <- tum[(split_idx + 1):nrow(tum), ]
+
+scaled_8020 <- standardise_train_test(train_8020, test_8020, predictors)
+rf_8020     <- randomForest(formula, data = scaled_8020$train,
+                            ntree = 500, mtry = mtry_val, importance = FALSE)
+
+# Predict on both train and test periods for plotting
+preds_train_8020 <- predict(rf_8020, scaled_8020$train)
+preds_test_8020  <- predict(rf_8020, scaled_8020$test)
+
+split_preds <- bind_rows(
+  data.frame(
+    date     = train_8020$date,
+    GPP_obs  = train_8020$GPP,
+    GPP_pred = preds_train_8020,
+    method   = "80/20 Split",
+    period   = "Train (in-sample)"
+  ),
+  data.frame(
+    date     = test_8020$date,
+    GPP_obs  = test_8020$GPP,
+    GPP_pred = preds_test_8020,
+    method   = "80/20 Split",
+    period   = "Test (out-of-sample)"
+  )
+)
+
+# ── Metrics (test periods only) ───────────────────────────────────────────────
+compute_metrics <- function(df) {
+  obs  <- df$GPP_obs
+  pred <- df$GPP_pred
+  data.frame(
+    R2   = round(cor(obs, pred)^2, 3),
+    RMSE = round(sqrt(mean((obs - pred)^2)), 3),
+    NSE  = round(1 - sum((obs - pred)^2) / sum((obs - mean(obs))^2), 3)
+  )
+}
+
+loyo_metrics  <- compute_metrics(loyo_preds)
+split_metrics <- compute_metrics(split_preds %>% filter(period == "Test (out-of-sample)"))
+train_metrics <- compute_metrics(split_preds %>% filter(period == "Train (in-sample)"))
+
+cat("── LOYO metrics (all years, out-of-sample) ──\n");        print(loyo_metrics)
+cat("── 80/20 Test metrics (out-of-sample) ──\n");             print(split_metrics)
+cat("── 80/20 Train metrics (in-sample, for reference) ──\n"); print(train_metrics)
+
+# ── Plot ──────────────────────────────────────────────────────────────────────
+plot_df <- bind_rows(loyo_preds, split_preds) %>%
+  pivot_longer(cols = c(GPP_obs, GPP_pred),
+               names_to = "type", values_to = "GPP") %>%
+  mutate(
+    method = factor(method, levels = c("LOYO", "80/20 Split")),
+    type   = recode(type, GPP_obs = "Observed", GPP_pred = "Predicted")
+  )
+
+# Shading to show train region in 80/20 panel only
+split_date <- tum$date[split_idx]
+
+shade_df <- data.frame(
+  method = factor("80/20 Split", levels = c("LOYO", "80/20 Split")),
+  xmin   = min(tum$date),
+  xmax   = split_date,
+  ymin   = -Inf,
+  ymax   = Inf
+)
+
+# Vertical split line for 80/20 panel only
+vline_df <- data.frame(
+  method = factor("80/20 Split", levels = c("LOYO", "80/20 Split")),
+  xint   = split_date
+)
+
+# Metric annotations per panel
+label_df <- data.frame(
+  method = factor(c("LOYO", "80/20 Split"), levels = c("LOYO", "80/20 Split")),
+  label  = c(
+    paste0("Test R² = ", loyo_metrics$R2, "  |  NSE = ", loyo_metrics$NSE),
+    paste0("Train R² = ", train_metrics$R2,
+           "  |  Test R² = ", split_metrics$R2,
+           "  |  Test NSE = ", split_metrics$NSE)
+  )
+)
+
+p <- ggplot(plot_df, aes(x = date, y = GPP, colour = type, alpha = type)) +
+  geom_rect(
+    data        = shade_df,
+    aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+    inherit.aes = FALSE,
+    fill        = "steelblue", alpha = 0.07
+  ) +
+  geom_vline(
+    data        = vline_df,
+    aes(xintercept = xint),
+    inherit.aes = FALSE,
+    linetype    = "dashed", colour = "grey40", linewidth = 0.5
+  ) +
+  geom_line(linewidth = 0.45) +
+  geom_text(
+    data        = label_df,
+    aes(label   = label),
+    x           = -Inf, y = Inf,
+    hjust       = -0.04, vjust = 1.6,
+    inherit.aes = FALSE,
+    size        = 3.3, colour = "grey20", fontface = "bold"
+  ) +
+  facet_wrap(~ method, ncol = 1) +
+  scale_colour_manual(values = c("Observed" = "#2c2c2c", "Predicted" = "#E06C4B")) +
+  scale_alpha_manual(values  = c("Observed" = 0.45,     "Predicted" = 0.85)) +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  labs(
+    title    = "AU-Tum: Observed vs Predicted GPP",
+    subtitle = "LOYO (fully out-of-sample) vs 80/20 chronological split — shaded region = training period",
+    x        = NULL,
+    y        = expression(GPP ~ (µmol ~ C ~ m^{-2} ~ d^{-1})),
+    colour   = NULL,
+    alpha    = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 14),
+    plot.subtitle    = element_text(colour = "grey40", size = 10),
+    strip.text       = element_text(face = "bold", size = 11),
+    legend.position  = "bottom",
+    panel.grid.minor = element_blank(),
+    axis.text.x      = element_text(angle = 45, hjust = 1)
+  )
+
+ggsave("AU_Tum_RF_comparison.png", plot = p,
+       width = 14, height = 8, dpi = 200, bg = "white")
+
+print(p)
+```
+
+Added in a VPD lag 3 and a 30 day cwd, removed precip
+
+```{r}
+library(tidyverse)
+library(randomForest)
+library(zoo)
+library(lubridate)
+
+# ── Setup ─────────────────────────────────────────────────────────────────────
+predictors <- c("Tair", "SW_rad", "VPD", "VPD_lag3", "cumulative_cwd_30day")
+
+standardise_train_test <- function(train_df, test_df, predictors) {
+  train_means <- colMeans(train_df[predictors], na.rm = TRUE)
+  train_sds   <- apply(train_df[predictors], 2, sd, na.rm = TRUE)
+  train_df[predictors] <- scale(train_df[predictors], center = train_means, scale = train_sds)
+  test_df[predictors]  <- scale(test_df[predictors],  center = train_means, scale = train_sds)
+  list(train = train_df, test = test_df)
+}
+
+# ── Extract AU-Tum and engineer features ──────────────────────────────────────
+tum <- sites_daily[["Tum"]] %>%
+  drop_na(GPP, Tair, SW_rad, VPD, cwd, date) %>%
+  arrange(date) %>%
+  mutate(
+    year = year(date),
+
+    # 3-day lagged VPD — captures carry-over stomatal / hydraulic stress
+    VPD_lag3 = lag(VPD, 3),
+
+    # 30-day raw rolling sum of daily CWD (same method as before, longer window)
+    cumulative_cwd_30day = rollapply(
+      cwd, width = 30, FUN = sum,
+      align = "right", fill = NA, na.rm = TRUE
+    )
+  ) %>%
+  drop_na(all_of(predictors), GPP)
+
+formula  <- as.formula(paste("GPP ~", paste(predictors, collapse = " + ")))
+mtry_val <- max(2, floor(sqrt(length(predictors))))
+
+# ── 1. LOYO Random Forest ─────────────────────────────────────────────────────
+years <- unique(tum$year)
+
+loyo_preds <- map_dfr(years, function(yr) {
+
+  train_df <- tum %>% filter(year != yr)
+  test_df  <- tum %>% filter(year == yr)
+
+  if (nrow(train_df) < 50 || nrow(test_df) < 10) return(NULL)
+
+  scaled   <- standardise_train_test(train_df, test_df, predictors)
+  rf_model <- randomForest(formula, data = scaled$train,
+                           ntree = 500, mtry = mtry_val, importance = FALSE)
+  preds    <- predict(rf_model, scaled$test)
+
+  data.frame(
+    date     = test_df$date,
+    GPP_obs  = test_df$GPP,
+    GPP_pred = preds,
+    method   = "LOYO",
+    period   = "Test (held-out year)"
+  )
+})
+
+# ── 2. 80/20 Chronological Train/Test Split ───────────────────────────────────
+split_idx  <- floor(0.8 * nrow(tum))
+train_8020 <- tum[1:split_idx, ]
+test_8020  <- tum[(split_idx + 1):nrow(tum), ]
+
+scaled_8020      <- standardise_train_test(train_8020, test_8020, predictors)
+rf_8020          <- randomForest(formula, data = scaled_8020$train,
+                                 ntree = 500, mtry = mtry_val, importance = TRUE)
+preds_train_8020 <- predict(rf_8020, scaled_8020$train)
+preds_test_8020  <- predict(rf_8020, scaled_8020$test)
+
+split_preds <- bind_rows(
+  data.frame(
+    date     = train_8020$date,
+    GPP_obs  = train_8020$GPP,
+    GPP_pred = preds_train_8020,
+    method   = "80/20 Split",
+    period   = "Train (in-sample)"
+  ),
+  data.frame(
+    date     = test_8020$date,
+    GPP_obs  = test_8020$GPP,
+    GPP_pred = preds_test_8020,
+    method   = "80/20 Split",
+    period   = "Test (out-of-sample)"
+  )
+)
+
+# ── Metrics ───────────────────────────────────────────────────────────────────
+compute_metrics <- function(df) {
+  obs  <- df$GPP_obs
+  pred <- df$GPP_pred
+  data.frame(
+    R2   = round(cor(obs, pred)^2, 3),
+    RMSE = round(sqrt(mean((obs - pred)^2)), 3),
+    NSE  = round(1 - sum((obs - pred)^2) / sum((obs - mean(obs))^2), 3)
+  )
+}
+
+loyo_metrics  <- compute_metrics(loyo_preds)
+split_metrics <- compute_metrics(split_preds %>% filter(period == "Test (out-of-sample)"))
+train_metrics <- compute_metrics(split_preds %>% filter(period == "Train (in-sample)"))
+
+cat("── LOYO metrics (all years, out-of-sample) ──\n");        print(loyo_metrics)
+cat("── 80/20 Test metrics (out-of-sample) ──\n");             print(split_metrics)
+cat("── 80/20 Train metrics (in-sample, for reference) ──\n"); print(train_metrics)
+
+# ── Variable importance from 80/20 model ─────────────────────────────────────
+importance_df <- data.frame(
+  variable   = rownames(importance(rf_8020)),
+  importance = importance(rf_8020, type = 1)[, 1]  # %IncMSE
+) %>% arrange(desc(importance))
+
+cat("\n── Variable importance (80/20 model, %IncMSE) ──\n")
+print(importance_df)
+
+# ── Plot: time series ─────────────────────────────────────────────────────────
+plot_df <- bind_rows(loyo_preds, split_preds) %>%
+  pivot_longer(cols = c(GPP_obs, GPP_pred),
+               names_to = "type", values_to = "GPP") %>%
+  mutate(
+    method = factor(method, levels = c("LOYO", "80/20 Split")),
+    type   = recode(type, GPP_obs = "Observed", GPP_pred = "Predicted")
+  )
+
+split_date <- tum$date[split_idx]
+
+shade_df <- data.frame(
+  method = factor("80/20 Split", levels = c("LOYO", "80/20 Split")),
+  xmin   = min(tum$date),
+  xmax   = split_date,
+  ymin   = -Inf,
+  ymax   = Inf
+)
+
+vline_df <- data.frame(
+  method = factor("80/20 Split", levels = c("LOYO", "80/20 Split")),
+  xint   = split_date
+)
+
+label_df <- data.frame(
+  method = factor(c("LOYO", "80/20 Split"), levels = c("LOYO", "80/20 Split")),
+  label  = c(
+    paste0("Test R² = ", loyo_metrics$R2, "  |  NSE = ", loyo_metrics$NSE),
+    paste0("Train R² = ", train_metrics$R2,
+           "  |  Test R² = ", split_metrics$R2,
+           "  |  Test NSE = ", split_metrics$NSE)
+  )
+)
+
+p_ts <- ggplot(plot_df, aes(x = date, y = GPP, colour = type, alpha = type)) +
+  geom_rect(
+    data = shade_df,
+    aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+    inherit.aes = FALSE, fill = "steelblue", alpha = 0.07
+  ) +
+  geom_vline(
+    data = vline_df, aes(xintercept = xint),
+    inherit.aes = FALSE, linetype = "dashed", colour = "grey40", linewidth = 0.5
+  ) +
+  geom_line(linewidth = 0.45) +
+  geom_text(
+    data = label_df, aes(label = label),
+    x = -Inf, y = Inf, hjust = -0.04, vjust = 1.6,
+    inherit.aes = FALSE, size = 3.3, colour = "grey20", fontface = "bold"
+  ) +
+  facet_wrap(~ method, ncol = 1) +
+  scale_colour_manual(values = c("Observed" = "#2c2c2c", "Predicted" = "#E06C4B")) +
+  scale_alpha_manual(values  = c("Observed" = 0.45,     "Predicted" = 0.85)) +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  labs(
+    title    = "AU-Tum: Observed vs Predicted GPP",
+    subtitle = "Predictors: Tair, SW_rad, VPD, VPD_lag3, 30-day CWD  |  Shaded = training period (80/20)",
+    x        = NULL,
+    y        = expression(GPP ~ (µmol ~ C ~ m^{-2} ~ d^{-1})),
+    colour   = NULL, alpha = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 14),
+    plot.subtitle    = element_text(colour = "grey40", size = 10),
+    strip.text       = element_text(face = "bold", size = 11),
+    legend.position  = "bottom",
+    panel.grid.minor = element_blank(),
+    axis.text.x      = element_text(angle = 45, hjust = 1)
+  )
+
+# ── Plot: variable importance ─────────────────────────────────────────────────
+p_imp <- ggplot(importance_df, aes(x = reorder(variable, importance), y = importance)) +
+  geom_col(fill = "#E06C4B", alpha = 0.85, width = 0.6) +
+  coord_flip() +
+  labs(
+    title    = "Variable Importance (80/20 model)",
+    subtitle = "%IncMSE — how much model error increases when variable is permuted",
+    x        = NULL,
+    y        = "% Increase in MSE"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title    = element_text(face = "bold", size = 13),
+    plot.subtitle = element_text(colour = "grey40", size = 10),
+    panel.grid.minor = element_blank()
+  )
+
+ggsave("AU_Tum_timeseries.png",  plot = p_ts,  width = 14, height = 8,  dpi = 200, bg = "white")
+ggsave("AU_Tum_importance.png",  plot = p_imp, width = 8,  height = 5,  dpi = 200, bg = "white")
+
+print(p_ts)
+print(p_imp)
+```
+Now, bounded 30 day cwd, 3 day VPD lag
+
+Before, cwd summed daily values over 30 days.Wet days negatively cancel out dry days. So the site could have 25 dry days and 5 very wet days and would end up with a near zero 30 day cwd, even though the vegetation experienced prolonged stress.
+
+bounded cwd runs a running total that is floored at zero
+
+(positive cwd = demand exceeds supply (dry)
+negative cwd = supply exceeds demand (wet))
+
+```{r}
+library(tidyverse)
+library(randomForest)
+library(zoo)
+library(lubridate)
+
+# ── Setup ─────────────────────────────────────────────────────────────────────
+predictors <- c("Tair", "SW_rad", "VPD", "VPD_lag3", "cwd_bounded_30day")
+
+standardise_train_test <- function(train_df, test_df, predictors) {
+  train_means <- colMeans(train_df[predictors], na.rm = TRUE)
+  train_sds   <- apply(train_df[predictors], 2, sd, na.rm = TRUE)
+  train_df[predictors] <- scale(train_df[predictors], center = train_means, scale = train_sds)
+  test_df[predictors]  <- scale(test_df[predictors],  center = train_means, scale = train_sds)
+  list(train = train_df, test = test_df)
+}
+
+# ── Extract AU-Tum and engineer features ──────────────────────────────────────
+tum <- sites_daily[["Tum"]] %>%
+  drop_na(GPP, Tair, SW_rad, VPD, cwd, date) %>%
+  arrange(date) %>%
+  mutate(
+    year = year(date),
+
+    # 3-day lagged VPD
+    VPD_lag3 = lag(VPD, 3),
+
+    # Bounded cumulative CWD — deficit accumulates but resets toward 0 on recharge
+    # pmax(..., 0) ensures the running total never goes negative
+    cwd_bounded = accumulate(cwd, ~ pmax(.x + .y, 0)),
+
+    # 30-day rolling mean of the bounded cumulative deficit
+    # using mean rather than sum so the scale is interpretable (avg daily deficit)
+    cwd_bounded_30day = rollapply(
+      cwd_bounded, width = 30, FUN = mean,
+      align = "right", fill = NA, na.rm = TRUE
+    )
+  ) %>%
+  drop_na(all_of(predictors), GPP)
+
+formula  <- as.formula(paste("GPP ~", paste(predictors, collapse = " + ")))
+mtry_val <- max(2, floor(sqrt(length(predictors))))
+
+# ── 1. LOYO Random Forest ─────────────────────────────────────────────────────
+years <- unique(tum$year)
+
+loyo_preds <- map_dfr(years, function(yr) {
+
+  train_df <- tum %>% filter(year != yr)
+  test_df  <- tum %>% filter(year == yr)
+
+  if (nrow(train_df) < 50 || nrow(test_df) < 10) return(NULL)
+
+  scaled   <- standardise_train_test(train_df, test_df, predictors)
+  rf_model <- randomForest(formula, data = scaled$train,
+                           ntree = 500, mtry = mtry_val, importance = FALSE)
+  preds    <- predict(rf_model, scaled$test)
+
+  data.frame(
+    date     = test_df$date,
+    GPP_obs  = test_df$GPP,
+    GPP_pred = preds,
+    method   = "LOYO",
+    period   = "Test (held-out year)"
+  )
+})
+
+# ── 2. 80/20 Chronological Train/Test Split ───────────────────────────────────
+split_idx  <- floor(0.8 * nrow(tum))
+train_8020 <- tum[1:split_idx, ]
+test_8020  <- tum[(split_idx + 1):nrow(tum), ]
+
+scaled_8020      <- standardise_train_test(train_8020, test_8020, predictors)
+rf_8020          <- randomForest(formula, data = scaled_8020$train,
+                                 ntree = 500, mtry = mtry_val, importance = TRUE)
+preds_train_8020 <- predict(rf_8020, scaled_8020$train)
+preds_test_8020  <- predict(rf_8020, scaled_8020$test)
+
+split_preds <- bind_rows(
+  data.frame(
+    date     = train_8020$date,
+    GPP_obs  = train_8020$GPP,
+    GPP_pred = preds_train_8020,
+    method   = "80/20 Split",
+    period   = "Train (in-sample)"
+  ),
+  data.frame(
+    date     = test_8020$date,
+    GPP_obs  = test_8020$GPP,
+    GPP_pred = preds_test_8020,
+    method   = "80/20 Split",
+    period   = "Test (out-of-sample)"
+  )
+)
+
+# ── Metrics ───────────────────────────────────────────────────────────────────
+compute_metrics <- function(df) {
+  obs  <- df$GPP_obs
+  pred <- df$GPP_pred
+  data.frame(
+    R2   = round(cor(obs, pred)^2, 3),
+    RMSE = round(sqrt(mean((obs - pred)^2)), 3),
+    NSE  = round(1 - sum((obs - pred)^2) / sum((obs - mean(obs))^2), 3)
+  )
+}
+
+loyo_metrics  <- compute_metrics(loyo_preds)
+split_metrics <- compute_metrics(split_preds %>% filter(period == "Test (out-of-sample)"))
+train_metrics <- compute_metrics(split_preds %>% filter(period == "Train (in-sample)"))
+
+cat("── LOYO metrics (all years, out-of-sample) ──\n");        print(loyo_metrics)
+cat("── 80/20 Test metrics (out-of-sample) ──\n");             print(split_metrics)
+cat("── 80/20 Train metrics (in-sample, for reference) ──\n"); print(train_metrics)
+
+# ── Variable importance from 80/20 model ─────────────────────────────────────
+importance_df <- data.frame(
+  variable   = rownames(importance(rf_8020)),
+  importance = importance(rf_8020, type = 1)[, 1]  # %IncMSE
+) %>% arrange(desc(importance))
+
+cat("\n── Variable importance (80/20 model, %IncMSE) ──\n")
+print(importance_df)
+
+# ── Quick sanity check: plot raw vs bounded CWD to verify the fix ─────────────
+p_cwd <- tum %>%
+  select(date, cwd, cwd_bounded) %>%
+  pivot_longer(cols = c(cwd, cwd_bounded), names_to = "type", values_to = "value") %>%
+  mutate(type = recode(type,
+                       cwd          = "Daily CWD increment (raw)",
+                       cwd_bounded  = "Bounded cumulative CWD")) %>%
+  ggplot(aes(x = date, y = value, colour = type)) +
+  geom_line(linewidth = 0.4, alpha = 0.8) +
+  facet_wrap(~ type, ncol = 1, scales = "free_y") +
+  scale_colour_manual(values = c("Daily CWD increment (raw)" = "#4682B4",
+                                 "Bounded cumulative CWD"    = "#E06C4B")) +
+  labs(
+    title    = "AU-Tum: Raw vs Bounded CWD",
+    subtitle = "Sanity check — bounded CWD should never go below 0",
+    x = NULL, y = "CWD (mm/day)", colour = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title       = element_text(face = "bold"),
+    legend.position  = "none",
+    panel.grid.minor = element_blank(),
+    axis.text.x      = element_text(angle = 45, hjust = 1)
+  )
+
+# ── Plot: time series ─────────────────────────────────────────────────────────
+plot_df <- bind_rows(loyo_preds, split_preds) %>%
+  pivot_longer(cols = c(GPP_obs, GPP_pred),
+               names_to = "type", values_to = "GPP") %>%
+  mutate(
+    method = factor(method, levels = c("LOYO", "80/20 Split")),
+    type   = recode(type, GPP_obs = "Observed", GPP_pred = "Predicted")
+  )
+
+split_date <- tum$date[split_idx]
+
+shade_df <- data.frame(
+  method = factor("80/20 Split", levels = c("LOYO", "80/20 Split")),
+  xmin = min(tum$date), xmax = split_date, ymin = -Inf, ymax = Inf
+)
+
+vline_df <- data.frame(
+  method = factor("80/20 Split", levels = c("LOYO", "80/20 Split")),
+  xint   = split_date
+)
+
+label_df <- data.frame(
+  method = factor(c("LOYO", "80/20 Split"), levels = c("LOYO", "80/20 Split")),
+  label  = c(
+    paste0("Test R² = ", loyo_metrics$R2, "  |  NSE = ", loyo_metrics$NSE),
+    paste0("Train R² = ", train_metrics$R2,
+           "  |  Test R² = ", split_metrics$R2,
+           "  |  Test NSE = ", split_metrics$NSE)
+  )
+)
+
+p_ts <- ggplot(plot_df, aes(x = date, y = GPP, colour = type, alpha = type)) +
+  geom_rect(
+    data = shade_df,
+    aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+    inherit.aes = FALSE, fill = "steelblue", alpha = 0.07
+  ) +
+  geom_vline(
+    data = vline_df, aes(xintercept = xint),
+    inherit.aes = FALSE, linetype = "dashed", colour = "grey40", linewidth = 0.5
+  ) +
+  geom_line(linewidth = 0.45) +
+  geom_text(
+    data = label_df, aes(label = label),
+    x = -Inf, y = Inf, hjust = -0.04, vjust = 1.6,
+    inherit.aes = FALSE, size = 3.3, colour = "grey20", fontface = "bold"
+  ) +
+  facet_wrap(~ method, ncol = 1) +
+  scale_colour_manual(values = c("Observed" = "#2c2c2c", "Predicted" = "#E06C4B")) +
+  scale_alpha_manual(values  = c("Observed" = 0.45,     "Predicted" = 0.85)) +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  labs(
+    title    = "AU-Tum: Observed vs Predicted GPP",
+    subtitle = "Predictors: Tair, SW_rad, VPD, VPD_lag3, bounded 30-day CWD  |  Shaded = training period (80/20)",
+    x        = NULL,
+    y        = expression(GPP ~ (µmol ~ C ~ m^{-2} ~ d^{-1})),
+    colour   = NULL, alpha = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 14),
+    plot.subtitle    = element_text(colour = "grey40", size = 10),
+    strip.text       = element_text(face = "bold", size = 11),
+    legend.position  = "bottom",
+    panel.grid.minor = element_blank(),
+    axis.text.x      = element_text(angle = 45, hjust = 1)
+  )
+
+# ── Plot: variable importance ─────────────────────────────────────────────────
+p_imp <- ggplot(importance_df, aes(x = reorder(variable, importance), y = importance)) +
+  geom_col(fill = "#E06C4B", alpha = 0.85, width = 0.6) +
+  coord_flip() +
+  labs(
+    title    = "Variable Importance (80/20 model)",
+    subtitle = "%IncMSE — how much model error increases when variable is permuted",
+    x = NULL, y = "% Increase in MSE"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(colour = "grey40", size = 10),
+    panel.grid.minor = element_blank()
+  )
+
+ggsave("AU_Tum_timeseries.png",  plot = p_ts,  width = 14, height = 8, dpi = 200, bg = "white")
+ggsave("AU_Tum_importance.png",  plot = p_imp, width = 8,  height = 5, dpi = 200, bg = "white")
+ggsave("AU_Tum_cwd_check.png",   plot = p_cwd, width = 12, height = 6, dpi = 200, bg = "white")
+
+print(p_cwd)
+print(p_ts)
+print(p_imp)
+```
+This time - cwd is bounded and 90 days, VPD lag 3, Tair lag 3, and precipitation added back in. 
+Precip captures pulse rainfall responses
+
+Low R-squared:
+- Genuine interannual variability - disturbance, insects, drought events
+- Measurement uncertainty within the GPP itself
+- GPP ~ climate relationship itself can shift over time, meaning training on previous years doesn't translate to future years
+
+```{r}
+library(tidyverse)
+library(randomForest)
+library(zoo)
+library(lubridate)
+
+# ── Setup ─────────────────────────────────────────────────────────────────────
+predictors <- c("Tair", "SW_rad", "VPD", "VPD_lag3", "Tair_lag3",
+                "Precip", "cwd_bounded_90day")
+
+standardise_train_test <- function(train_df, test_df, predictors) {
+  train_means <- colMeans(train_df[predictors], na.rm = TRUE)
+  train_sds   <- apply(train_df[predictors], 2, sd, na.rm = TRUE)
+  train_df[predictors] <- scale(train_df[predictors], center = train_means, scale = train_sds)
+  test_df[predictors]  <- scale(test_df[predictors],  center = train_means, scale = train_sds)
+  list(train = train_df, test = test_df)
+}
+
+# ── Extract AU-Tum and engineer features ──────────────────────────────────────
+tum <- sites_daily[["Tum"]] %>%
+  drop_na(GPP, Tair, SW_rad, VPD, cwd, Precip, date) %>%
+  arrange(date) %>%
+  mutate(
+    year = year(date),
+
+    # Lagged meteorology — carry-over stomatal / heat stress
+    VPD_lag3  = lag(VPD,  3),
+    Tair_lag3 = lag(Tair, 3),
+
+    # Bounded cumulative CWD — running total floored at zero
+    cwd_bounded = accumulate(cwd, ~ pmax(.x + .y, 0)),
+
+    # 90-day rolling mean of bounded CWD
+    cwd_bounded_90day = rollapply(
+      cwd_bounded, width = 90, FUN = mean,
+      align = "right", fill = NA, na.rm = TRUE
+    )
+  ) %>%
+  drop_na(all_of(predictors), GPP)
+
+formula  <- as.formula(paste("GPP ~", paste(predictors, collapse = " + ")))
+mtry_val <- max(2, floor(sqrt(length(predictors))))
+
+# ── 1. LOYO Random Forest ─────────────────────────────────────────────────────
+years <- unique(tum$year)
+
+loyo_preds <- map_dfr(years, function(yr) {
+
+  train_df <- tum %>% filter(year != yr)
+  test_df  <- tum %>% filter(year == yr)
+
+  if (nrow(train_df) < 50 || nrow(test_df) < 10) return(NULL)
+
+  scaled   <- standardise_train_test(train_df, test_df, predictors)
+  rf_model <- randomForest(formula, data = scaled$train,
+                           ntree = 500, mtry = mtry_val, importance = FALSE)
+  preds    <- predict(rf_model, scaled$test)
+
+  data.frame(
+    date     = test_df$date,
+    GPP_obs  = test_df$GPP,
+    GPP_pred = preds,
+    method   = "LOYO",
+    period   = "Test (held-out year)"
+  )
+})
+
+# ── 2. 80/20 Chronological Train/Test Split ───────────────────────────────────
+split_idx  <- floor(0.8 * nrow(tum))
+train_8020 <- tum[1:split_idx, ]
+test_8020  <- tum[(split_idx + 1):nrow(tum), ]
+
+scaled_8020      <- standardise_train_test(train_8020, test_8020, predictors)
+rf_8020          <- randomForest(formula, data = scaled_8020$train,
+                                 ntree = 500, mtry = mtry_val, importance = TRUE)
+preds_train_8020 <- predict(rf_8020, scaled_8020$train)
+preds_test_8020  <- predict(rf_8020, scaled_8020$test)
+
+split_preds <- bind_rows(
+  data.frame(
+    date     = train_8020$date,
+    GPP_obs  = train_8020$GPP,
+    GPP_pred = preds_train_8020,
+    method   = "80/20 Split",
+    period   = "Train (in-sample)"
+  ),
+  data.frame(
+    date     = test_8020$date,
+    GPP_obs  = test_8020$GPP,
+    GPP_pred = preds_test_8020,
+    method   = "80/20 Split",
+    period   = "Test (out-of-sample)"
+  )
+)
+
+# ── Metrics ───────────────────────────────────────────────────────────────────
+compute_metrics <- function(df) {
+  obs  <- df$GPP_obs
+  pred <- df$GPP_pred
+  data.frame(
+    R2   = round(cor(obs, pred)^2, 3),
+    RMSE = round(sqrt(mean((obs - pred)^2)), 3),
+    NSE  = round(1 - sum((obs - pred)^2) / sum((obs - mean(obs))^2), 3)
+  )
+}
+
+loyo_metrics  <- compute_metrics(loyo_preds)
+split_metrics <- compute_metrics(split_preds %>% filter(period == "Test (out-of-sample)"))
+train_metrics <- compute_metrics(split_preds %>% filter(period == "Train (in-sample)"))
+
+cat("── LOYO metrics (all years, out-of-sample) ──\n");        print(loyo_metrics)
+cat("── 80/20 Test metrics (out-of-sample) ──\n");             print(split_metrics)
+cat("── 80/20 Train metrics (in-sample, for reference) ──\n"); print(train_metrics)
+
+# ── Variable importance from 80/20 model ─────────────────────────────────────
+importance_df <- data.frame(
+  variable   = rownames(importance(rf_8020)),
+  importance = importance(rf_8020, type = 1)[, 1]  # %IncMSE
+) %>% arrange(desc(importance))
+
+cat("\n── Variable importance (80/20 model, %IncMSE) ──\n")
+print(importance_df)
+
+# ── Sanity check: raw vs bounded CWD ─────────────────────────────────────────
+p_cwd <- tum %>%
+  select(date, cwd, cwd_bounded) %>%
+  pivot_longer(cols = c(cwd, cwd_bounded), names_to = "type", values_to = "value") %>%
+  mutate(type = recode(type,
+                       cwd         = "Daily CWD increment (raw)",
+                       cwd_bounded = "Bounded cumulative CWD")) %>%
+  ggplot(aes(x = date, y = value, colour = type)) +
+  geom_line(linewidth = 0.4, alpha = 0.8) +
+  facet_wrap(~ type, ncol = 1, scales = "free_y") +
+  scale_colour_manual(values = c("Daily CWD increment (raw)" = "#4682B4",
+                                 "Bounded cumulative CWD"    = "#E06C4B")) +
+  labs(
+    title    = "AU-Tum: Raw vs Bounded CWD",
+    subtitle = "Bounded CWD should never go below 0 and should build during dry periods",
+    x = NULL, y = "CWD (mm/day)", colour = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title       = element_text(face = "bold"),
+    legend.position  = "none",
+    panel.grid.minor = element_blank(),
+    axis.text.x      = element_text(angle = 45, hjust = 1)
+  )
+
+# ── Plot: time series ─────────────────────────────────────────────────────────
+plot_df <- bind_rows(loyo_preds, split_preds) %>%
+  pivot_longer(cols = c(GPP_obs, GPP_pred),
+               names_to = "type", values_to = "GPP") %>%
+  mutate(
+    method = factor(method, levels = c("LOYO", "80/20 Split")),
+    type   = recode(type, GPP_obs = "Observed", GPP_pred = "Predicted")
+  )
+
+split_date <- tum$date[split_idx]
+
+shade_df <- data.frame(
+  method = factor("80/20 Split", levels = c("LOYO", "80/20 Split")),
+  xmin = min(tum$date), xmax = split_date, ymin = -Inf, ymax = Inf
+)
+
+vline_df <- data.frame(
+  method = factor("80/20 Split", levels = c("LOYO", "80/20 Split")),
+  xint   = split_date
+)
+
+label_df <- data.frame(
+  method = factor(c("LOYO", "80/20 Split"), levels = c("LOYO", "80/20 Split")),
+  label  = c(
+    paste0("Test R² = ", loyo_metrics$R2, "  |  NSE = ", loyo_metrics$NSE),
+    paste0("Train R² = ", train_metrics$R2,
+           "  |  Test R² = ", split_metrics$R2,
+           "  |  Test NSE = ", split_metrics$NSE)
+  )
+)
+
+p_ts <- ggplot(plot_df, aes(x = date, y = GPP, colour = type, alpha = type)) +
+  geom_rect(
+    data = shade_df,
+    aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+    inherit.aes = FALSE, fill = "steelblue", alpha = 0.07
+  ) +
+  geom_vline(
+    data = vline_df, aes(xintercept = xint),
+    inherit.aes = FALSE, linetype = "dashed", colour = "grey40", linewidth = 0.5
+  ) +
+  geom_line(linewidth = 0.45) +
+  geom_text(
+    data = label_df, aes(label = label),
+    x = -Inf, y = Inf, hjust = -0.04, vjust = 1.6,
+    inherit.aes = FALSE, size = 3.3, colour = "grey20", fontface = "bold"
+  ) +
+  facet_wrap(~ method, ncol = 1) +
+  scale_colour_manual(values = c("Observed" = "#2c2c2c", "Predicted" = "#E06C4B")) +
+  scale_alpha_manual(values  = c("Observed" = 0.45,     "Predicted" = 0.85)) +
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+  labs(
+    title    = "AU-Tum: Observed vs Predicted GPP",
+    subtitle = "Predictors: Tair, SW_rad, VPD, VPD_lag3, Tair_lag3, Precip, bounded 90-day CWD  |  Shaded = training period (80/20)",
+    x        = NULL,
+    y        = expression(GPP ~ (µmol ~ C ~ m^{-2} ~ d^{-1})),
+    colour   = NULL, alpha = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 14),
+    plot.subtitle    = element_text(colour = "grey40", size = 10),
+    strip.text       = element_text(face = "bold", size = 11),
+    legend.position  = "bottom",
+    panel.grid.minor = element_blank(),
+    axis.text.x      = element_text(angle = 45, hjust = 1)
+  )
+
+# ── Plot: variable importance ─────────────────────────────────────────────────
+p_imp <- ggplot(importance_df, aes(x = reorder(variable, importance), y = importance)) +
+  geom_col(fill = "#E06C4B", alpha = 0.85, width = 0.6) +
+  coord_flip() +
+  labs(
+    title    = "Variable Importance (80/20 model)",
+    subtitle = "%IncMSE — how much model error increases when variable is permuted",
+    x = NULL, y = "% Increase in MSE"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(colour = "grey40", size = 10),
+    panel.grid.minor = element_blank()
+  )
+
+ggsave("AU_Tum_timeseries.png", plot = p_ts,  width = 14, height = 8, dpi = 200, bg = "white")
+ggsave("AU_Tum_importance.png", plot = p_imp, width = 8,  height = 5, dpi = 200, bg = "white")
+ggsave("AU_Tum_cwd_check.png",  plot = p_cwd, width = 12, height = 6, dpi = 200, bg = "white")
+
+print(p_cwd)
+print(p_ts)
+print(p_imp)
+```
+```{r}
+# How many years does each site have?
+map_df(sites_daily, ~ data.frame(n_years = n_distinct(year(.$date))),
+       .id = "site") %>% arrange(n_years)
+
+# Are any of the short-record sites also the worst performing?
+# Compare n_years against your metrics table
+```
+
+Now let's do all my sites:
+
+```{r}
+library(tidyverse)
+library(randomForest)
+library(zoo)
+library(lubridate)
+library(purrr)
+
+set.seed(42)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SETUP
+# ══════════════════════════════════════════════════════════════════════════════
+predictors <- c("Tair", "SW_rad", "VPD", "VPD_lag3", "Tair_lag3",
+                "Precip", "cwd_bounded_90day")
+
+min_years <- 4  # sites with fewer years than this are excluded
+
+standardise_train_test <- function(train_df, test_df, predictors) {
+  train_means <- colMeans(train_df[predictors], na.rm = TRUE)
+  train_sds   <- apply(train_df[predictors], 2, sd, na.rm = TRUE)
+  train_df[predictors] <- scale(train_df[predictors], center = train_means, scale = train_sds)
+  test_df[predictors]  <- scale(test_df[predictors],  center = train_means, scale = train_sds)
+  list(train = train_df, test = test_df)
+}
+
+compute_metrics <- function(obs, pred) {
+  data.frame(
+    R2   = round(cor(obs, pred, use = "complete.obs")^2, 3),
+    RMSE = round(sqrt(mean((obs - pred)^2, na.rm = TRUE)), 3),
+    NSE  = round(1 - sum((obs - pred)^2, na.rm = TRUE) /
+                     sum((obs - mean(obs, na.rm = TRUE))^2, na.rm = TRUE), 3)
+  )
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEATURE ENGINEERING — applied per site before modelling
+# ══════════════════════════════════════════════════════════════════════════════
+prepare_site <- function(df, site_name) {
+
+  df <- df %>%
+    drop_na(GPP, Tair, SW_rad, VPD, cwd, Precip, date) %>%
+    arrange(date) %>%
+    mutate(
+      year      = year(date),
+      VPD_lag3  = lag(VPD,  3),
+      Tair_lag3 = lag(Tair, 3),
+      cwd_bounded = accumulate(cwd, ~ pmax(.x + .y, 0)),
+      cwd_bounded_90day = rollapply(
+        cwd_bounded, width = 90, FUN = mean,
+        align = "right", fill = NA, na.rm = TRUE
+      )
+    ) %>%
+    drop_na(all_of(predictors), GPP)
+
+  n_yrs <- n_distinct(df$year)
+
+  if (n_yrs < min_years) {
+    message("Skipping ", site_name, ": only ", n_yrs, " years (min = ", min_years, ")")
+    return(NULL)
+  }
+
+  message("Prepared ", site_name, ": ", nrow(df), " rows, ", n_yrs, " years")
+  df
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LOYO MODEL — run for a single site
+# ══════════════════════════════════════════════════════════════════════════════
+run_loyo <- function(df, site_name) {
+
+  formula  <- as.formula(paste("GPP ~", paste(predictors, collapse = " + ")))
+  mtry_val <- max(2, floor(sqrt(length(predictors))))
+  years    <- unique(df$year)
+
+  loyo_preds <- map_dfr(years, function(yr) {
+
+    train_df <- df %>% filter(year != yr)
+    test_df  <- df %>% filter(year == yr)
+
+    if (nrow(train_df) < 50 || nrow(test_df) < 10) return(NULL)
+
+    scaled   <- standardise_train_test(train_df, test_df, predictors)
+    rf_model <- randomForest(formula, data = scaled$train,
+                             ntree = 500, mtry = mtry_val, importance = FALSE)
+    preds    <- predict(rf_model, scaled$test)
+
+    data.frame(
+      site     = site_name,
+      date     = test_df$date,
+      year     = yr,
+      GPP_obs  = test_df$GPP,
+      GPP_pred = preds,
+      VPD      = test_df$VPD
+    )
+  })
+
+  if (nrow(loyo_preds) == 0) return(NULL)
+  loyo_preds
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# RUN ACROSS ALL SITES
+# ══════════════════════════════════════════════════════════════════════════════
+prepared  <- map2(sites_daily, names(sites_daily), prepare_site)
+prepared  <- Filter(Negate(is.null), prepared)
+
+all_preds <- map2_dfr(prepared, names(prepared), run_loyo)
+
+message("\nSites retained: ", n_distinct(all_preds$site))
+message("Total rows:     ", nrow(all_preds))
+
+# ══════════════════════════════════════════════════════════════════════════════
+# METRICS
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Overall per-site metrics
+site_metrics <- all_preds %>%
+  group_by(site) %>%
+  summarise(compute_metrics(GPP_obs, GPP_pred), .groups = "drop") %>%
+  mutate(n_years = map_int(prepared[site], ~ n_distinct(.x$year)))
+
+# Per-year metrics within each site
+year_metrics <- all_preds %>%
+  group_by(site, year) %>%
+  summarise(compute_metrics(GPP_obs, GPP_pred), .groups = "drop")
+
+cat("\n── Per-site LOYO metrics ──\n")
+print(site_metrics %>% arrange(R2))
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PLOT 1: Time series — observed vs predicted, one panel per site
+# ══════════════════════════════════════════════════════════════════════════════
+ts_plot_df <- all_preds %>%
+  pivot_longer(cols = c(GPP_obs, GPP_pred),
+               names_to = "type", values_to = "GPP") %>%
+  mutate(type = recode(type, GPP_obs = "Observed", GPP_pred = "Predicted"))
+
+# R² label per site for facet annotation
+r2_labels <- site_metrics %>%
+  mutate(label = paste0("R² = ", R2, "  NSE = ", NSE))
+
+p_ts <- ggplot(ts_plot_df, aes(x = date, y = GPP, colour = type, alpha = type)) +
+  geom_line(linewidth = 0.35) +
+  geom_text(
+    data        = r2_labels,
+    aes(label   = label),
+    x           = -Inf, y = Inf,
+    hjust       = -0.05, vjust = 1.6,
+    inherit.aes = FALSE,
+    size        = 2.8, colour = "grey20", fontface = "bold"
+  ) +
+  facet_wrap(~ site, scales = "free_x", ncol = 3) +
+  scale_colour_manual(values = c("Observed" = "#2c2c2c", "Predicted" = "#E06C4B")) +
+  scale_alpha_manual(values  = c("Observed" = 0.4,      "Predicted" = 0.85)) +
+  scale_x_date(date_breaks = "2 years", date_labels = "%Y") +
+  labs(
+    title    = "LOYO Random Forest: Observed vs Predicted GPP — All Sites",
+    subtitle = paste0("Predictors: ", paste(predictors, collapse = ", ")),
+    x        = NULL,
+    y        = expression(GPP ~ (µmol ~ C ~ m^{-2} ~ d^{-1})),
+    colour   = NULL, alpha = NULL
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(colour = "grey40", size = 9),
+    strip.text       = element_text(face = "bold", size = 9),
+    legend.position  = "bottom",
+    panel.grid.minor = element_blank(),
+    axis.text.x      = element_text(angle = 45, hjust = 1, size = 7)
+  )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PLOT 2: R² vs number of years — does record length affect model fit?
+# ══════════════════════════════════════════════════════════════════════════════
+p_nyears <- ggplot(site_metrics, aes(x = n_years, y = R2)) +
+  geom_point(aes(colour = R2), size = 3.5, alpha = 0.9) +
+  geom_smooth(method = "lm", se = TRUE, colour = "grey40",
+              linetype = "dashed", linewidth = 0.7) +
+  geom_text(aes(label = site), vjust = -0.9, size = 2.8, colour = "grey30") +
+  scale_colour_gradient(low = "#E06C4B", high = "#4682B4") +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 8)) +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(
+    title    = "Model Fit vs Record Length",
+    subtitle = "Does more training data improve LOYO R²?",
+    x        = "Number of years of data",
+    y        = "LOYO R²",
+    colour   = "R²"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(colour = "grey40", size = 10),
+    panel.grid.minor = element_blank(),
+    legend.position  = "right"
+  )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PLOT 3: Per-year R² within each site — which years drive poor performance?
+# ══════════════════════════════════════════════════════════════════════════════
+p_yr_r2 <- ggplot(year_metrics, aes(x = year, y = R2, colour = R2)) +
+  geom_point(size = 2, alpha = 0.85) +
+  geom_line(linewidth = 0.35, alpha = 0.5, colour = "grey60") +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey40") +
+  facet_wrap(~ site, ncol = 3, scales = "free_x") +
+  scale_colour_gradient(low = "#E06C4B", high = "#4682B4") +
+  scale_y_continuous(limits = c(-0.5, 1)) +
+  labs(
+    title    = "Per-Year LOYO R² by Site",
+    subtitle = "Identifies anomalous years dragging down overall performance",
+    x        = NULL, y = "R² (held-out year)", colour = "R²"
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(colour = "grey40", size = 9),
+    strip.text       = element_text(face = "bold", size = 9),
+    legend.position  = "right",
+    panel.grid.minor = element_blank(),
+    axis.text.x      = element_text(angle = 45, hjust = 1, size = 7)
+  )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PLOT 4: Residuals vs VPD — is there systematic bias at high VPD?
+# ══════════════════════════════════════════════════════════════════════════════
+residual_df <- all_preds %>%
+  mutate(residual = GPP_obs - GPP_pred)
+
+p_resid_vpd <- ggplot(residual_df, aes(x = VPD, y = residual)) +
+  geom_point(alpha = 0.15, size = 0.6, colour = "#4682B4") +
+  geom_smooth(method = "loess", span = 0.4, se = TRUE,
+              colour = "#E06C4B", fill = "#E06C4B", alpha = 0.2, linewidth = 0.8) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey30") +
+  facet_wrap(~ site, ncol = 3, scales = "free_x") +
+  labs(
+    title    = "Residuals vs VPD by Site",
+    subtitle = "Positive residual = model underpredicts GPP; negative = overpredicts. Key check for high-VPD bias",
+    x        = "VPD (kPa)",
+    y        = expression(GPP[obs] - GPP[pred] ~ (µmol ~ C ~ m^{-2} ~ d^{-1}))
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(colour = "grey40", size = 9),
+    strip.text       = element_text(face = "bold", size = 9),
+    panel.grid.minor = element_blank(),
+    axis.text.x      = element_text(size = 7)
+  )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PLOT 5: Overall observed vs predicted scatter per site
+# ══════════════════════════════════════════════════════════════════════════════
+p_scatter <- ggplot(all_preds, aes(x = GPP_obs, y = GPP_pred)) +
+  geom_point(alpha = 0.2, size = 0.5, colour = "#4682B4") +
+  geom_abline(slope = 1, intercept = 0, colour = "#E06C4B",
+              linetype = "dashed", linewidth = 0.7) +
+  geom_text(
+    data        = r2_labels,
+    aes(label   = paste0("R² = ", R2)),
+    x           = -Inf, y = Inf,
+    hjust       = -0.1, vjust = 1.6,
+    inherit.aes = FALSE,
+    size        = 2.8, colour = "grey20", fontface = "bold"
+  ) +
+  facet_wrap(~ site, ncol = 3, scales = "free") +
+  labs(
+    title    = "Observed vs Predicted GPP — All Sites (LOYO)",
+    subtitle = "Dashed line = 1:1. Points above line = underprediction; below = overprediction",
+    x        = expression(GPP[obs] ~ (µmol ~ C ~ m^{-2} ~ d^{-1})),
+    y        = expression(GPP[pred] ~ (µmol ~ C ~ m^{-2} ~ d^{-1}))
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(colour = "grey40", size = 9),
+    strip.text       = element_text(face = "bold", size = 9),
+    panel.grid.minor = element_blank()
+  )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SAVE ALL PLOTS
+# ══════════════════════════════════════════════════════════════════════════════
+n_sites  <- n_distinct(all_preds$site)
+ts_h     <- max(8, ceiling(n_sites / 3) * 3.5)
+diag_h   <- max(8, ceiling(n_sites / 3) * 3.0)
+
+ggsave("LOYO_timeseries_all_sites.png",  plot = p_ts,        width = 16, height = ts_h,   dpi = 200, bg = "white")
+ggsave("LOYO_R2_vs_nyears.png",          plot = p_nyears,    width = 9,  height = 6,      dpi = 200, bg = "white")
+ggsave("LOYO_peryear_R2.png",            plot = p_yr_r2,     width = 16, height = diag_h, dpi = 200, bg = "white")
+ggsave("LOYO_residuals_vs_VPD.png",      plot = p_resid_vpd, width = 16, height = diag_h, dpi = 200, bg = "white")
+ggsave("LOYO_obs_vs_pred_scatter.png",   plot = p_scatter,   width = 16, height = diag_h, dpi = 200, bg = "white")
+
+message("All plots saved.")
+
+print(p_ts)
+print(p_nyears)
+print(p_yr_r2)
+print(p_resid_vpd)
+print(p_scatter)
+```
+Could i look at years with a low R-squared and see if that correlates with drought etc?
+
+```{r}
+dir.create("site_timeseries", showWarnings = FALSE)
+ 
+walk(unique(all_preds$site), function(s) {
+ 
+  site_df <- all_preds %>%
+    filter(site == s) %>%
+    pivot_longer(cols = c(GPP_obs, GPP_pred),
+                 names_to = "type", values_to = "GPP") %>%
+    mutate(type = recode(type, GPP_obs = "Observed", GPP_pred = "Predicted"))
+ 
+  m <- site_metrics %>% filter(site == s)
+  label <- paste0("R² = ", m$R2, "  |  NSE = ", m$NSE, "  |  RMSE = ", m$RMSE)
+ 
+  p <- ggplot(site_df, aes(x = date, y = GPP, colour = type, alpha = type)) +
+    geom_line(linewidth = 0.5) +
+    annotate("text", x = min(site_df$date), y = Inf,
+             label = label, hjust = -0.05, vjust = 1.6,
+             size = 3.5, colour = "grey20", fontface = "bold") +
+    scale_colour_manual(values = c("Observed" = "#2c2c2c", "Predicted" = "#E06C4B")) +
+    scale_alpha_manual(values  = c("Observed" = 0.45,     "Predicted" = 0.9)) +
+    scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+    labs(
+      title    = paste0(s, ": Observed vs Predicted GPP (LOYO)"),
+      subtitle = paste0("Predictors: ", paste(predictors, collapse = ", ")),
+      x        = NULL,
+      y        = expression(GPP ~ (µmol ~ C ~ m^{-2} ~ d^{-1})),
+      colour   = NULL, alpha = NULL
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      plot.title       = element_text(face = "bold", size = 13),
+      plot.subtitle    = element_text(colour = "grey40", size = 9),
+      legend.position  = "bottom",
+      panel.grid.minor = element_blank(),
+      axis.text.x      = element_text(angle = 45, hjust = 1)
+    )
+ 
+  ggsave(paste0("site_timeseries/", s, "_timeseries.png"),
+         plot = p, width = 12, height = 5, dpi = 200, bg = "white")
+})
+ 
+message("Time series plots saved to site_timeseries/")
+ 
+# ══════════════════════════════════════════════════════════════════════════════
+# PLOT 2: Per-site per-year R² — one PNG per site
+# ══════════════════════════════════════════════════════════════════════════════
+dir.create("site_year_r2", showWarnings = FALSE)
+ 
+walk(unique(year_metrics$site), function(s) {
+ 
+  yr_df <- year_metrics %>% filter(site == s)
+  overall_r2 <- site_metrics %>% filter(site == s) %>% pull(R2)
+ 
+  p <- ggplot(yr_df, aes(x = year, y = R2, fill = R2)) +
+    geom_col(width = 0.7, alpha = 0.9) +
+    geom_hline(yintercept = overall_r2, linetype = "dashed",
+               colour = "grey30", linewidth = 0.7) +
+    geom_hline(yintercept = 0, colour = "black", linewidth = 0.4) +
+    annotate("text",
+             x    = max(yr_df$year),
+             y    = overall_r2 + 0.03,
+             label = paste0("Overall R² = ", overall_r2),
+             hjust = 1, size = 3.3, colour = "grey30", fontface = "italic") +
+    geom_text(aes(label = R2,
+                  vjust = ifelse(R2 >= 0, -0.4, 1.3)),
+              size = 3, colour = "grey20") +
+    scale_fill_gradient(low = "#E06C4B", high = "#4682B4", limits = c(-0.5, 1),
+                        oob = scales::squish) +
+    scale_x_continuous(breaks = yr_df$year) +
+    scale_y_continuous(limits = c(min(-0.1, min(yr_df$R2) - 0.1), 1.05)) +
+    labs(
+      title    = paste0(s, ": Per-Year LOYO R²"),
+      subtitle = "Each bar = R² for that held-out year. Dashed line = overall site R²",
+      x        = NULL,
+      y        = "R²",
+      fill     = "R²"
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      plot.title       = element_text(face = "bold", size = 13),
+      plot.subtitle    = element_text(colour = "grey40", size = 10),
+      panel.grid.minor = element_blank(),
+      panel.grid.major.x = element_blank(),
+      axis.text.x      = element_text(angle = 45, hjust = 1),
+      legend.position  = "none"
+    )
+ 
+  ggsave(paste0("site_year_r2/", s, "_year_r2.png"),
+         plot = p, width = 10, height = 5, dpi = 200, bg = "white")
+})
+ 
+message("Per-year R² plots saved to site_year_r2/")
+ 
+# ══════════════════════════════════════════════════════════════════════════════
+# PLOT 3: R² vs number of years (all sites on one plot — stays combined)
+# ══════════════════════════════════════════════════════════════════════════════
+p_nyears <- ggplot(site_metrics, aes(x = n_years, y = R2)) +
+  geom_point(aes(colour = R2), size = 3.5, alpha = 0.9) +
+  geom_smooth(method = "lm", se = TRUE, colour = "grey40",
+              linetype = "dashed", linewidth = 0.7) +
+  geom_text(aes(label = site), vjust = -0.9, size = 2.8, colour = "grey30") +
+  scale_colour_gradient(low = "#E06C4B", high = "#4682B4") +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 8)) +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(
+    title    = "Model Fit vs Record Length",
+    subtitle = "Does more training data improve LOYO R²?",
+    x        = "Number of years of data",
+    y        = "LOYO R²",
+    colour   = "R²"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(colour = "grey40", size = 10),
+    panel.grid.minor = element_blank()
+  )
+ 
+# ══════════════════════════════════════════════════════════════════════════════
+# PLOT 4: Residuals vs VPD (all sites combined, faceted)
+# ══════════════════════════════════════════════════════════════════════════════
+residual_df <- all_preds %>%
+  mutate(residual = GPP_obs - GPP_pred)
+ 
+p_resid_vpd <- ggplot(residual_df, aes(x = VPD, y = residual)) +
+  geom_point(alpha = 0.12, size = 0.5, colour = "#4682B4") +
+  geom_smooth(method = "loess", span = 0.4, se = TRUE,
+              colour = "#E06C4B", fill = "#E06C4B", alpha = 0.2, linewidth = 0.8) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey30") +
+  facet_wrap(~ site, ncol = 3, scales = "free_x") +
+  labs(
+    title    = "Residuals vs VPD by Site",
+    subtitle = "Positive = model underpredicts GPP; negative = overpredicts. Key check for high-VPD bias",
+    x        = "VPD (kPa)",
+    y        = expression(GPP[obs] - GPP[pred] ~ (µmol ~ C ~ m^{-2} ~ d^{-1}))
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(colour = "grey40", size = 9),
+    strip.text       = element_text(face = "bold", size = 9),
+    panel.grid.minor = element_blank(),
+    axis.text.x      = element_text(size = 7)
+  )
+ 
+# ══════════════════════════════════════════════════════════════════════════════
+# PLOT 5: Obs vs pred scatter (all sites combined, faceted)
+# ══════════════════════════════════════════════════════════════════════════════
+p_scatter <- ggplot(all_preds, aes(x = GPP_obs, y = GPP_pred)) +
+  geom_point(alpha = 0.2, size = 0.5, colour = "#4682B4") +
+  geom_abline(slope = 1, intercept = 0, colour = "#E06C4B",
+              linetype = "dashed", linewidth = 0.7) +
+  geom_text(
+    data        = site_metrics,
+    aes(label   = paste0("R² = ", R2)),
+    x           = -Inf, y = Inf,
+    hjust       = -0.1, vjust = 1.6,
+    inherit.aes = FALSE,
+    size        = 2.8, colour = "grey20", fontface = "bold"
+  ) +
+  facet_wrap(~ site, ncol = 3, scales = "free") +
+  labs(
+    title    = "Observed vs Predicted GPP — All Sites (LOYO)",
+    subtitle = "Dashed line = 1:1. Points above = underprediction; below = overprediction",
+    x        = expression(GPP[obs] ~ (µmol ~ C ~ m^{-2} ~ d^{-1})),
+    y        = expression(GPP[pred] ~ (µmol ~ C ~ m^{-2} ~ d^{-1}))
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(colour = "grey40", size = 9),
+    strip.text       = element_text(face = "bold", size = 9),
+    panel.grid.minor = element_blank()
+  )
+ 
+# ══════════════════════════════════════════════════════════════════════════════
+# SAVE COMBINED PLOTS
+# ══════════════════════════════════════════════════════════════════════════════
+n_sites <- n_distinct(all_preds$site)
+diag_h  <- max(8, ceiling(n_sites / 3) * 3.2)
+ 
+ggsave("LOYO_R2_vs_nyears.png",        plot = p_nyears,    width = 9,  height = 6,      dpi = 200, bg = "white")
+ggsave("LOYO_residuals_vs_VPD.png",    plot = p_resid_vpd, width = 16, height = diag_h, dpi = 200, bg = "white")
+ggsave("LOYO_obs_vs_pred_scatter.png", plot = p_scatter,   width = 16, height = diag_h, dpi = 200, bg = "white")
+ 
+message("All combined plots saved.")
+```
+
+```{r}
+map_df(sites_daily, function(df) {
+  summarise(df, across(c(GPP, Tair, SW_rad, VPD, cwd, Precip),
+                       ~ mean(is.na(.)) * 100, .names = "{.col}_pct_NA"))
+}, .id = "site")
+```
+
+```{r}
+# Check if cwd gaps are from ET or Rn specifically
+sites_daily[["Asm"]] %>%
+  summarise(
+    ET_pct_NA  = mean(is.na(ET))  * 100,
+    Rn_pct_NA  = mean(is.na(Rn))  * 100,
+    cwd_pct_NA = mean(is.na(cwd)) * 100
+  )
+```
+
+A lot of missingness is coming from cwd due to Radiation (Rn) being missing 
+
+A few options:
+- Remove cwd and replace with precip
+- Calculate cwd using something else entirely?
+
+Here, I have removed cwd entirely and replaced it with a rolling sum of precipitation (90 days) as well as normal precip
+
+```{r}
+library(tidyverse)
+library(randomForest)
+library(zoo)
+library(lubridate)
+library(purrr)
+
+set.seed(42)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SETUP
+# ══════════════════════════════════════════════════════════════════════════════
+
+# cwd_bounded_90day replaced with precip_roll90 — Precip has 0% missingness
+# across all sites, avoiding the large data gaps caused by missing Rn/ET
+predictors <- c("Tair", "SW_rad", "VPD", "VPD_lag3", "Tair_lag3",
+                "Precip", "precip_roll90")
+
+min_years <- 2
+
+compute_metrics <- function(obs, pred) {
+  data.frame(
+    R2   = round(cor(obs, pred, use = "complete.obs")^2, 3),
+    RMSE = round(sqrt(mean((obs - pred)^2, na.rm = TRUE)), 3),
+    NSE  = round(1 - sum((obs - pred)^2, na.rm = TRUE) /
+                     sum((obs - mean(obs, na.rm = TRUE))^2, na.rm = TRUE), 3)
+  )
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FEATURE ENGINEERING
+# ══════════════════════════════════════════════════════════════════════════════
+prepare_site <- function(df, site_name) {
+
+  df <- df %>%
+    drop_na(GPP, Tair, SW_rad, VPD, Precip, date) %>%  # cwd removed from drop_na
+    arrange(date) %>%
+    mutate(
+      year      = year(date),
+      VPD_lag3  = lag(VPD,  3),
+      Tair_lag3 = lag(Tair, 3),
+
+      # 90-day rolling sum of precipitation — antecedent water availability proxy
+      # sum rather than mean so it represents total water input over the window
+      precip_roll90 = rollapply(
+        Precip, width = 90, FUN = sum,
+        align = "right", fill = NA, na.rm = TRUE
+      )
+    ) %>%
+    drop_na(all_of(predictors), GPP)
+
+  n_yrs <- n_distinct(df$year)
+
+  if (n_yrs < min_years) {
+    message("Skipping ", site_name, ": only ", n_yrs, " years (min = ", min_years, ")")
+    return(NULL)
+  }
+
+  message("Prepared ", site_name, ": ", nrow(df), " rows, ", n_yrs, " years")
+  df
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LOYO MODEL
+# ══════════════════════════════════════════════════════════════════════════════
+run_loyo <- function(df, site_name) {
+
+  formula  <- as.formula(paste("GPP ~", paste(predictors, collapse = " + ")))
+  mtry_val <- max(2, floor(sqrt(length(predictors))))
+  years    <- unique(df$year)
+
+  loyo_preds <- map_dfr(years, function(yr) {
+
+    train_df <- df %>% filter(year != yr)
+    test_df  <- df %>% filter(year == yr)
+
+    if (nrow(train_df) < 50 || nrow(test_df) < 10) return(NULL)
+
+    # No standardisation needed — RF is scale-invariant
+    rf_model <- randomForest(formula, data = train_df,
+                             ntree = 500, mtry = mtry_val, importance = FALSE)
+    preds    <- predict(rf_model, test_df)
+
+    data.frame(
+      site     = site_name,
+      date     = test_df$date,
+      year     = yr,
+      GPP_obs  = test_df$GPP,
+      GPP_pred = preds,
+      VPD      = test_df$VPD
+    )
+  })
+
+  if (nrow(loyo_preds) == 0) return(NULL)
+  loyo_preds
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# RUN ACROSS ALL SITES
+# ══════════════════════════════════════════════════════════════════════════════
+prepared  <- map2(sites_daily, names(sites_daily), prepare_site)
+prepared  <- Filter(Negate(is.null), prepared)
+
+all_preds <- map2_dfr(prepared, names(prepared), run_loyo)
+
+message("\nSites retained: ", n_distinct(all_preds$site))
+message("Total rows:     ", nrow(all_preds))
+
+# ══════════════════════════════════════════════════════════════════════════════
+# METRICS
+# ══════════════════════════════════════════════════════════════════════════════
+site_metrics <- all_preds %>%
+  group_by(site) %>%
+  summarise(compute_metrics(GPP_obs, GPP_pred), .groups = "drop") %>%
+  mutate(n_years = map_int(prepared[site], ~ n_distinct(.x$year)))
+
+year_metrics <- all_preds %>%
+  group_by(site, year) %>%
+  summarise(compute_metrics(GPP_obs, GPP_pred), .groups = "drop")
+
+cat("\n── Per-site LOYO metrics ──\n")
+print(site_metrics %>% arrange(R2))
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PLOT 1: Per-site time series — one PNG per site
+# ══════════════════════════════════════════════════════════════════════════════
+dir.create("site_timeseries", showWarnings = FALSE)
+
+walk(unique(all_preds$site), function(s) {
+
+  site_df <- all_preds %>%
+    filter(site == s) %>%
+    pivot_longer(cols = c(GPP_obs, GPP_pred),
+                 names_to = "type", values_to = "GPP") %>%
+    mutate(type = recode(type, GPP_obs = "Observed", GPP_pred = "Predicted"))
+
+  m     <- site_metrics %>% filter(site == s)
+  label <- paste0("R² = ", m$R2, "  |  NSE = ", m$NSE, "  |  RMSE = ", m$RMSE)
+
+  p <- ggplot(site_df, aes(x = date, y = GPP, colour = type, alpha = type)) +
+    geom_line(linewidth = 0.5) +
+    annotate("text",
+             x     = min(site_df$date), y = Inf,
+             label = label,
+             hjust = -0.05, vjust = 1.6,
+             size  = 3.5, colour = "grey20", fontface = "bold") +
+    scale_colour_manual(values = c("Observed" = "#2c2c2c", "Predicted" = "#E06C4B")) +
+    scale_alpha_manual(values  = c("Observed" = 0.45,     "Predicted" = 0.9)) +
+    scale_x_date(date_breaks = "1 year", date_labels = "%Y") +
+    labs(
+      title    = paste0(s, ": Observed vs Predicted GPP (LOYO)"),
+      subtitle = paste0("Predictors: ", paste(predictors, collapse = ", ")),
+      x        = NULL,
+      y        = expression(GPP ~ (µmol ~ C ~ m^{-2} ~ d^{-1})),
+      colour   = NULL, alpha = NULL
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      plot.title       = element_text(face = "bold", size = 13),
+      plot.subtitle    = element_text(colour = "grey40", size = 9),
+      legend.position  = "bottom",
+      panel.grid.minor = element_blank(),
+      axis.text.x      = element_text(angle = 45, hjust = 1)
+    )
+
+  ggsave(paste0("site_timeseries/", s, "_timeseries.png"),
+         plot = p, width = 12, height = 5, dpi = 200, bg = "white")
+})
+
+message("Time series plots saved to site_timeseries/")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PLOT 2: Per-site per-year R² — one PNG per site
+# ══════════════════════════════════════════════════════════════════════════════
+dir.create("site_year_r2", showWarnings = FALSE)
+
+walk(unique(year_metrics$site), function(s) {
+
+  yr_df      <- year_metrics %>% filter(site == s)
+  overall_r2 <- site_metrics %>% filter(site == s) %>% pull(R2)
+
+  p <- ggplot(yr_df, aes(x = year, y = R2, fill = R2)) +
+    geom_col(width = 0.7, alpha = 0.9) +
+    geom_hline(yintercept = overall_r2, linetype = "dashed",
+               colour = "grey30", linewidth = 0.7) +
+    geom_hline(yintercept = 0, colour = "black", linewidth = 0.4) +
+    annotate("text",
+             x     = max(yr_df$year),
+             y     = overall_r2 + 0.03,
+             label = paste0("Overall R² = ", overall_r2),
+             hjust = 1, size = 3.3, colour = "grey30", fontface = "italic") +
+    geom_text(aes(label = R2,
+                  vjust = ifelse(R2 >= 0, -0.4, 1.3)),
+              size = 3, colour = "grey20") +
+    scale_fill_gradient(low = "#E06C4B", high = "#4682B4",
+                        limits = c(-0.5, 1), oob = scales::squish) +
+    scale_x_continuous(breaks = yr_df$year) +
+    scale_y_continuous(limits = c(min(-0.1, min(yr_df$R2) - 0.1), 1.05)) +
+    labs(
+      title    = paste0(s, ": Per-Year LOYO R²"),
+      subtitle = "Each bar = R² for that held-out year. Dashed line = overall site R²",
+      x        = NULL, y = "R²", fill = "R²"
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(
+      plot.title         = element_text(face = "bold", size = 13),
+      plot.subtitle      = element_text(colour = "grey40", size = 10),
+      panel.grid.minor   = element_blank(),
+      panel.grid.major.x = element_blank(),
+      axis.text.x        = element_text(angle = 45, hjust = 1),
+      legend.position    = "none"
+    )
+
+  ggsave(paste0("site_year_r2/", s, "_year_r2.png"),
+         plot = p, width = 10, height = 5, dpi = 200, bg = "white")
+})
+
+message("Per-year R² plots saved to site_year_r2/")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PLOT 3: R² vs number of years (combined)
+# ══════════════════════════════════════════════════════════════════════════════
+p_nyears <- ggplot(site_metrics, aes(x = n_years, y = R2)) +
+  geom_point(aes(colour = R2), size = 3.5, alpha = 0.9) +
+  geom_smooth(method = "lm", se = TRUE, colour = "grey40",
+              linetype = "dashed", linewidth = 0.7) +
+  geom_text(aes(label = site), vjust = -0.9, size = 2.8, colour = "grey30") +
+  scale_colour_gradient(low = "#E06C4B", high = "#4682B4") +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 8)) +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(
+    title    = "Model Fit vs Record Length",
+    subtitle = "Does more training data improve LOYO R²?",
+    x        = "Number of years of data",
+    y        = "LOYO R²",
+    colour   = "R²"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(colour = "grey40", size = 10),
+    panel.grid.minor = element_blank()
+  )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PLOT 4: Residuals vs VPD (combined, faceted)
+# ══════════════════════════════════════════════════════════════════════════════
+residual_df <- all_preds %>%
+  mutate(residual = GPP_obs - GPP_pred)
+
+p_resid_vpd <- ggplot(residual_df, aes(x = VPD, y = residual)) +
+  geom_point(alpha = 0.12, size = 0.5, colour = "#4682B4") +
+  geom_smooth(method = "loess", span = 0.4, se = TRUE,
+              colour = "#E06C4B", fill = "#E06C4B", alpha = 0.2, linewidth = 0.8) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey30") +
+  facet_wrap(~ site, ncol = 3, scales = "free_x") +
+  labs(
+    title    = "Residuals vs VPD by Site",
+    subtitle = "Positive = model underpredicts GPP; negative = overpredicts. Key check for high-VPD bias",
+    x        = "VPD (kPa)",
+    y        = expression(GPP[obs] - GPP[pred] ~ (µmol ~ C ~ m^{-2} ~ d^{-1}))
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(colour = "grey40", size = 9),
+    strip.text       = element_text(face = "bold", size = 9),
+    panel.grid.minor = element_blank(),
+    axis.text.x      = element_text(size = 7)
+  )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PLOT 5: Obs vs pred scatter (combined, faceted)
+# ══════════════════════════════════════════════════════════════════════════════
+r2_labels <- site_metrics %>%
+  mutate(label = paste0("R² = ", R2, "  NSE = ", NSE))
+
+p_scatter <- ggplot(all_preds, aes(x = GPP_obs, y = GPP_pred)) +
+  geom_point(alpha = 0.2, size = 0.5, colour = "#4682B4") +
+  geom_abline(slope = 1, intercept = 0, colour = "#E06C4B",
+              linetype = "dashed", linewidth = 0.7) +
+  geom_text(
+    data        = r2_labels,
+    aes(label   = paste0("R² = ", R2)),
+    x           = -Inf, y = Inf,
+    hjust       = -0.1, vjust = 1.6,
+    inherit.aes = FALSE,
+    size        = 2.8, colour = "grey20", fontface = "bold"
+  ) +
+  facet_wrap(~ site, ncol = 3, scales = "free") +
+  labs(
+    title    = "Observed vs Predicted GPP — All Sites (LOYO)",
+    subtitle = "Dashed line = 1:1. Points above = underprediction; below = overprediction",
+    x        = expression(GPP[obs] ~ (µmol ~ C ~ m^{-2} ~ d^{-1})),
+    y        = expression(GPP[pred] ~ (µmol ~ C ~ m^{-2} ~ d^{-1}))
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(colour = "grey40", size = 9),
+    strip.text       = element_text(face = "bold", size = 9),
+    panel.grid.minor = element_blank()
+  )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SAVE COMBINED PLOTS
+# ══════════════════════════════════════════════════════════════════════════════
+n_sites <- n_distinct(all_preds$site)
+diag_h  <- max(8, ceiling(n_sites / 3) * 3.2)
+
+ggsave("LOYO_R2_vs_nyears.png",        plot = p_nyears,    width = 9,  height = 6,      dpi = 200, bg = "white")
+ggsave("LOYO_residuals_vs_VPD.png",    plot = p_resid_vpd, width = 16, height = diag_h, dpi = 200, bg = "white")
+ggsave("LOYO_obs_vs_pred_scatter.png", plot = p_scatter,   width = 16, height = diag_h, dpi = 200, bg = "white")
+
+message("All plots saved.")
+```
+
