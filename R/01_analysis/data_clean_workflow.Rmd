@@ -312,17 +312,18 @@ sites_daily <- sites_daily %>%
 Growing season:
 
 ```{r}
-#growing season - for now, it is going to be above 0 GPP
+#GPP > 0   
 
-filter_gs <- function(df) {
-  df %>%
-    filter(
-      GPP > 0
-    )
-}
-
-sites_daily <- sites_daily %>%
-  map(filter_gs)
+sites_daily <- map2(sites_daily, names(sites_daily), function(df, site_name) {
+  
+  df_filtered <- df %>% filter(GPP > 0)
+  
+  message(site_name, ": ", nrow(df), " → ", nrow(df_filtered), 
+          " rows after GPP > 0 filter (",
+          round((1 - nrow(df_filtered)/nrow(df)) * 100, 1), "% removed)")
+  
+  df_filtered
+})
 ```
 
 Add in water stress component (pet and cwd) 
@@ -403,7 +404,7 @@ lai_data <- read.csv("/Users/alicerolfe/year_4_project/fluxnet_project/Data/site
 
 ```{r}
 lai_data <- lai_data %>%
-  filter(site != "AU-Rob")
+  filter(site != "Rob")
 ```
 
 
@@ -506,4 +507,7 @@ ggplot(canopy_order, aes(x = reorder(site, desc(max_LAI)), y = max_LAI)) +
   theme_classic()
 ```
 
+```{r}
+plot(sites_daily$Cpr$GPP)
+```
 
