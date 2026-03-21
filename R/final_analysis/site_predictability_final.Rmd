@@ -169,8 +169,6 @@ New standardise train and test takes train and test separately
 Precip removed
 mtry will now be 2 for without VPD and 2 for with VPD
 
-
-
 Plots:
 1. Total R-squared across sites
 2. Change in R-squared when adding VPD
@@ -270,5 +268,22 @@ ggplot(plot_data %>% distinct(site, R2, n_years.x), aes(x = n_years.x, y = R2)) 
 ```
 Units on the MAP, MAT and MAL? 
 Also a line of best fit to show the trend?
+
+```{r}
+metrics_wide <- all_metrics_vpd %>%
+  select(site, model, R2) %>%
+  pivot_wider(
+    names_from  = model,
+    values_from = R2
+  ) %>%
+  rename(
+    R2_with_VPD    = with_VPD,
+    R2_without_VPD = without_VPD
+  ) %>%
+  mutate(delta_R2 = R2_with_VPD - R2_without_VPD)
+
+summary(metrics_wide)
+```
+
 
 
