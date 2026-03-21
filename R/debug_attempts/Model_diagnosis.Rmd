@@ -1596,7 +1596,7 @@ set.seed(42)
 
 # cwd_bounded_90day replaced with precip_roll90 — Precip has 0% missingness
 # across all sites, avoiding the large data gaps caused by missing Rn/ET
-predictors <- c("Tair", "SW_rad", "VPD", "VPD_lag3", "Tair_lag3",
+predictors <- c("Tair", "SW_rad", "VPD",
                 "Precip", "precip_roll90")
 
 min_years <- 2
