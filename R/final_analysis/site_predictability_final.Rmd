@@ -285,5 +285,36 @@ metrics_wide <- all_metrics_vpd %>%
 summary(metrics_wide)
 ```
 
+New MAL, MAT and MAP plot with Loess line and units
+```{r}
+ggplot(plot_data, aes(x = value, y = R2)) +
+  geom_point(size = 3, colour = thesis_cols["main"]) +
+  geom_smooth(
+    method    = "loess",
+    span      = 1.0,
+    se        = TRUE,
+    colour    = "grey40",
+    fill      = "grey70",
+    linewidth = 0.7
+  ) +
+  geom_text_repel(aes(label = site), size = 2.8, colour = "grey30",
+                  max.overlaps = 15) +
+  facet_wrap(~ variable, scales = "free_x", ncol = 3,
+             labeller = labeller(variable = c(
+               MAP = "MAP (mm/year)",
+               MAT = "MAT(°C)",
+               MAL = "MAL"
+             ))) +
+  coord_cartesian(ylim = c(0, 1)) +   # clips display without dropping data
+  labs(y = "R² (RF with VPD)", x = NULL) +
+  theme_bw(base_size = 13) +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold", size = 11),
+    panel.grid       = element_blank(),
+    panel.border     = element_rect(colour = "black", fill = NA)
+  )
+```
+
 
 
