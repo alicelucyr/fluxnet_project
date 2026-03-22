@@ -1,0 +1,798 @@
+---
+title: "model_improvements"
+output: html_document
+date: "2026-03-22"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Going to see if i can improve R-squared for my sites:
+Original: VPD, Tair, SW_rad, cumulative cwd 7 day
+1) VPD, Tair, SW_rad, BOUNDED cumulative cwd 7 day (running total floors at 7 days)
+
+```{r}
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(zoo)
+
+set.seed(42)
+
+standardise_train_test <- function(train_df, test_df, predictors) {
+  train_means <- colMeans(train_df[predictors], na.rm = TRUE)
+  train_sds   <- apply(train_df[predictors], 2, sd, na.rm = TRUE)
+  
+  train_df[predictors] <- scale(train_df[predictors],
+                                 center = train_means, scale = train_sds)
+  test_df[predictors]  <- scale(test_df[predictors],
+                                 center = train_means, scale = train_sds)
+  list(train = train_df, test = test_df)
+}
+
+run_rf_with_without_vpd <- function(df, site_name) {
+  
+  df <- df %>% drop_na(GPP, Tair, SW_rad, VPD, cwd, date)
+  
+  if (nrow(df) < 100) {
+    warning(paste("Site", site_name, "has insufficient data"))
+    return(NULL)
+  }
+  
+  df <- df %>%
+    arrange(date) %>%
+    mutate(
+      year = lubridate::year(date),
+
+      # ── Bounded cumulative CWD — running total floored at zero ───────────────
+      # Deficit accumulates when PET > ET, resets toward zero on recharge
+      # Never goes negative — physically meaningful drought stress index
+      cwd_bounded = accumulate(cwd, ~ pmax(.x + .y, 0)),
+
+      # ── 7-day rolling mean of bounded CWD ────────────────────────────────────
+      # Mean rather than sum so scale is interpretable (avg daily deficit)
+      cumulative_cwd_7day_bounded = rollapply(
+        cwd_bounded, width = 7, FUN = mean,
+        align = "right", fill = NA, na.rm = TRUE
+      )
+    )
+  
+  # Only change from original — CWD predictor is now bounded version
+  predictors_with    <- c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day_bounded")
+  predictors_without <- c("Tair", "SW_rad",         "cumulative_cwd_7day_bounded")
+  
+  fit_rf_loyo <- function(predictors, label) {
+    
+    model_df <- df %>% drop_na(GPP, all_of(predictors))
+    
+    if (nrow(model_df) < 100) {
+      message("  Skipping ", label, " at ", site_name, ": insufficient data")
+      return(NULL)
+    }
+    
+    years <- unique(model_df$year)
+    
+    all_preds      <- list()
+    all_importance <- list()
+    
+    for (year_i in years) {
+      
+      train_data <- model_df %>% filter(year != year_i)
+      test_data  <- model_df %>% filter(year == year_i)
+      
+      if (nrow(test_data) < 10 || nrow(train_data) < 50) next
+      
+      scaled      <- standardise_train_test(train_data, test_data, predictors)
+      train_data  <- scaled$train
+      test_data   <- scaled$test
+      
+      mtry_val <- max(2, floor(sqrt(length(predictors))))
+      
+      formula <- as.formula(paste("GPP ~", paste(predictors, collapse = " + ")))
+      
+      model <- randomForest(formula, data = train_data,
+                            ntree = 500, mtry = mtry_val, importance = TRUE)
+      
+      preds <- predict(model, test_data)
+      
+      all_preds[[as.character(year_i)]] <- data.frame(
+        Observed  = test_data$GPP,
+        Predicted = preds,
+        year      = year_i
+      )
+      
+      all_importance[[as.character(year_i)]] <- data.frame(
+        variable   = rownames(importance(model)),
+        importance = importance(model, type = 1)[, 1],
+        year       = year_i
+      )
+    }
+    
+    results <- bind_rows(all_preds)
+    
+    if (nrow(results) == 0) return(NULL)
+    
+    rmse     <- sqrt(mean((results$Observed - results$Predicted)^2))
+    rsq      <- cor(results$Observed, results$Predicted)^2
+    mean_obs <- mean(results$Observed)
+    nse      <- 1 - sum((results$Observed - results$Predicted)^2) /
+                     sum((results$Observed - mean_obs)^2)
+    
+    importance_df <- bind_rows(all_importance) %>%
+      group_by(variable) %>%
+      summarise(importance = mean(importance), .groups = "drop") %>%
+      mutate(model = label, site = site_name)
+    
+    list(
+      metrics     = data.frame(site = site_name, model = label,
+                               RMSE = rmse, R2 = rsq, NSE = nse),
+      importance  = importance_df,
+      predictions = results %>% mutate(site = site_name, model = label)
+    )
+  }
+  
+  with_vpd    <- fit_rf_loyo(predictors_with,    "with_VPD")
+  without_vpd <- fit_rf_loyo(predictors_without, "without_VPD")
+  
+  if (is.null(with_vpd) || is.null(without_vpd)) return(NULL)
+  
+  list(
+    site        = site_name,
+    metrics     = bind_rows(with_vpd$metrics,     without_vpd$metrics),
+    importance  = bind_rows(with_vpd$importance,  without_vpd$importance),
+    predictions = bind_rows(with_vpd$predictions, without_vpd$predictions)
+  )
+}
+
+# ── Run model ─────────────────────────────────────────────────────────────────
+rf_results_vpd <- purrr::map2(
+  sites_daily,
+  names(sites_daily),
+  run_rf_with_without_vpd
+)
+
+all_metrics_vpd <- purrr::map_df(rf_results_vpd, ~ .x$metrics)
+
+# ── Compute number of years per site ──────────────────────────────────────────
+n_years_df <- purrr::map_df(rf_results_vpd, function(res) {
+  if (is.null(res)) return(NULL)
+  data.frame(
+    site    = res$site,
+    n_years = length(unique(res$predictions$year))
+  )
+})
+
+site_meta <- site_meta %>%
+  left_join(n_years_df, by = "site")
+
+# ── Prepare plot data ─────────────────────────────────────────────────────────
+plot_data <- all_metrics_vpd %>%
+  filter(model == "with_VPD") %>%
+  select(site, R2) %>%
+  left_join(
+    site_meta %>% select(site, MAP, MAT, MAL, n_years.x),
+    by = "site"
+  ) %>%
+  pivot_longer(
+    cols      = c(MAP, MAT, MAL),
+    names_to  = "variable",
+    values_to = "value"
+  )
+
+# ── Plot 1: ΔR² from adding VPD ───────────────────────────────────────────────
+all_metrics_vpd %>%
+  select(site, model, R2) %>%
+  pivot_wider(names_from = model, values_from = R2) %>%
+  mutate(
+    site    = factor(site, levels = wet_to_dry_order),
+    R2_gain = with_VPD - without_VPD
+  ) %>%
+  ggplot(aes(x = site, y = R2_gain)) +
+  geom_col(width = 0.7, fill = thesis_cols["main"]) +
+  geom_hline(yintercept = 0, linewidth = 0.4, linetype = "dashed") +
+  coord_flip() +
+  labs(
+    title = "ΔR² from adding VPD",
+    y     = "ΔR² (with − without)",
+    x     = "Sites (Wet to Dry)"
+  ) +
+  theme_classic() +
+  theme(legend.position = "none")
+
+# ── Plot 2: R² with VPD — wet to dry order ────────────────────────────────────
+all_metrics_vpd %>%
+  filter(model == "with_VPD") %>%
+  mutate(site = factor(site, levels = wet_to_dry_order)) %>%
+  ggplot(aes(x = site, y = R2)) +
+  geom_col(width = 0.7, fill = thesis_cols["main"]) +
+  coord_flip() +
+  labs(
+    title = "Model R² (with VPD)",
+    y     = "R²",
+    x     = "Sites (Wet to Dry)"
+  ) +
+  theme_classic(base_size = 13) +
+  theme(axis.text.y = element_text(size = 10))
+
+# ── Plot 3: MAP, MAT, MAL vs R² ───────────────────────────────────────────────
+library(ggrepel)
+ggplot(plot_data, aes(x = value, y = R2)) +
+  geom_point(size = 3, colour = thesis_cols["main"]) +
+  geom_smooth(method = "lm", se = TRUE, colour = "grey40",
+              linetype = "dashed", linewidth = 0.7) +
+  geom_text_repel(aes(label = site), size = 2.8, colour = "grey30",
+                  max.overlaps = 15) +
+  facet_wrap(~ variable, scales = "free_x", ncol = 3,
+             labeller = labeller(variable = c(
+               MAP = "MAP (mm yr⁻¹)",
+               MAT = "MAT (°C)",
+               MAL = "MAL (m² m⁻²)"
+             ))) +
+  labs(y = "R² (RF with VPD)", x = NULL) +
+  theme_bw(base_size = 13) +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold", size = 11),
+    panel.grid       = element_blank(),
+    panel.border     = element_rect(colour = "black", fill = NA)
+  )
+
+# ── Plot 4: Number of years vs R² ─────────────────────────────────────────────
+ggplot(plot_data %>% distinct(site, R2, n_years.x), aes(x = n_years.x, y = R2)) +
+  geom_point(size = 3, colour = thesis_cols["main"]) +
+  geom_smooth(method = "lm", se = TRUE, colour = "grey40",
+              linetype = "dashed", linewidth = 0.7) +
+  geom_text(aes(label = site), vjust = -0.8, size = 2.8, colour = "grey30") +
+  labs(x = "No. of Years of Observations", y = "R²") +
+  theme_classic()
+
+# ── Summary metrics ───────────────────────────────────────────────────────────
+metrics_wide <- all_metrics_vpd %>%
+  select(site, model, R2) %>%
+  pivot_wider(names_from = model, values_from = R2) %>%
+  rename(
+    R2_with_VPD    = with_VPD,
+    R2_without_VPD = without_VPD
+  ) %>%
+  mutate(delta_R2 = R2_with_VPD - R2_without_VPD)
+
+summary(metrics_wide)
+```
+```{r}
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(zoo)
+
+set.seed(42)
+
+standardise_train_test <- function(train_df, test_df, predictors) {
+  train_means <- colMeans(train_df[predictors], na.rm = TRUE)
+  train_sds   <- apply(train_df[predictors], 2, sd, na.rm = TRUE)
+  
+  train_df[predictors] <- scale(train_df[predictors],
+                                 center = train_means, scale = train_sds)
+  test_df[predictors]  <- scale(test_df[predictors],
+                                 center = train_means, scale = train_sds)
+  list(train = train_df, test = test_df)
+}
+
+run_rf_with_without_vpd <- function(df, site_name) {
+  
+  df <- df %>% drop_na(GPP, Tair, SW_rad, VPD, cwd, date)
+  
+  if (nrow(df) < 100) {
+    warning(paste("Site", site_name, "has insufficient data"))
+    return(NULL)
+  }
+  
+  df <- df %>%
+    arrange(date) %>%
+    mutate(
+      year = lubridate::year(date),
+
+      # ── Bounded cumulative CWD — running total floored at zero ───────────────
+      # Deficit accumulates when PET > ET, resets toward zero on recharge
+      # Never goes negative — physically meaningful drought stress index
+      cwd_bounded = accumulate(cwd, ~ pmax(.x + .y, 0)),
+
+      # ── 7-day rolling mean of bounded CWD ────────────────────────────────────
+      # Mean rather than sum so scale is interpretable (avg daily deficit)
+      cumulative_cwd_30day_bounded = rollapply(
+        cwd_bounded, width = 30, FUN = mean,
+        align = "right", fill = NA, na.rm = TRUE
+      )
+    )
+  
+  # Only change from original — CWD predictor is now bounded version
+  predictors_with    <- c("Tair", "SW_rad", "VPD", "cumulative_cwd_30day_bounded")
+  predictors_without <- c("Tair", "SW_rad",         "cumulative_cwd_30day_bounded")
+  
+  fit_rf_loyo <- function(predictors, label) {
+    
+    model_df <- df %>% drop_na(GPP, all_of(predictors))
+    
+    if (nrow(model_df) < 100) {
+      message("  Skipping ", label, " at ", site_name, ": insufficient data")
+      return(NULL)
+    }
+    
+    years <- unique(model_df$year)
+    
+    all_preds      <- list()
+    all_importance <- list()
+    
+    for (year_i in years) {
+      
+      train_data <- model_df %>% filter(year != year_i)
+      test_data  <- model_df %>% filter(year == year_i)
+      
+      if (nrow(test_data) < 10 || nrow(train_data) < 50) next
+      
+      scaled      <- standardise_train_test(train_data, test_data, predictors)
+      train_data  <- scaled$train
+      test_data   <- scaled$test
+      
+      mtry_val <- max(2, floor(sqrt(length(predictors))))
+      
+      formula <- as.formula(paste("GPP ~", paste(predictors, collapse = " + ")))
+      
+      model <- randomForest(formula, data = train_data,
+                            ntree = 500, mtry = mtry_val, importance = TRUE)
+      
+      preds <- predict(model, test_data)
+      
+      all_preds[[as.character(year_i)]] <- data.frame(
+        Observed  = test_data$GPP,
+        Predicted = preds,
+        year      = year_i
+      )
+      
+      all_importance[[as.character(year_i)]] <- data.frame(
+        variable   = rownames(importance(model)),
+        importance = importance(model, type = 1)[, 1],
+        year       = year_i
+      )
+    }
+    
+    results <- bind_rows(all_preds)
+    
+    if (nrow(results) == 0) return(NULL)
+    
+    rmse     <- sqrt(mean((results$Observed - results$Predicted)^2))
+    rsq      <- cor(results$Observed, results$Predicted)^2
+    mean_obs <- mean(results$Observed)
+    nse      <- 1 - sum((results$Observed - results$Predicted)^2) /
+                     sum((results$Observed - mean_obs)^2)
+    
+    importance_df <- bind_rows(all_importance) %>%
+      group_by(variable) %>%
+      summarise(importance = mean(importance), .groups = "drop") %>%
+      mutate(model = label, site = site_name)
+    
+    list(
+      metrics     = data.frame(site = site_name, model = label,
+                               RMSE = rmse, R2 = rsq, NSE = nse),
+      importance  = importance_df,
+      predictions = results %>% mutate(site = site_name, model = label)
+    )
+  }
+  
+  with_vpd    <- fit_rf_loyo(predictors_with,    "with_VPD")
+  without_vpd <- fit_rf_loyo(predictors_without, "without_VPD")
+  
+  if (is.null(with_vpd) || is.null(without_vpd)) return(NULL)
+  
+  list(
+    site        = site_name,
+    metrics     = bind_rows(with_vpd$metrics,     without_vpd$metrics),
+    importance  = bind_rows(with_vpd$importance,  without_vpd$importance),
+    predictions = bind_rows(with_vpd$predictions, without_vpd$predictions)
+  )
+}
+
+# ── Run model ─────────────────────────────────────────────────────────────────
+rf_results_vpd <- purrr::map2(
+  sites_daily,
+  names(sites_daily),
+  run_rf_with_without_vpd
+)
+
+all_metrics_vpd <- purrr::map_df(rf_results_vpd, ~ .x$metrics)
+
+# ── Compute number of years per site ──────────────────────────────────────────
+n_years_df <- purrr::map_df(rf_results_vpd, function(res) {
+  if (is.null(res)) return(NULL)
+  data.frame(
+    site    = res$site,
+    n_years = length(unique(res$predictions$year))
+  )
+})
+
+site_meta <- site_meta %>%
+  left_join(n_years_df, by = "site")
+
+# ── Prepare plot data ─────────────────────────────────────────────────────────
+plot_data <- all_metrics_vpd %>%
+  filter(model == "with_VPD") %>%
+  select(site, R2) %>%
+  left_join(
+    site_meta %>% select(site, MAP, MAT, MAL, n_years.x),
+    by = "site"
+  ) %>%
+  pivot_longer(
+    cols      = c(MAP, MAT, MAL),
+    names_to  = "variable",
+    values_to = "value"
+  )
+
+# ── Plot 1: ΔR² from adding VPD ───────────────────────────────────────────────
+all_metrics_vpd %>%
+  select(site, model, R2) %>%
+  pivot_wider(names_from = model, values_from = R2) %>%
+  mutate(
+    site    = factor(site, levels = wet_to_dry_order),
+    R2_gain = with_VPD - without_VPD
+  ) %>%
+  ggplot(aes(x = site, y = R2_gain)) +
+  geom_col(width = 0.7, fill = thesis_cols["main"]) +
+  geom_hline(yintercept = 0, linewidth = 0.4, linetype = "dashed") +
+  coord_flip() +
+  labs(
+    title = "ΔR² from adding VPD",
+    y     = "ΔR² (with − without)",
+    x     = "Sites (Wet to Dry)"
+  ) +
+  theme_classic() +
+  theme(legend.position = "none")
+
+# ── Plot 2: R² with VPD — wet to dry order ────────────────────────────────────
+all_metrics_vpd %>%
+  filter(model == "with_VPD") %>%
+  mutate(site = factor(site, levels = wet_to_dry_order)) %>%
+  ggplot(aes(x = site, y = R2)) +
+  geom_col(width = 0.7, fill = thesis_cols["main"]) +
+  coord_flip() +
+  labs(
+    title = "Model R² (with VPD)",
+    y     = "R²",
+    x     = "Sites (Wet to Dry)"
+  ) +
+  theme_classic(base_size = 13) +
+  theme(axis.text.y = element_text(size = 10))
+
+# ── Plot 3: MAP, MAT, MAL vs R² ───────────────────────────────────────────────
+library(ggrepel)
+ggplot(plot_data, aes(x = value, y = R2)) +
+  geom_point(size = 3, colour = thesis_cols["main"]) +
+  geom_smooth(method = "lm", se = TRUE, colour = "grey40",
+              linetype = "dashed", linewidth = 0.7) +
+  geom_text_repel(aes(label = site), size = 2.8, colour = "grey30",
+                  max.overlaps = 15) +
+  facet_wrap(~ variable, scales = "free_x", ncol = 3,
+             labeller = labeller(variable = c(
+               MAP = "MAP (mm yr⁻¹)",
+               MAT = "MAT (°C)",
+               MAL = "MAL (m² m⁻²)"
+             ))) +
+  labs(y = "R² (RF with VPD)", x = NULL) +
+  theme_bw(base_size = 13) +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold", size = 11),
+    panel.grid       = element_blank(),
+    panel.border     = element_rect(colour = "black", fill = NA)
+  )
+
+# ── Plot 4: Number of years vs R² ─────────────────────────────────────────────
+ggplot(plot_data %>% distinct(site, R2, n_years.x), aes(x = n_years.x, y = R2)) +
+  geom_point(size = 3, colour = thesis_cols["main"]) +
+  geom_smooth(method = "lm", se = TRUE, colour = "grey40",
+              linetype = "dashed", linewidth = 0.7) +
+  geom_text(aes(label = site), vjust = -0.8, size = 2.8, colour = "grey30") +
+  labs(x = "No. of Years of Observations", y = "R²") +
+  theme_classic()
+
+# ── Summary metrics ───────────────────────────────────────────────────────────
+metrics_wide <- all_metrics_vpd %>%
+  select(site, model, R2) %>%
+  pivot_wider(names_from = model, values_from = R2) %>%
+  rename(
+    R2_with_VPD    = with_VPD,
+    R2_without_VPD = without_VPD
+  ) %>%
+  mutate(delta_R2 = R2_with_VPD - R2_without_VPD)
+
+summary(metrics_wide)
+```
+
+```{r}
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(zoo)
+
+set.seed(42)
+
+standardise_train_test <- function(train_df, test_df, predictors) {
+  train_means <- colMeans(train_df[predictors], na.rm = TRUE)
+  train_sds   <- apply(train_df[predictors], 2, sd, na.rm = TRUE)
+  
+  train_df[predictors] <- scale(train_df[predictors],
+                                 center = train_means, scale = train_sds)
+  test_df[predictors]  <- scale(test_df[predictors],
+                                 center = train_means, scale = train_sds)
+  list(train = train_df, test = test_df)
+}
+
+run_rf_with_without_vpd <- function(df, site_name) {
+  
+  # LAI_filled added to drop_na — rows missing LAI will be excluded
+  df <- df %>% drop_na(GPP, Tair, SW_rad, VPD, cwd, LAI_filled, date)
+  
+  if (nrow(df) < 100) {
+    warning(paste("Site", site_name, "has insufficient data"))
+    return(NULL)
+  }
+  
+  df <- df %>%
+    arrange(date) %>%
+    mutate(
+      year = lubridate::year(date),
+
+      # Unbounded 7-day rolling sum — same as original baseline
+      cumulative_cwd_7day = rollapply(
+        cwd, width = 7, FUN = sum,
+        align = "right", fill = NA, na.rm = TRUE
+      )
+    )
+  
+  # LAI_filled added to both predictor sets
+  predictors_with    <- c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day", "LAI_filled")
+  predictors_without <- c("Tair", "SW_rad",         "cumulative_cwd_7day", "LAI_filled")
+  
+  fit_rf_loyo <- function(predictors, label) {
+    
+    model_df <- df %>% drop_na(GPP, all_of(predictors))
+    
+    if (nrow(model_df) < 100) {
+      message("  Skipping ", label, " at ", site_name, ": insufficient data")
+      return(NULL)
+    }
+    
+    years <- unique(model_df$year)
+    
+    all_preds      <- list()
+    all_importance <- list()
+    
+    for (year_i in years) {
+      
+      train_data <- model_df %>% filter(year != year_i)
+      test_data  <- model_df %>% filter(year == year_i)
+      
+      if (nrow(test_data) < 10 || nrow(train_data) < 50) next
+      
+      scaled     <- standardise_train_test(train_data, test_data, predictors)
+      train_data <- scaled$train
+      test_data  <- scaled$test
+      
+      mtry_val <- max(2, floor(sqrt(length(predictors))))
+      
+      formula <- as.formula(paste("GPP ~", paste(predictors, collapse = " + ")))
+      
+      model <- randomForest(formula, data = train_data,
+                            ntree = 500, mtry = mtry_val, importance = TRUE)
+      
+      preds <- predict(model, test_data)
+      
+      all_preds[[as.character(year_i)]] <- data.frame(
+        Observed  = test_data$GPP,
+        Predicted = preds,
+        year      = year_i
+      )
+      
+      all_importance[[as.character(year_i)]] <- data.frame(
+        variable   = rownames(importance(model)),
+        importance = importance(model, type = 1)[, 1],
+        year       = year_i
+      )
+    }
+    
+    results <- bind_rows(all_preds)
+    
+    if (nrow(results) == 0) return(NULL)
+    
+    rmse     <- sqrt(mean((results$Observed - results$Predicted)^2))
+    rsq      <- cor(results$Observed, results$Predicted)^2
+    mean_obs <- mean(results$Observed)
+    nse      <- 1 - sum((results$Observed - results$Predicted)^2) /
+                     sum((results$Observed - mean_obs)^2)
+    
+    importance_df <- bind_rows(all_importance) %>%
+      group_by(variable) %>%
+      summarise(importance = mean(importance), .groups = "drop") %>%
+      mutate(model = label, site = site_name)
+    
+    list(
+      metrics     = data.frame(site = site_name, model = label,
+                               RMSE = rmse, R2 = rsq, NSE = nse),
+      importance  = importance_df,
+      predictions = results %>% mutate(site = site_name, model = label)
+    )
+  }
+  
+  with_vpd    <- fit_rf_loyo(predictors_with,    "with_VPD")
+  without_vpd <- fit_rf_loyo(predictors_without, "without_VPD")
+  
+  if (is.null(with_vpd) || is.null(without_vpd)) return(NULL)
+  
+  list(
+    site        = site_name,
+    metrics     = bind_rows(with_vpd$metrics,     without_vpd$metrics),
+    importance  = bind_rows(with_vpd$importance,  without_vpd$importance),
+    predictions = bind_rows(with_vpd$predictions, without_vpd$predictions)
+  )
+}
+
+# ── Run model ─────────────────────────────────────────────────────────────────
+rf_results_vpd <- purrr::map2(
+  sites_daily,
+  names(sites_daily),
+  run_rf_with_without_vpd
+)
+
+all_metrics_vpd <- purrr::map_df(rf_results_vpd, ~ .x$metrics)
+
+```
+
+```{r}
+
+# ── Compute number of years per site ──────────────────────────────────────────
+n_years_df <- purrr::map_df(rf_results_vpd, function(res) {
+  if (is.null(res)) return(NULL)
+  data.frame(
+    site    = res$site,
+    n_years = length(unique(res$predictions$year))
+  )
+})
+
+site_meta <- site_meta %>%
+  left_join(n_years_df, by = "site")
+
+# ── Prepare plot data ─────────────────────────────────────────────────────────
+plot_data <- all_metrics_vpd %>%
+  filter(model == "with_VPD") %>%
+  select(site, R2) %>%
+  left_join(
+    site_meta %>% select(site, MAP, MAT, MAL, n_years.x),
+    by = "site"
+  ) %>%
+  pivot_longer(
+    cols      = c(MAP, MAT, MAL),
+    names_to  = "variable",
+    values_to = "value"
+  )
+
+```
+
+```{r}
+
+# ── Plot 1: ΔR² from adding VPD ───────────────────────────────────────────────
+all_metrics_vpd %>%
+  select(site, model, R2) %>%
+  pivot_wider(names_from = model, values_from = R2) %>%
+  mutate(
+    site    = factor(site, levels = wet_to_dry_order),
+    R2_gain = with_VPD - without_VPD
+  ) %>%
+  ggplot(aes(x = site, y = R2_gain)) +
+  geom_col(width = 0.7, fill = thesis_cols["main"]) +
+  geom_hline(yintercept = 0, linewidth = 0.4, linetype = "dashed") +
+  coord_flip() +
+  labs(
+    title = "ΔR² from adding VPD",
+    y     = "ΔR² (with − without)",
+    x     = "Sites (Wet to Dry)"
+  ) +
+  theme_classic() +
+  theme(legend.position = "none")
+
+# ── Plot 2: R² with VPD — wet to dry order ────────────────────────────────────
+all_metrics_vpd %>%
+  filter(model == "with_VPD") %>%
+  mutate(site = factor(site, levels = wet_to_dry_order)) %>%
+  ggplot(aes(x = site, y = R2)) +
+  geom_col(width = 0.7, fill = thesis_cols["main"]) +
+  coord_flip() +
+  labs(
+    title = "Model R² (with VPD) — predictors: Tair, SW_rad, VPD, CWD_7day, LAI",
+    y     = "R²",
+    x     = "Sites (Wet to Dry)"
+  ) +
+  theme_classic(base_size = 13) +
+  theme(axis.text.y = element_text(size = 10))
+
+# ── Plot 3: MAP, MAT, MAL vs R² ───────────────────────────────────────────────
+library(ggrepel)
+ggplot(plot_data, aes(x = value, y = R2)) +
+  geom_point(size = 3, colour = thesis_cols["main"]) +
+  geom_smooth(
+    method  = "loess",
+    span    = 1.0,       # controls smoothness — higher = smoother curve
+                         # with only ~20 sites keep this high to avoid overfitting
+    se      = TRUE,      # shaded confidence interval
+    colour  = "grey40",
+    fill    = "grey70",
+    linetype = "solid",
+    linewidth = 0.7
+  ) +
+  geom_text_repel(aes(label = site), size = 2.8, colour = "grey30",
+                  max.overlaps = 15) +
+  facet_wrap(~ variable, scales = "free_x", ncol = 3,
+             labeller = labeller(variable = c(
+               MAP = "MAP (mm yr⁻¹)",
+               MAT = "MAT (°C)",
+               MAL = "MAL (m² m⁻²)"
+             ))) +
+  labs(y = "R² (RF with VPD)", x = NULL) +
+  theme_bw(base_size = 13) +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold", size = 11),
+    panel.grid       = element_blank(),
+    panel.border     = element_rect(colour = "black", fill = NA)
+  )
+
+# ── Plot 4: Number of years vs R² ─────────────────────────────────────────────
+ggplot(plot_data %>% distinct(site, R2, n_years.x), aes(x = n_years.x, y = R2)) +
+  geom_point(size = 3, colour = thesis_cols["main"]) +
+  geom_smooth(method = "lm", se = TRUE, colour = "grey40",
+              linetype = "dashed", linewidth = 0.7) +
+  geom_text(aes(label = site), vjust = -0.8, size = 2.8, colour = "grey30") +
+  labs(x = "No. of Years of Observations", y = "R²") +
+  theme_classic()
+
+# ── Summary metrics ───────────────────────────────────────────────────────────
+metrics_wide <- all_metrics_vpd %>%
+  select(site, model, R2) %>%
+  pivot_wider(names_from = model, values_from = R2) %>%
+  rename(
+    R2_with_VPD    = with_VPD,
+    R2_without_VPD = without_VPD
+  ) %>%
+  mutate(delta_R2 = R2_with_VPD - R2_without_VPD)
+
+summary(metrics_wide)
+```
+```{r}
+ggplot(plot_data, aes(x = value, y = R2)) +
+  geom_point(size = 3, colour = thesis_cols["main"]) +
+  geom_smooth(
+    method    = "loess",
+    span      = 1.0,
+    se        = TRUE,
+    colour    = "grey40",
+    fill      = "grey70",
+    linewidth = 0.7
+  ) +
+  geom_text_repel(aes(label = site), size = 2.8, colour = "grey30",
+                  max.overlaps = 15) +
+  facet_wrap(~ variable, scales = "free_x", ncol = 3,
+             labeller = labeller(variable = c(
+               MAP = "MAP (mm yr⁻¹)",
+               MAT = "MAT (°C)",
+               MAL = "MAL (m² m⁻²)"
+             ))) +
+  coord_cartesian(ylim = c(0, 1)) +   # clips display without dropping data
+  labs(y = "R² (RF with VPD)", x = NULL) +
+  theme_bw(base_size = 13) +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold", size = 11),
+    panel.grid       = element_blank(),
+    panel.border     = element_rect(colour = "black", fill = NA)
+  )
+```
+
+
