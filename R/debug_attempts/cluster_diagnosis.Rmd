@@ -1,0 +1,218 @@
+---
+title: "cluster_diagnosis"
+output: html_document
+date: "2026-03-22"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Just double checking my cluster analysis
+
+this time going to try using k-means clustering
+
+```{r}
+library(tidyverse)
+library(cluster)
+
+set.seed(42)  # important for reproducibility — k-means is random initialisation
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 1: Scale the same two variables as before
+# ══════════════════════════════════════════════════════════════════════════════
+slopes_mat_km <- site_slopes %>%
+  filter(!is.na(slope)) %>%
+  column_to_rownames("site") %>%
+  select(slope, vpd_at_peak) %>%
+  scale()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 2: Fit k-means with k = 3
+# nstart = 25 means it tries 25 random initialisations and keeps the best
+# this reduces sensitivity to the random starting point
+# ══════════════════════════════════════════════════════════════════════════════
+km_fit <- kmeans(slopes_mat_km, centers = 3, nstart = 25)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 3: Verify k = 3 is optimal using silhouette score
+# ══════════════════════════════════════════════════════════════════════════════
+sil_scores_km <- map_dbl(2:6, function(k) {
+  km <- kmeans(slopes_mat_km, centers = k, nstart = 25)
+  mean(silhouette(km$cluster, dist(slopes_mat_km))[, 3])
+})
+
+sil_table_km <- tibble(k = 2:6, silhouette = round(sil_scores_km, 3))
+cat("\n── K-means silhouette scores ──\n")
+print(sil_table_km)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 4: Assign cluster labels — ordered by mean slope
+# most negative slope = High sensitivity
+# ══════════════════════════════════════════════════════════════════════════════
+site_slopes_km <- site_slopes %>%
+  filter(!is.na(slope)) %>%
+  mutate(cluster_raw = factor(km_fit$cluster))
+
+# Get mean slope per raw cluster to determine label order
+cluster_means_km <- site_slopes_km %>%
+  group_by(cluster_raw) %>%
+  summarise(
+    mean_slope    = mean(slope,       na.rm = TRUE),
+    mean_intercept = mean(intercept,  na.rm = TRUE),
+    mean_vpd_peak = mean(vpd_at_peak, na.rm = TRUE),
+    n_sites       = n(),
+    .groups = "drop"
+  ) %>%
+  arrange(mean_slope)  # most negative = High sensitivity
+
+cat("\n── K-means cluster summary ──\n")
+print(cluster_means_km)
+
+level_order_km <- cluster_means_km$cluster_raw
+
+# Recode raw cluster numbers to Low / Medium / High
+site_slopes <- site_slopes_km %>%
+  mutate(
+    cluster_multi = fct_recode(cluster_raw,
+      "High"   = as.character(level_order_km[1]),
+      "Medium" = as.character(level_order_km[2]),
+      "Low"    = as.character(level_order_km[3])
+    ),
+    cluster_multi = factor(cluster_multi, levels = c("Low", "Medium", "High"))
+  )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 5: Verify — check mean slope and n per labelled cluster
+# ══════════════════════════════════════════════════════════════════════════════
+cat("\n── Labelled cluster verification ──\n")
+site_slopes %>%
+  group_by(cluster_multi) %>%
+  summarise(
+    mean_slope = round(mean(slope), 3),
+    n          = n(),
+    sites      = paste(site, collapse = ", ")
+  ) %>%
+  print()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 6: Rebuild cluster objects for plotting
+# ══════════════════════════════════════════════════════════════════════════════
+cluster_lookup  <- site_slopes %>% select(site, cluster_multi)
+all_clouds_cl   <- all_clouds   %>% left_join(cluster_lookup, by = "site")
+fitted_lines_cl <- fitted_lines %>% left_join(cluster_lookup, by = "site")
+
+site_order <- site_slopes %>%
+  arrange(cluster_multi, slope) %>%
+  pull(site)
+
+all_clouds_cl   <- all_clouds_cl   %>% mutate(site = factor(site, levels = site_order))
+fitted_lines_cl <- fitted_lines_cl %>% mutate(site = factor(site, levels = site_order))
+site_slopes_cl  <- site_slopes     %>% mutate(site = factor(site, levels = site_order))
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 7: Cluster summary plot — three panels with mean slope line
+# ══════════════════════════════════════════════════════════════════════════════
+cluster_colours <- c(
+  "Low"    = "#44AA99",
+  "Medium" = "#DDCC77",
+  "High"   = "#AA4499"
+)
+
+cluster_mean_params <- site_slopes %>%
+  filter(!is.na(slope)) %>%
+  group_by(cluster_multi) %>%
+  summarise(
+    mean_slope     = mean(slope,       na.rm = TRUE),
+    mean_intercept = mean(intercept,   na.rm = TRUE),
+    mean_vpd_peak  = mean(vpd_at_peak, na.rm = TRUE),
+    n_sites        = n(),
+    .groups = "drop"
+  )
+
+cluster_mean_lines <- cluster_mean_params %>%
+  rowwise() %>%
+  reframe(
+    cluster_multi = cluster_multi,
+    n_sites       = n_sites,
+    mean_slope    = mean_slope,
+    mean_vpd_peak = mean_vpd_peak,
+    vpd_mid       = seq(mean_vpd_peak, 6, by = 0.05),
+    fitted        = mean_intercept + mean_slope * vpd_mid
+  )
+
+cluster_labels <- cluster_mean_params %>%
+  mutate(
+    label = paste0("n = ", n_sites, " sites\nMean β = ", round(mean_slope, 3))
+  )
+
+p_cluster_summary <- ggplot() +
+  geom_point(
+    data  = all_clouds_cl,
+    aes(x = VPD, y = gpp_norm, colour = cluster_multi),
+    size  = 0.3, alpha = 0.08
+  ) +
+  geom_line(
+    data      = fitted_lines_cl,
+    aes(x = vpd_mid, y = fitted, group = site, colour = cluster_multi),
+    linewidth = 0.4, alpha = 0.35
+  ) +
+  geom_line(
+    data      = cluster_mean_lines,
+    aes(x = vpd_mid, y = fitted, colour = cluster_multi),
+    linewidth = 1.4, alpha = 1
+  ) +
+  geom_vline(
+    data     = cluster_mean_params,
+    aes(xintercept = mean_vpd_peak, colour = cluster_multi),
+    linetype = "dashed", linewidth = 0.5, alpha = 0.7
+  ) +
+  geom_text(
+    data        = cluster_labels,
+    aes(label   = label, colour = cluster_multi),
+    x           = Inf, y = Inf,
+    hjust       = 1.1, vjust = 1.3,
+    size        = 3.2, fontface = "bold",
+    inherit.aes = FALSE
+  ) +
+  facet_wrap(
+    ~ factor(cluster_multi, levels = c("Low", "Medium", "High")),
+    ncol   = 3,
+    scales = "free_x"
+  ) +
+  scale_colour_manual(values = cluster_colours, name = "Sensitivity") +
+  coord_cartesian(ylim = c(0, 1.3)) +
+  labs(
+    title = "GPP–VPD response by sensitivity cluster (k-means, k = 3)",
+    x     = "VPD (kPa)",
+    y     = "Normalised GPP"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 13),
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold", size = 11),
+    legend.position  = "none",
+    panel.grid.major = element_line(colour = "grey94", linewidth = 0.3)
+  )
+
+print(p_cluster_summary)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 8: Dot plot of slopes wet to dry coloured by cluster
+# ══════════════════════════════════════════════════════════════════════════════
+ggplot(site_slopes %>% mutate(site = factor(site, levels = wet_to_dry_order)),
+       aes(x = site, y = slope, colour = cluster_multi)) +
+  geom_point(size = 3) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+  coord_flip() +
+  scale_colour_manual(values = cluster_colours) +
+  labs(
+    x      = "Site (Wet to Dry)",
+    y      = "GPP~VPD Slope",
+    colour = "Sensitivity",
+    title  = "GPP sensitivity clusters (k-means)"
+  ) +
+  theme_classic()
+```
+
