@@ -101,18 +101,36 @@ MAP, MAT and MAL:
 
 ```{r}
 site_summary <- map_dfr(sites_daily, function(df) {
-  df %>%
+  
+  # Calculate annual summaries first
+  annual <- df %>%
+    group_by(site, year) %>%
+    summarise(
+      annual_MAT = mean(Tair,   na.rm = TRUE),
+      annual_MAP = sum(Precip,  na.rm = TRUE),
+      annual_MAL = max(LAI_4day, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    mutate(annual_MAL = ifelse(is.infinite(annual_MAL), NA, annual_MAL))
+  
+  # Then average across years
+  annual %>%
     group_by(site) %>%
     summarise(
-      MAT = mean(Tair, na.rm = TRUE),
-      MAP = sum(Precip, na.rm = TRUE) / n_distinct(year),
-      MAL = max(LAI_4day, na.rm = TRUE),
+      MAT = mean(annual_MAT, na.rm = TRUE),  # mean of annual means
+      MAP = mean(annual_MAP, na.rm = TRUE),  # mean of annual totals
+      MAL = mean(annual_MAL, na.rm = TRUE),  # mean of annual maximums
       .groups = "drop"
     )
 })
 
+# Remove old MAT/MAP/MAL columns before joining to avoid duplicates
 site_meta <- site_meta %>%
+  select(-any_of(c("MAT", "MAP", "MAL", "MAT.x", "MAP.x", "MAL.x",
+                               "MAT.y", "MAP.y", "MAL.y"))) %>%
   left_join(site_summary, by = "site")
+
+
 ```
 
 ```{r}
@@ -140,9 +158,9 @@ ggplot(site_meta %>% arrange(desc(MAL)),
   theme_bw()
 ```
 ```{r}
-LAI_order <- c("Tum", "Wom", "Wac", "Rig", "Dap", "How", "Fog", "Das", "Cum", "Ade", "Dry", "Rdf", "Whr", "Emr", "Boy", "Stp", "Gin", "Ync", "Cpr", "Asm", "Gww")
+LAI_order <- c("Tum", "Wom", "Wac", "Dap", "Rig", "Fog", "How", "Das", "Ade", "Cum", "Dry", "Rdf", "Emr", "Whr", "Boy", "Gin", "Stp", "Ync", "Asm", "Cpr", "Gww")
 
-wet_to_dry_order <- c("Wac", "How", "Das", "Fog", "Ade", "Dap", "Rdf", "Tum", "Dry", "Cum", "Wom", "Stp", "Gin", "Emr", "Boy", "Rig", "Whr", "Gww", "Ync", "Cpr", "Asm")
+wet_to_dry_order <- c("Wac", "How", "Das", "Fog", "Ade", "Dap", "Rdf", "Dry", "Tum", "Cum", "Wom", "Stp", "Gin", "Emr", "Boy", "Whr", "Rig", "Ync", "Gww", "Cpr", "Asm")
 ```
 
 ```{r}
