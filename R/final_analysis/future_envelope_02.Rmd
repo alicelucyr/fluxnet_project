@@ -461,11 +461,11 @@ library(tidyverse)
 # Using the same palette family as your cluster and PFT colours
 scenario_colours <- c(
   "Mean VPD shift"          = "#88CCEE",  # light blue
-  "+28% extreme frequency"  = "#CC6677",  # muted red
+  "+28% extreme magnitude"  = "#CC6677",  # muted red
   "Combined"                = "#332288"   # deep purple
 )
 
-scenario_levels <- c("Mean VPD shift", "+28% extreme frequency", "Combined")
+scenario_levels <- c("Mean VPD shift", "+28% extreme magnitude", "Combined")
 
 # Helper to reshape site_summary for plotting
 make_plot_df <- function(data, pct_or_abs) {
@@ -477,7 +477,7 @@ make_plot_df <- function(data, pct_or_abs) {
       ) %>%
       mutate(scenario = recode(scenario,
         mean_delta_s1_pct = "Mean VPD shift",
-        mean_delta_s2_pct = "+28% extreme frequency",
+        mean_delta_s2_pct = "+28% extreme magnitude",
         mean_delta_s3_pct = "Combined"
       ))
   } else {
@@ -488,7 +488,7 @@ make_plot_df <- function(data, pct_or_abs) {
       ) %>%
       mutate(scenario = recode(scenario,
         mean_delta_s1_abs = "Mean VPD shift",
-        mean_delta_s2_abs = "+28% extreme frequency",
+        mean_delta_s2_abs = "+28% extreme magnitude",
         mean_delta_s3_abs = "Combined"
       ))
   }
@@ -572,7 +572,7 @@ p_biome_pct <- annual_summary %>%
   mutate(
     scenario = recode(scenario,
       delta_s1_pct = "Mean VPD shift",
-      delta_s2_pct = "+28% extreme frequency",
+      delta_s2_pct = "+28% extreme magnitude",
       delta_s3_pct = "Combined"
     ),
     scenario = factor(scenario, levels = scenario_levels),
@@ -623,7 +623,7 @@ p_biome_abs <- annual_summary %>%
   mutate(
     scenario = recode(scenario,
       delta_s1_abs = "Mean VPD shift",
-      delta_s2_abs = "+28% extreme frequency",
+      delta_s2_abs = "+28% extreme magnitude",
       delta_s3_abs = "Combined"
     ),
     scenario = factor(scenario, levels = scenario_levels),
