@@ -13,16 +13,16 @@ Sensitivity analysis final script
 ```{r}
 #cap for anomalous GPP
 
-sites_daily <- map(sites_daily, function(df) {
+sites_daily_capped <- map(sites_daily, function(df) {
   cap <- quantile(df$GPP, 0.99, na.rm = TRUE)
   df %>% mutate(GPP = ifelse(GPP > cap, NA, GPP))
 })
 ```
 
 ```{r}
-site_slopes <- map_dfr(names(sites_daily), function(site) {
+site_slopes <- map_dfr(names(sites_daily_capped), function(site) {
   
-  df <- sites_daily[[site]]
+  df <- sites_daily_capped[[site]]
   
   binned <- df %>%
     drop_na(VPD, GPP) %>%
@@ -60,9 +60,9 @@ site_slopes <- map_dfr(names(sites_daily), function(site) {
 
 
 # Step 2: Build point cloud — raw daily points normalised per site
-all_clouds <- map_dfr(names(sites_daily), function(site) {
+all_clouds <- map_dfr(names(sites_daily_capped), function(site) {
   
-  df <- sites_daily[[site]]
+  df <- sites_daily_capped[[site]]
   
   
 gpp_max_site <- max(df$GPP, na.rm = TRUE)
@@ -309,6 +309,31 @@ site_slopes %>%
   labs(x = "Sensitivity cluster", y = "Proportion of sites", fill = "Climate") +
   theme_classic() +
   theme(legend.position = "right")
+
+aridity_cols <- c(
+  "Humid"         = "#88CCEE",
+  "Dry sub-humid" = "#DDCC77",
+  "Semi-Arid"     = "#CC6677",
+  "Arid"          = "#AA4499"
+)
+
+site_slopes %>%
+  count(cluster_multi, aridity_index) %>%
+  group_by(cluster_multi) %>%
+  mutate(
+    prop          = n / sum(n),
+    cluster_multi = factor(cluster_multi, levels = c("Low", "Medium", "High")),
+    aridity_index = factor(aridity_index,
+                           levels = c("Humid", "Dry sub-humid", "Semi-Arid", "Arid"))
+  ) %>%
+  ggplot(aes(x = cluster_multi, y = prop, fill = aridity_index)) +
+  geom_col(width = 0.7) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  scale_fill_manual(values = aridity_cols) +
+  labs(x = "Sensitivity cluster", y = "Proportion of sites", fill = "Aridity index") +
+  theme_classic() +
+  theme(legend.position = "right")
+
 ```
 
 ```{r}
