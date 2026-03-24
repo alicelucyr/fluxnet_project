@@ -200,7 +200,7 @@ plot_data <- all_metrics_vpd %>%
   select(site, R2) %>%
   left_join(
     site_meta %>%
-      select(site, MAP, MAT, MAL, n_years.x),
+      select(site, MAP, MAT, MAL, n_years),
     by = "site"
   ) %>%
   pivot_longer(
@@ -260,7 +260,7 @@ ggplot(plot_data, aes(x = value, y = R2)) +
   )
 
 # 4) Number of years vs R² 
-ggplot(plot_data %>% distinct(site, R2, n_years.x), aes(x = n_years.x, y = R2)) +
+ggplot(plot_data %>% distinct(site, R2, n_years), aes(x = n_years, y = R2)) +
   geom_point(size = 3, colour = thesis_cols["main"]) +
   geom_text(aes(label = site), vjust = -0.8, size = 2.8, colour = "grey30") +
   labs(x = "No. of Years of Observations", y = "R²") +
@@ -271,16 +271,21 @@ Also a line of best fit to show the trend?
 
 ```{r}
 metrics_wide <- all_metrics_vpd %>%
-  select(site, model, R2) %>%
+  select(site, model, R2, RMSE) %>%
   pivot_wider(
     names_from  = model,
-    values_from = R2
+    values_from = c(R2, RMSE)
   ) %>%
   rename(
-    R2_with_VPD    = with_VPD,
-    R2_without_VPD = without_VPD
+    R2_with_VPD       = R2_with_VPD,
+    R2_without_VPD    = R2_without_VPD,
+    RMSE_with_VPD     = RMSE_with_VPD,
+    RMSE_without_VPD  = RMSE_without_VPD
   ) %>%
-  mutate(delta_R2 = R2_with_VPD - R2_without_VPD)
+  mutate(
+    delta_R2   = R2_with_VPD - R2_without_VPD,
+    delta_RMSE = RMSE_without_VPD - RMSE_with_VPD  # note direction!
+  )
 
 summary(metrics_wide)
 ```
@@ -316,5 +321,13 @@ ggplot(plot_data, aes(x = value, y = R2)) +
   )
 ```
 
+```{r}
+years_r2_df <- plot_data %>% 
+  distinct(site, R2, n_years)
+
+model_years <- lm(R2 ~ n_years, data = years_r2_df)
+
+summary(model_years)
+```
 
 
