@@ -508,6 +508,6 @@ ggplot(canopy_order, aes(x = reorder(site, desc(max_LAI)), y = max_LAI)) +
 ```
 
 ```{r}
-plot(sites_daily$Cpr$GPP)
+plot(sites_daily$Cpr$date, sites_daily$Cpr$GPP)
 ```
 
