@@ -522,7 +522,7 @@ p_pct_sensitivity <- make_plot_df(site_summary, "pct") %>%
   labs(
     title    = "Projected GPP change under future VPD scenarios",
     subtitle = "Sites ordered from highest to lowest GPP–VPD sensitivity (Fog = steepest slope)",
-    x        = "Site (High → Low Sensitivity)",
+    x        = "Site (Low to High Sensitivity)",
     y        = "Mean annual ΔGPP (%)",
     fill     = "Scenario"
   ) +
