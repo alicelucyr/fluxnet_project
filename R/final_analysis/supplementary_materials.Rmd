@@ -47,6 +47,17 @@ library(rnaturalearth)
 library(rnaturalearthdata)
 library(ggrepel)
 
+#aridity class colours
+
+aridity_colors <- c(
+  "Hyper-Arid" = "#8B2500",
+  "Arid" = "#C05320",
+  "Semi-Arid" = "#D4A017",
+  "Dry sub-humid" = "#2E7D32",
+  "Humid" = "#1565C0"
+  
+)
+
 # Site Metadata - fill in lat/lon values here
 
 site_meta <- tibble(
@@ -61,9 +72,74 @@ PFT              = c("WSA", "SAV", "GRA", "SAV", "GRA", "SAV", "EBF", "GRA",
 
   koppen           = c("Tropical", "Tropical", "Tropical", "Tropical", "Grassland", "Desert", "Temperate", "Grassland", "Tropical", "Subtropical", "Grassland", "Tropical", "Temperate", "Temperate", "Temperate", "Temperate", "Grassland", "Grassland", "Temperate", "Tropical", "Temperate"),
 
-aridity_index = c("Humid", "Semi-Arid", "Dry sub-humid", "Semi-Arid", "Semi-Arid", "Arid", "Dry sub-humid", "Semi-Arid", "Humid", "Semi-Arid", "Arid", "Semi-Arid", "Semi-Arid", "Humid", "Semi-Arid", "Humid", "Semi-Arid", "Arid", "Humid", "Dry sub-humid", "Semi-Arid")
+aridity_index = c("Humid", "Semi-Arid", "Dry sub-humid", "Semi-Arid", "Semi-Arid", "Arid", "Dry sub-humid", "Semi-Arid", "Humid", "Semi-Arid", "Arid", "Semi-Arid", "Semi-Arid", "Humid", "Semi-Arid", "Humid", "Semi-Arid", "Arid", "Humid", "Dry sub-humid", "Semi-Arid"), 
 
-)
+AI = c(0.754, 0.482, 0.502, 0.34, 0.233, 0.122, 0.522, 0.272, 0.684, 0.321, 0.106, 0.396, 0.365, 1.118, 0.349, 0.854, 0.23, 0.122, 1.221, 0.62, 0.227)
+
+) |>
+  mutate(
+    aridity_index = factor(
+      aridity_index,
+      levels = c("Hyper-Arid", "Arid", "Semi-Arid", "Dry sub-humid", "Humid")
+    )
+  )
+
+# ── Convert to sf ─────────────────────────────────────────────────────────────
+sites_sf <- site_meta |>
+  st_as_sf(coords = c("lon", "lat"), crs = 4326)
+
+# ── Base map ──────────────────────────────────────────────────────────────────
+australia <- ne_countries(scale = "medium", country = "Australia", returnclass = "sf")
+
+# ── Plot ──────────────────────────────────────────────────────────────────────
+ggplot() +
+  geom_sf(data = australia, fill = "grey95", colour = "grey60", linewidth = 0.4) +
+  geom_sf(
+    data  = sites_sf,
+    aes(colour = aridity_index),
+    size  = 3,
+    shape = 19
+  ) +
+  geom_text_repel(
+    data          = site_meta,
+    aes(x = lon, y = lat, label = site, colour = aridity_index),
+    size          = 2.8,
+    fontface      = "bold",
+    segment.size  = 0.35,
+    segment.color = "grey50",
+    box.padding   = 0.5,
+    point.padding = 0.3,
+    max.overlaps  = Inf,
+    show.legend   = FALSE
+  ) +
+  scale_colour_manual(
+    values = aridity_colors,
+    name   = "Aridity class",
+    guide  = guide_legend(
+      override.aes = list(size = 3.5),
+      title.theme  = element_text(size = 9, face = "bold"),
+      label.theme  = element_text(size = 8)
+    )
+  ) +
+  coord_sf(xlim = c(110, 155), ylim = c(-45, -10)) +
+  labs(
+    title    = "OzFlux study sites",
+    subtitle = "Coloured by UNEP aridity class (Global-AI v3.1)",
+    x        = "Longitude",
+    y        = "Latitude"
+  ) +
+  theme_bw(base_size = 11) +
+  theme(
+   theme(
+    legend.position      = "bottom",
+    legend.direction     = "horizontal",
+    legend.background    = element_rect(fill = "white", colour = "grey80", linewidth = 0.3),
+    legend.key           = element_blank(),
+    plot.title           = element_text(face = "bold", size = 13),
+    plot.subtitle        = element_text(size = 9, colour = "grey40"),
+    axis.title           = element_text(size = 9)
+  )
+  )
 
 ```
 
