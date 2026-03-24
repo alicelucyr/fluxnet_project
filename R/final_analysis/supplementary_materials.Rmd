@@ -59,7 +59,10 @@ PFT              = c("WSA", "SAV", "GRA", "SAV", "GRA", "SAV", "EBF", "GRA",
                        "WET", "WSA", "SAV", "WSA", "GRA", "EBF", "EBF", "EBF",
                        "GRA", "SAV", "EBF", "WSA", "WSA"),
 
-  koppen           = c("Tropical", "Tropical", "Tropical", "Tropical", "Grassland", "Desert", "Temperate", "Grassland", "Tropical", "Subtropical", "Grassland", "Tropical", "Temperate", "Temperate", "Temperate", "Temperate", "Grassland", "Grassland", "Temperate", "Tropical", "Temperate")
+  koppen           = c("Tropical", "Tropical", "Tropical", "Tropical", "Grassland", "Desert", "Temperate", "Grassland", "Tropical", "Subtropical", "Grassland", "Tropical", "Temperate", "Temperate", "Temperate", "Temperate", "Grassland", "Grassland", "Temperate", "Tropical", "Temperate"),
+
+aridity_index = c("Humid", "Semi-Arid", "Dry sub-humid", "Semi-Arid", "Semi-Arid", "Arid", "Dry sub-humid", "Semi-Arid", "Humid", "Semi-Arid", "Arid", "Semi-Arid", "Semi-Arid", "Humid", "Semi-Arid", "Humid", "Semi-Arid", "Arid", "Humid", "Dry sub-humid", "Semi-Arid")
+
 )
 
 ```
@@ -161,6 +164,8 @@ ggplot(site_meta %>% arrange(desc(MAL)),
 LAI_order <- c("Tum", "Wom", "Wac", "Dap", "Rig", "Fog", "How", "Das", "Ade", "Cum", "Dry", "Rdf", "Emr", "Whr", "Boy", "Gin", "Stp", "Ync", "Asm", "Cpr", "Gww")
 
 wet_to_dry_order <- c("Wac", "How", "Das", "Fog", "Ade", "Dap", "Rdf", "Dry", "Tum", "Cum", "Wom", "Stp", "Gin", "Emr", "Boy", "Whr", "Rig", "Ync", "Gww", "Cpr", "Asm")
+
+aridity_index_order <- c("Tum", "Wac", "Wom", "How", "Fog", "Ade", "Cum", "Dap", "Das", "Rdf", "Rig", "Whr", "Dry", "Gin", "Emr", "Stp", "Ync", "Boy", "Asm", "Cpr", "Gww")
 ```
 
 ```{r}
