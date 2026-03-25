@@ -1,0 +1,215 @@
+---
+title: "cpr_diagnostic"
+output: html_document
+date: "2026-03-25"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Testing if Cpr - pre and post-fire disturbance contributes to model fit
+
+```{r}
+library(tidyverse)
+library(randomForest)
+library(zoo)
+library(lubridate)
+
+set.seed(42)
+
+predictors <- c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day")
+
+compute_metrics <- function(obs, pred) {
+  data.frame(
+    R2   = round(cor(obs, pred, use = "complete.obs")^2, 3),
+    RMSE = round(sqrt(mean((obs - pred)^2, na.rm = TRUE)), 3),
+    NSE  = round(1 - sum((obs - pred)^2, na.rm = TRUE) /
+                     sum((obs - mean(obs, na.rm = TRUE))^2, na.rm = TRUE), 3)
+  )
+}
+
+# ── Prepare Cpr ───────────────────────────────────────────────────────────────
+cpr <- sites_daily[["Cpr"]] %>%
+  drop_na(GPP, Tair, SW_rad, VPD, cwd, Precip, date) %>%
+  arrange(date) %>%
+  mutate(
+    year = year(date),
+    cumulative_cwd_7day = rollapply(
+      cwd, width = 7, FUN = sum,
+      align = "right", fill = NA, na.rm = TRUE
+    )
+  ) %>%
+  drop_na(all_of(predictors), GPP)
+
+formula  <- as.formula(paste("GPP ~", paste(predictors, collapse = " + ")))
+mtry_val <- max(2, floor(sqrt(length(predictors))))
+
+# ── Define periods ────────────────────────────────────────────────────────────
+# Pre-fire:         2010-2013 — stable mature woodland
+# Recovery:         2014-2019 — excluded from period-specific tests
+# Post-recovery:    2020-2024 — recovered vegetation, new stable regime
+cpr_pre  <- cpr %>% filter(year >= 2010 & year <= 2013)
+cpr_post <- cpr %>% filter(year >= 2020 & year <= 2024)
+cpr_full <- cpr  # full record for baseline LOYO
+
+cat("Pre-fire rows:       ", nrow(cpr_pre),  " | years:", paste(unique(cpr_pre$year),  collapse = ", "), "\n")
+cat("Post-recovery rows:  ", nrow(cpr_post), " | years:", paste(unique(cpr_post$year), collapse = ", "), "\n")
+cat("Full record rows:    ", nrow(cpr_full), " | years:", paste(unique(cpr_full$year), collapse = ", "), "\n")
+
+# ── Helper: LOYO within a data subset ────────────────────────────────────────
+run_loyo_subset <- function(df, label) {
+  years <- unique(df$year)
+  if (length(years) < 2) {
+    message("Skipping ", label, ": fewer than 2 years")
+    return(NULL)
+  }
+
+  map_dfr(years, function(yr) {
+    train_df <- df %>% filter(year != yr)
+    test_df  <- df %>% filter(year == yr)
+    if (nrow(train_df) < 50 || nrow(test_df) < 10) return(NULL)
+
+    rf <- randomForest(formula, data = train_df,
+                       ntree = 500, mtry = mtry_val, importance = FALSE)
+
+    data.frame(
+      label    = label,
+      year     = yr,
+      date     = test_df$date,
+      GPP_obs  = test_df$GPP,
+      GPP_pred = predict(rf, test_df)
+    )
+  })
+}
+
+# ── Test 1: Full record LOYO ──────────────────────────────────────────────────
+loyo_full <- run_loyo_subset(cpr_full, "Full record LOYO\n(2010-2024)")
+
+# ── Test 2: Pre-fire LOYO (2010-2013) ─────────────────────────────────────────
+loyo_pre <- run_loyo_subset(cpr_pre, "Pre-fire LOYO\n(2010-2013)")
+
+# ── Test 3: Post-recovery LOYO (2020-2024) ────────────────────────────────────
+loyo_post <- run_loyo_subset(cpr_post, "Post-recovery LOYO\n(2020-2024)")
+
+# ── Test 4: Train pre-fire, test post-recovery ────────────────────────────────
+# Direct test of regime shift — if fire changed GPP-climate relationship,
+# pre-fire training should predict post-recovery poorly
+rf_pre <- randomForest(formula, data = cpr_pre,
+                       ntree = 500, mtry = mtry_val, importance = FALSE)
+
+cross_fire <- data.frame(
+  label    = "Train pre-fire /\nTest post-recovery",
+  year     = cpr_post$year,
+  date     = cpr_post$date,
+  GPP_obs  = cpr_post$GPP,
+  GPP_pred = predict(rf_pre, cpr_post)
+)
+
+# ── Metrics ───────────────────────────────────────────────────────────────────
+all_results <- bind_rows(loyo_full, loyo_pre, loyo_post, cross_fire) %>%
+  mutate(label = factor(label, levels = c(
+    "Full record LOYO\n(2010-2024)",
+    "Pre-fire LOYO\n(2010-2013)",
+    "Post-recovery LOYO\n(2020-2024)",
+    "Train pre-fire /\nTest post-recovery"
+  )))
+
+metrics <- all_results %>%
+  group_by(label) %>%
+  summarise(compute_metrics(GPP_obs, GPP_pred), .groups = "drop")
+
+cat("\n── AU-Cpr fire regime shift diagnostic ──\n")
+print(metrics)
+
+```
+
+```{r}
+
+# ── Plot 1: Obs vs predicted time series per test ─────────────────────────────
+ts_df <- all_results %>%
+  pivot_longer(cols = c(GPP_obs, GPP_pred),
+               names_to = "type", values_to = "GPP") %>%
+  mutate(type = recode(type, GPP_obs = "Observed", GPP_pred = "Predicted"))
+
+metric_labels <- metrics %>%
+  mutate(ann_label = paste0("R² = ", R2, "  NSE = ", NSE))
+
+p_ts <- ggplot(ts_df, aes(x = date, y = GPP, colour = type, alpha = type)) +
+  geom_line(linewidth = 0.4) +
+  geom_text(
+    data        = metric_labels,
+    aes(label   = ann_label),
+    x           = -Inf, y = Inf,
+    hjust       = -0.05, vjust = 1.6,
+    inherit.aes = FALSE,
+    size = 3, colour = "grey20", fontface = "bold"
+  ) +
+  # Fire event marker on full record panel only
+  geom_vline(
+    data = data.frame(
+      label = factor("Full record LOYO\n(2010-2024)",
+                     levels = levels(ts_df$label)),
+      xint  = as.Date("2014-01-15")
+    ),
+    aes(xintercept = xint),
+    linetype = "dashed", colour = "#CC6677", linewidth = 0.6,
+    inherit.aes = FALSE
+  ) +
+  facet_wrap(~ label, ncol = 2, scales = "free_x") +
+  scale_colour_manual(values = c("Observed"  = "#2c2c2c",
+                                 "Predicted" = "#88CCEE")) +
+  scale_alpha_manual(values  = c("Observed"  = 0.45,
+                                 "Predicted" = 0.9)) +
+  scale_x_date(date_breaks = "2 years", date_labels = "%Y") +
+  labs(
+    title    = "AU-Cpr: Fire regime shift diagnostic",
+    subtitle = "Red dashed line = January 2014 wildfire | Recovery period (2014-2019) excluded from period-specific tests",
+    x        = NULL,
+    y        = expression(GPP ~ (g ~ C ~ m^{-2} ~ d^{-1})),
+    colour   = NULL, alpha = NULL
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(colour = "grey40", size = 9),
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold", size = 10),
+    legend.position  = "bottom",
+    panel.grid.major = element_line(colour = "grey94", linewidth = 0.3),
+    axis.text.x      = element_text(angle = 45, hjust = 1)
+  )
+
+# ── Plot 2: R² comparison bar chart ───────────────────────────────────────────
+p_r2 <- ggplot(metrics, aes(x = label, y = R2, fill = R2)) +
+  geom_col(width = 0.6, alpha = 0.9) +
+  geom_text(aes(label = R2), vjust = -0.4, size = 3.5,
+            fontface = "bold", colour = "grey20") +
+  geom_hline(yintercept = 0.07, linetype = "dashed",
+             colour = "#CC6677", linewidth = 0.6) +
+  annotate("text", x = 0.6, y = 0.08,
+           label = "Full record\nbaseline (R²=0.07)",
+           hjust = 0, size = 2.8, colour = "#CC6677", fontface = "italic") +
+  scale_fill_gradient(low = "#E06C4B", high = "#4682B4",
+                      limits = c(0, 1), oob = scales::squish) +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(
+    title    = "AU-Cpr: R² by modelling period",
+    subtitle = "Improvement over full-record LOYO (R²=0.07) indicates fire-induced non-stationarity",
+    x        = NULL,
+    y        = "R²"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(colour = "grey40", size = 9),
+    axis.text.x      = element_text(size = 8),
+    legend.position  = "none",
+    panel.grid.major.y = element_line(colour = "grey92", linewidth = 0.3)
+  )
+
+print(p_ts)
+print(p_r2)
+```
+
+
