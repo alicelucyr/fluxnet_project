@@ -212,4 +212,241 @@ print(p_ts)
 print(p_r2)
 ```
 
+Is VPD importance different pre-fire and post-fire recovery?
+
+```{r}
+library(tidyverse)
+library(randomForest)
+library(zoo)
+library(lubridate)
+
+set.seed(42)
+
+standardise_train_test <- function(train_df, test_df, predictors) {
+  train_means <- colMeans(train_df[predictors], na.rm = TRUE)
+  train_sds   <- apply(train_df[predictors], 2, sd, na.rm = TRUE)
+  train_df[predictors] <- scale(train_df[predictors],
+                                center = train_means, scale = train_sds)
+  test_df[predictors]  <- scale(test_df[predictors],
+                                center = train_means, scale = train_sds)
+  list(train = train_df, test = test_df)
+}
+
+# ── Predictor sets — same as main analysis ────────────────────────────────────
+predictors_with    <- c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day")
+predictors_without <- c("Tair", "SW_rad",         "cumulative_cwd_7day")
+
+# ── Prepare Cpr ───────────────────────────────────────────────────────────────
+cpr_full <- sites_daily[["Cpr"]] %>%
+  drop_na(GPP, Tair, SW_rad, VPD, cwd, date) %>%
+  arrange(date) %>%
+  mutate(
+    year = year(date),
+    cumulative_cwd_7day = rollapply(
+      cwd, width = 7, FUN = sum,
+      align = "right", fill = NA, na.rm = TRUE
+    )
+  ) %>%
+  drop_na(all_of(predictors_with), GPP)
+
+# Pre-fire and post-recovery subsets
+cpr_pre  <- cpr_full %>% filter(year >= 2010 & year <= 2013)
+cpr_post <- cpr_full %>% filter(year >= 2020 & year <= 2024)
+
+# ── LOYO with and without VPD for a given dataset ────────────────────────────
+run_vpd_importance <- function(df, period_label) {
+
+  fit_loyo <- function(predictors, model_label) {
+
+    years <- unique(df$year)
+    all_preds      <- list()
+    all_importance <- list()
+
+    for (yr in years) {
+      train_df <- df %>% filter(year != yr)
+      test_df  <- df %>% filter(year == yr)
+
+      if (nrow(train_df) < 50 || nrow(test_df) < 10) next
+
+      mtry_val <- max(2, floor(sqrt(length(predictors))))
+      scaled   <- standardise_train_test(train_df, test_df, predictors)
+
+      formula  <- as.formula(paste("GPP ~", paste(predictors, collapse = " + ")))
+      model    <- randomForest(formula, data = scaled$train,
+                               ntree = 500, mtry = mtry_val, importance = TRUE)
+      preds    <- predict(model, scaled$test)
+
+      all_preds[[as.character(yr)]] <- data.frame(
+        Observed  = scaled$test$GPP,
+        Predicted = preds,
+        year      = yr
+      )
+
+      all_importance[[as.character(yr)]] <- data.frame(
+        variable   = rownames(importance(model)),
+        importance = importance(model, type = 1)[, 1],
+        year       = yr
+      )
+    }
+
+    results <- bind_rows(all_preds)
+    if (nrow(results) == 0) return(NULL)
+
+    rsq  <- cor(results$Observed, results$Predicted, use = "complete.obs")^2
+    rmse <- sqrt(mean((results$Observed - results$Predicted)^2, na.rm = TRUE))
+    nse  <- 1 - sum((results$Observed - results$Predicted)^2, na.rm = TRUE) /
+                sum((results$Observed - mean(results$Observed, na.rm = TRUE))^2,
+                    na.rm = TRUE)
+
+    imp_df <- bind_rows(all_importance) %>%
+      group_by(variable) %>%
+      summarise(importance = mean(importance), .groups = "drop") %>%
+      mutate(model = model_label, period = period_label)
+
+    list(
+      metrics    = data.frame(period = period_label, model = model_label,
+                              R2 = round(rsq, 3), RMSE = round(rmse, 3),
+                              NSE = round(nse, 3)),
+      importance = imp_df
+    )
+  }
+
+  with_vpd    <- fit_loyo(predictors_with,    "with_VPD")
+  without_vpd <- fit_loyo(predictors_without, "without_VPD")
+
+  if (is.null(with_vpd) || is.null(without_vpd)) return(NULL)
+
+  list(
+    metrics    = bind_rows(with_vpd$metrics,    without_vpd$metrics),
+    importance = bind_rows(with_vpd$importance, without_vpd$importance)
+  )
+}
+
+# ── Run for each period ───────────────────────────────────────────────────────
+results_pre  <- run_vpd_importance(cpr_pre,  "Pre-fire (2010-2013)")
+results_post <- run_vpd_importance(cpr_post, "Post-recovery (2020-2024)")
+results_full <- run_vpd_importance(cpr_full, "Full record (2010-2024)")
+
+# ── Compile metrics ───────────────────────────────────────────────────────────
+all_metrics <- bind_rows(
+  results_full$metrics,
+  results_pre$metrics,
+  results_post$metrics
+) %>%
+  mutate(period = factor(period, levels = c(
+    "Full record (2010-2024)",
+    "Pre-fire (2010-2013)",
+    "Post-recovery (2020-2024)"
+  )))
+
+# ── ΔR² from adding VPD per period ───────────────────────────────────────────
+delta_r2 <- all_metrics %>%
+  select(period, model, R2) %>%
+  pivot_wider(names_from = model, values_from = R2) %>%
+  mutate(delta_R2 = with_VPD - without_VPD)
+
+cat("\n── VPD importance by period at AU-Cpr ──\n")
+print(delta_r2)
+
+# ── Variable importance across periods ───────────────────────────────────────
+all_importance <- bind_rows(
+  results_full$importance,
+  results_pre$importance,
+  results_post$importance
+) %>%
+  filter(model == "with_VPD") %>%
+  mutate(period = factor(period, levels = c(
+    "Full record (2010-2024)",
+    "Pre-fire (2010-2013)",
+    "Post-recovery (2020-2024)"
+  )))
+
+# ── Plot 1: ΔR² from adding VPD by period ────────────────────────────────────
+p_delta <- delta_r2 %>%
+  ggplot(aes(x = period, y = delta_R2, fill = delta_R2)) +
+  geom_col(width = 0.6, alpha = 0.9) +
+  geom_text(aes(label = round(delta_R2, 3)),
+            vjust = -0.4, size = 3.5, fontface = "bold", colour = "grey20") +
+  geom_hline(yintercept = 0, linetype = "dashed",
+             colour = "grey40", linewidth = 0.4) +
+  scale_fill_gradient(low = "#E06C4B", high = "#4682B4",
+                      limits = c(0, 0.3), oob = scales::squish) +
+  scale_y_continuous(limits = c(0, 0.35)) +
+  labs(
+    title    = "AU-Cpr: VPD importance (ΔR²) by period",
+    subtitle = "ΔR² = R² with VPD − R² without VPD | Higher = VPD more important",
+    x        = NULL,
+    y        = "ΔR² from adding VPD"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title         = element_text(face = "bold", size = 13),
+    plot.subtitle      = element_text(colour = "grey40", size = 9),
+    axis.text.x        = element_text(size = 9),
+    legend.position    = "none",
+    panel.grid.major.y = element_line(colour = "grey92", linewidth = 0.3)
+  )
+
+# ── Plot 2: R² with and without VPD side by side by period ───────────────────
+p_r2 <- all_metrics %>%
+  mutate(
+    model = recode(model,
+                   with_VPD    = "With VPD",
+                   without_VPD = "Without VPD")
+  ) %>%
+  ggplot(aes(x = period, y = R2, fill = model)) +
+  geom_col(position = position_dodge(width = 0.7),
+           width = 0.6, alpha = 0.9) +
+  geom_text(aes(label = R2),
+            position = position_dodge(width = 0.7),
+            vjust = -0.4, size = 3, fontface = "bold", colour = "grey20") +
+  scale_fill_manual(values = c("With VPD"    = "#4682B4",
+                                "Without VPD" = "#E06C4B")) +
+  scale_y_continuous(limits = c(0, 0.6)) +
+  labs(
+    title    = "AU-Cpr: Model R² with and without VPD by period",
+    subtitle = "Comparing VPD contribution across full record, pre-fire and post-recovery",
+    x        = NULL,
+    y        = "R²",
+    fill     = NULL
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title         = element_text(face = "bold", size = 13),
+    plot.subtitle      = element_text(colour = "grey40", size = 9),
+    axis.text.x        = element_text(size = 9),
+    legend.position    = "bottom",
+    panel.grid.major.y = element_line(colour = "grey92", linewidth = 0.3)
+  )
+
+# ── Plot 3: Variable importance by period ────────────────────────────────────
+p_imp <- ggplot(all_importance,
+                aes(x = reorder(variable, importance),
+                    y = importance, fill = period)) +
+  geom_col(position = position_dodge(width = 0.7),
+           width = 0.6, alpha = 0.9) +
+  coord_flip() +
+  scale_fill_manual(values = c(
+    "Full record (2010-2024)"    = "grey60",
+    "Pre-fire (2010-2013)"       = "#88CCEE",
+    "Post-recovery (2020-2024)"  = "#CC6677"
+  )) +
+  labs(
+    title    = "AU-Cpr: Variable importance by period (%IncMSE)",
+    subtitle = "Did fire alter the relative importance of climate drivers?",
+    x        = NULL,
+    y        = "% Increase in MSE",
+    fill     = "Period"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title      = element_text(face = "bold", size = 13),
+    plot.subtitle   = element_text(colour = "grey40", size = 9),
+    legend.position = "bottom"
+  )
+
+print(p_delta)
+print(p_r2)
+print(p_imp)
+```
 
