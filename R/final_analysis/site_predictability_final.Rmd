@@ -336,72 +336,65 @@ NEED TO FIGURE OUT:
 Time series of observed and predicted GPP:
 
 ```{r}
-library(tidyverse)
-library(lubridate)
+# ── Split sites into 5 groups ─────────────────────────────────────────────────
+n_sites  <- length(wet_to_dry_order)
+groups   <- split(wet_to_dry_order, ceiling(seq_along(wet_to_dry_order) / ceiling(n_sites / 5)))
 
-# ── Compile with_VPD predictions (now with date column) ──────────────────────
-ts_plot_df <- purrr::map_df(rf_results_vpd, function(res) {
-  if (is.null(res)) return(NULL)
-  res$predictions %>% filter(model == "with_VPD")
-}) %>%
-  mutate(
-    date = as.Date(date),
-    site = factor(site, levels = wet_to_dry_order)
-  ) %>%
-  pivot_longer(
-    cols      = c(Observed, Predicted),
-    names_to  = "type",
-    values_to = "GPP"
-  ) %>%
-  mutate(type = factor(type, levels = c("Observed", "Predicted")))
 
-# ── Per-site R² label ─────────────────────────────────────────────────────────
-site_r2 <- all_metrics_vpd %>%
-  filter(model == "with_VPD") %>%
-  mutate(
-    label = paste0("R² = ", round(R2, 2)),
-    site  = factor(site, levels = wet_to_dry_order)
-  )
+# ── Plot function ─────────────────────────────────────────────────────────────
+plot_ts_group <- function(site_group) {
+  
+  ts_long_sub <- ts_long %>% filter(site %in% site_group) %>%
+    mutate(site = factor(site, levels = site_group))
+  
+  site_r2_sub <- site_r2 %>% filter(site %in% site_group) %>%
+    mutate(site = factor(site, levels = site_group))
+  
+  ggplot(ts_long_sub, aes(x = date, y = GPP, colour = type, alpha = type)) +
+    geom_line(linewidth = 0.35) +
+    geom_text(
+      data        = site_r2_sub,
+      aes(label   = label),
+      x           = -Inf, y = Inf,
+      hjust       = -0.08, vjust = 1.7,
+      inherit.aes = FALSE,
+      size        = 2.8,
+      colour      = "grey20",
+      fontface    = "bold"
+    ) +
+    facet_wrap(~ site, ncol = 2, scales = "free_y") +
+    scale_colour_manual(
+      values = c("Observed"  = "#2c2c2c",
+                 "Predicted" = "#4682B4"),
+      name   = NULL
+    ) +
+    scale_alpha_manual(
+      values = c("Observed"  = 0.55,
+                 "Predicted" = 0.85),
+      guide  = "none"
+    ) +
+    scale_x_date(date_breaks = "3 years", date_labels = "%Y") +
+    labs(x = NULL,
+         y = expression(GPP ~ (g ~ C ~ m^{-2} ~ d^{-1}))) +
+    theme_classic(base_size = 11) +
+    theme(
+      strip.background = element_blank(),
+      strip.text       = element_text(face = "bold", size = 9),
+      legend.position  = "bottom",
+      legend.key.width = unit(1.2, "cm"),
+      panel.grid.major = element_line(colour = "grey94", linewidth = 0.25),
+      axis.text.x      = element_text(angle = 45, hjust = 1, size = 7),
+      axis.text.y      = element_text(size = 7)
+    )
+}
 
-# ── Plot ──────────────────────────────────────────────────────────────────────
-ggplot(ts_plot_df, aes(x = date, y = GPP, colour = type, alpha = type)) +
-  geom_line(linewidth = 0.35) +
-  geom_text(
-    data        = site_r2,
-    aes(label   = label),
-    x           = -Inf, y = Inf,
-    hjust       = -0.08, vjust = 1.7,
-    inherit.aes = FALSE,
-    size = 2.8, colour = "grey20", fontface = "bold"
-  ) +
-  facet_wrap(~ site, ncol = 3, scales = "free") +
-  scale_colour_manual(
-    values = c("Observed"  = "#2c2c2c",
-               "Predicted" = "#4682B4"),
-    name   = NULL
-  ) +
-  scale_alpha_manual(
-    values = c("Observed"  = 0.50,
-               "Predicted" = 0.85),
-    guide  = "none"
-  ) +
-  scale_x_date(date_breaks = "3 years", date_labels = "%Y") +
-  labs(
-    title    = "Observed vs Predicted GPP — LOYO Random Forest (with VPD)",
-    subtitle = "Panels ordered wet to dry | R² from pooled LOYO predictions",
-    x        = NULL,
-    y        = expression(GPP ~ (g ~ C ~ m^{-2} ~ d^{-1}))
-  ) +
-  theme_classic(base_size = 11) +
-  theme(
-    plot.title       = element_text(face = "bold", size = 13),
-    plot.subtitle    = element_text(colour = "grey40", size = 9),
-    strip.background = element_blank(),
-    strip.text       = element_text(face = "bold", size = 9),
-    legend.position  = "bottom",
-    legend.key.width = unit(1.2, "cm"),
-    panel.grid.major = element_line(colour = "grey94", linewidth = 0.25),
-    axis.text.x      = element_text(angle = 45, hjust = 1, size = 7),
-    axis.text.y      = element_text(size = 7)
-  )
+purrr::walk(groups, plot_ts_group)
+
 ```
+
+```{r}
+
+plot_ts_group(group1)
+
+```
+
