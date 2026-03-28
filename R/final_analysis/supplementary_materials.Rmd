@@ -304,4 +304,68 @@ ggplot(site_meta %>% arrange(desc(MAL)),
 
 ```
 
+Which sites have the most interannual GPP variability?
+
+```{r}
+iav_df <- purrr::map_df(names(sites_daily), function(s) {
+  sites_daily[[s]] %>%
+    drop_na(GPP, date) %>%
+    mutate(year = lubridate::year(date)) %>%
+    group_by(year) %>%
+    summarise(annual_GPP = mean(GPP, na.rm = TRUE), .groups = "drop") %>%
+    summarise(
+      site     = s,
+      mean_GPP = mean(annual_GPP),
+      sd_GPP   = sd(annual_GPP),
+      cv_GPP   = sd(annual_GPP) / mean(annual_GPP),  # relative variability
+      n_years  = n()
+    )
+}) %>%
+  arrange(desc(cv_GPP))
+
+print(iav_df)
+```
+```{r}
+# Annual means per site for the dot strip
+annual_means <- purrr::map_df(names(sites_daily), function(s) {
+  sites_daily[[s]] %>%
+    drop_na(GPP, date) %>%
+    mutate(year = lubridate::year(date)) %>%
+    group_by(year) %>%
+    summarise(annual_GPP = mean(GPP, na.rm = TRUE), site = s, .groups = "drop")
+})
+
+site_order_cv <- iav_df %>% arrange(cv_GPP) %>% pull(site)
+
+ggplot() +
+  # individual year dots
+  geom_point(
+    data    = annual_means %>% mutate(site = factor(site, levels = site_order_cv)),
+    aes(x = annual_GPP, y = site),
+    colour = "grey60", size = 1.8, alpha = 0.7
+  ) +
+  # CV as error-bar style segment (mean ± 1 SD)
+  geom_segment(
+    data = iav_df %>% mutate(site = factor(site, levels = site_order_cv)),
+    aes(x = mean_GPP - sd_GPP, xend = mean_GPP + sd_GPP, y = site, yend = site),
+    colour = thesis_cols["main"], linewidth = 1.1
+  ) +
+  geom_point(
+    data = iav_df %>% mutate(site = factor(site, levels = site_order_cv)),
+    aes(x = mean_GPP, y = site),
+    colour = thesis_cols["main"], size = 2.5
+  ) +
+  labs(
+    title   = "Interannual variability of GPP by site",
+    subtitle = "Dots = individual years | Segment = mean ± 1 SD | Ordered by CV",
+    x = expression(Mean ~ annual ~ GPP ~ (g ~ C ~ m^{-2} ~ d^{-1})),
+    y = NULL
+  ) +
+  theme_classic(base_size = 12) +
+  theme(plot.title = element_text(face = "bold"))
+```
+```{r}
+GPP_variability_order <- c("Ync", "Asm", "Stp", "Cpr", "Rdf", "Dap", "Whr", "Ade", "Boy", "How", "Gin", "Gww", "Dry", "Cum", "Emr", "Rig", "Fog", "Tum", "Das", "Wom", "Wac")
+```
+
 
