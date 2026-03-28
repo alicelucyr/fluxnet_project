@@ -172,7 +172,7 @@ tibble(k = 2:6, silhouette = sil_scores)  # highest score = best k
 # ── Step 3: derive label order from mean slope ────────────────────────────────
 cluster_means_2 <- site_slopes %>%
   filter(!is.na(slope)) %>%
-  mutate(cluster_raw = factor(cutree(hclust_fit_2, k = 3))) %>%
+  mutate(cluster_raw = factor(cutree(hclust_fit_2, k = 4))) %>%
   group_by(cluster_raw) %>%
   summarise(
     mean_slope     = mean(slope),
@@ -193,7 +193,7 @@ site_slopes <- site_slopes %>%
     cluster_multi = fct_recode(cluster_multi,
       "High"   = as.character(level_order_2[1]),
       "Medium" = as.character(level_order_2[2]),
-      "Low"    = as.character(level_order_2[3])
+      "Low" = as.character(level_order_2[3])
     ),
     cluster_multi = factor(cluster_multi, levels = c("Low", "Medium", "High"))
   )
@@ -248,14 +248,23 @@ cluster_colours <- c(
 site_slopes %>%
   pivot_longer(cols = c(MAP, MAT, MAL), names_to = "variable", values_to = "value") %>%
   ggplot(aes(x = cluster_multi, y = value, fill = cluster_multi)) +
-  geom_boxplot(alpha = 0.85) +
-  geom_jitter(width = 0.1, size = 2) +
+  geom_boxplot(alpha = 0.85, outlier.shape = NA) +
+  geom_jitter(width = 0.1, size = 2, alpha = 0.6) +
   scale_fill_manual(values = cluster_colours) +
   facet_wrap(~ variable, scales = "free_y") +
   labs(x = "Sensitivity cluster", y = NULL) +
   theme_classic() +
   theme(legend.position = "none")
 ```
+
+```{r}
+site_slopes %>%
+  filter(cluster_multi == "Low") %>%
+  arrange(desc(MAL)) %>%
+  select(site, MAL)
+```
+
+
 
 ```{r}
 library(ggplot2)
