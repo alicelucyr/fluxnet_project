@@ -23,7 +23,7 @@ Scenario 2: +28% magnitude increase on days at/above site-specific 90th percenti
 Scenario 3: Combined — uniform shift first, then 28% magnitude on days above
             the shifted 90th percentile threshold
 
-REMOVE - Cpr, Emr, Gww, Wac and Ync
+REMOVE - Emr, Gww, Wac and Ync
 
 ```{r}
 library(tidyverse)
@@ -40,7 +40,7 @@ predictors <- c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day")
 humid_sites      <- c("Fog", "How", "Tum", "Wom")   
 dry_subhumid_sites <- c("Ade", "Cum", "Dap") 
 semi_arid_sites  <- c("Boy", "Das", "Dry", "Gin", "Rdf", "Rig", "Stp", "Whr")   
-arid_sites       <- c("Asm")
+arid_sites       <- c("Asm", "Cpr")
 
 # Aridity-index-specific VPD shifts
 aridity_vpd_shift <- c(
@@ -535,4 +535,6 @@ p_pct_sensitivity <- make_plot_df(site_summary, "pct") %>%
 
 print(p_pct_sensitivity)
 ```
+
+
 
