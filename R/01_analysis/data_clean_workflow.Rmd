@@ -86,6 +86,7 @@ read_flux <- function(fname) {
 ```
 
 Load in 21 sites across Aus
+
 ```{r}
 How <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-How_FLUXNET2015_FULLSET_HH_2001-2014_1-4.csv")
 
