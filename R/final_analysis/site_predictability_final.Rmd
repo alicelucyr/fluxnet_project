@@ -86,6 +86,8 @@ run_rf_with_without_vpd <- function(df, site_name) {
       if (nrow(test_data) < 10 || nrow(train_data) < 50) next
       
       # Fix: standardise using training fold statistics only (no leakage)
+      test_dates <- test_data$date  
+     
       scaled      <- standardise_train_test(train_data, test_data, predictors)
       train_data  <- scaled$train
       test_data   <- scaled$test
@@ -103,7 +105,8 @@ run_rf_with_without_vpd <- function(df, site_name) {
       all_preds[[as.character(year_i)]] <- data.frame(
         Observed  = test_data$GPP,
         Predicted = preds,
-        year      = year_i
+        year      = year_i,
+        date      = test_data$date
       )
       
       all_importance[[as.character(year_i)]] <- data.frame(
@@ -200,7 +203,7 @@ plot_data <- all_metrics_vpd %>%
   select(site, R2) %>%
   left_join(
     site_meta %>%
-      select(site, MAP, MAT, MAL, n_years),
+      select(site, MAP, MAT, MAL, n_years.x),
     by = "site"
   ) %>%
   pivot_longer(
@@ -232,7 +235,7 @@ all_metrics_vpd %>%
 # 2) R² (with_VPD only) - wet to dry order
 all_metrics_vpd %>%
   filter(model == "with_VPD") %>%
-  mutate(site = factor(site, levels = wet_to_dry_order)) %>%
+  mutate(site = factor(site, levels = GPP_variability_order)) %>%
   ggplot(aes(x = site, y = R2)) +
   geom_col(width = 0.7, fill = thesis_cols["main"]) +
   coord_flip() +
@@ -260,7 +263,7 @@ ggplot(plot_data, aes(x = value, y = R2)) +
   )
 
 # 4) Number of years vs R² 
-ggplot(plot_data %>% distinct(site, R2, n_years), aes(x = n_years, y = R2)) +
+ggplot(plot_data %>% distinct(site, R2, n_years.x), aes(x = n_years.x, y = R2)) +
   geom_point(size = 3, colour = thesis_cols["main"]) +
   geom_text(aes(label = site), vjust = -0.8, size = 2.8, colour = "grey30") +
   labs(x = "No. of Years of Observations", y = "R²") +
@@ -323,11 +326,82 @@ ggplot(plot_data, aes(x = value, y = R2)) +
 
 ```{r}
 years_r2_df <- plot_data %>% 
-  distinct(site, R2, n_years)
+  distinct(site, R2, n_years.x)
 
-model_years <- lm(R2 ~ n_years, data = years_r2_df)
+model_years <- lm(R2 ~ n_years.x, data = years_r2_df)
 
 summary(model_years)
 ```
+NEED TO FIGURE OUT: 
+Time series of observed and predicted GPP:
 
+```{r}
+library(tidyverse)
+library(lubridate)
 
+# ── Compile with_VPD predictions (now with date column) ──────────────────────
+ts_plot_df <- purrr::map_df(rf_results_vpd, function(res) {
+  if (is.null(res)) return(NULL)
+  res$predictions %>% filter(model == "with_VPD")
+}) %>%
+  mutate(
+    date = as.Date(date),
+    site = factor(site, levels = wet_to_dry_order)
+  ) %>%
+  pivot_longer(
+    cols      = c(Observed, Predicted),
+    names_to  = "type",
+    values_to = "GPP"
+  ) %>%
+  mutate(type = factor(type, levels = c("Observed", "Predicted")))
+
+# ── Per-site R² label ─────────────────────────────────────────────────────────
+site_r2 <- all_metrics_vpd %>%
+  filter(model == "with_VPD") %>%
+  mutate(
+    label = paste0("R² = ", round(R2, 2)),
+    site  = factor(site, levels = wet_to_dry_order)
+  )
+
+# ── Plot ──────────────────────────────────────────────────────────────────────
+ggplot(ts_plot_df, aes(x = date, y = GPP, colour = type, alpha = type)) +
+  geom_line(linewidth = 0.35) +
+  geom_text(
+    data        = site_r2,
+    aes(label   = label),
+    x           = -Inf, y = Inf,
+    hjust       = -0.08, vjust = 1.7,
+    inherit.aes = FALSE,
+    size = 2.8, colour = "grey20", fontface = "bold"
+  ) +
+  facet_wrap(~ site, ncol = 3, scales = "free") +
+  scale_colour_manual(
+    values = c("Observed"  = "#2c2c2c",
+               "Predicted" = "#4682B4"),
+    name   = NULL
+  ) +
+  scale_alpha_manual(
+    values = c("Observed"  = 0.50,
+               "Predicted" = 0.85),
+    guide  = "none"
+  ) +
+  scale_x_date(date_breaks = "3 years", date_labels = "%Y") +
+  labs(
+    title    = "Observed vs Predicted GPP — LOYO Random Forest (with VPD)",
+    subtitle = "Panels ordered wet to dry | R² from pooled LOYO predictions",
+    x        = NULL,
+    y        = expression(GPP ~ (g ~ C ~ m^{-2} ~ d^{-1}))
+  ) +
+  theme_classic(base_size = 11) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(colour = "grey40", size = 9),
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold", size = 9),
+    legend.position  = "bottom",
+    legend.key.width = unit(1.2, "cm"),
+    panel.grid.major = element_line(colour = "grey94", linewidth = 0.25),
+    axis.text.x      = element_text(angle = 45, hjust = 1, size = 7),
+    axis.text.y      = element_text(size = 7)
+  )
+```
