@@ -85,7 +85,7 @@ read_flux <- function(fname) {
 }
 ```
 
-Load in 21 sites across Aus
+Load in 20 sites across Aus
 
 ```{r}
 How <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-How_FLUXNET2015_FULLSET_HH_2001-2014_1-4.csv")
@@ -103,8 +103,6 @@ Emr <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/hal
 Fog <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Fog_FLUXNET2015_FULLSET_HH_2006-2008_1-4.csv")
 
 Gin <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Gin_FLUXNET2015_FULLSET_HH_2011-2014_1-4.csv")
-
-Gww <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-GWW_FLUXNET2015_FULLSET_HH_2013-2014_1-4.csv")
 
 Rdf <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-RDF_FLUXNET2015_FULLSET_HH_2011-2013_1-4.csv")
 
@@ -152,7 +150,7 @@ flux_nas <- function(df, flux_vars, na_vals = c(-9999, -9999.9)) {
 ```{r}
 #names of datasets I have loaded in so R knows what I'm yapping about
 
-site_names <- c("How", "Das", "Dap", "Dry", "Stp", "Asm", "Cum", "Emr", "Fog", "Gin", "Gww", "Rdf", "Rig", "Wac", "Whr", "Wom", "Ync", "Cpr", "Tum", "Ade", "Boy")
+site_names <- c("How", "Das", "Dap", "Dry", "Stp", "Asm", "Cum", "Emr", "Fog", "Gin", "Rdf", "Rig", "Wac", "Whr", "Wom", "Ync", "Cpr", "Tum", "Ade", "Boy")
 
 #pulls the objects from the environment - sites is a list of dataframes
 sites <- mget(site_names)
@@ -408,6 +406,11 @@ lai_data <- lai_data %>%
   filter(site != "Rob")
 ```
 
+```{r}
+lai_data <- lai_data %>%
+  filter(site != "Gww")
+```
+
 
 ```{r}
 cat("LAI site names:\n")
@@ -508,7 +511,4 @@ ggplot(canopy_order, aes(x = reorder(site, desc(max_LAI)), y = max_LAI)) +
   theme_classic()
 ```
 
-```{r}
-plot(sites_daily$Cpr$date, sites_daily$Cpr$GPP)
-```
 
