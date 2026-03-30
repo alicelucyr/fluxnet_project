@@ -289,9 +289,9 @@ site_slopes %>%
 
 # Define a colourblind-friendly palette that matches your thesis style
 climate_cols <- c(
-  "Tropical" = "#DDCC77",    
+  "Tropical" = "#88CCEE",    
   "Temperate"  = "#CC6677",    
-  "Desert" = "#88CCEE",    
+  "Desert" = "#DDCC77",    
   "Subtropical" = "#999933",
   "Grassland" = "#661100"
 )
@@ -312,10 +312,10 @@ site_slopes %>%
   theme(legend.position = "right")
 
 aridity_cols <- c(
-  "Humid"         = "#88CCEE",
-  "Dry sub-humid" = "#DDCC77",
-  "Semi-arid"     = "#CC6677",
-  "Arid"          = "#AA4499"
+  "Humid"         = "#6699CC", 
+  "Dry sub-humid" = "#EE99AA",
+  "Semi-arid"     = "#EECC66",
+  "Arid"          = "#882255"
 )
 
 site_slopes %>%
