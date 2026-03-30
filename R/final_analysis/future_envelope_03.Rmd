@@ -205,13 +205,16 @@ site_summary <- annual_summary %>%
 cat("\n── Mean annual GPP change by site and scenario ──\n")
 print(site_summary)
 
+```
+
+```{R}
 
 # SHARED PLOT ELEMENTS
 
 scenario_colours <- c(
-  "Mean VPD shift"          = "#88CCEE",
-  "+28% extreme magnitude"  = "#CC6677",
-  "Combined"                = "#332288"
+  "Mean VPD shift"          = "#CCBB44",
+  "+28% extreme magnitude"  = "#EE6677",
+  "Combined"                = "#4477AA"
 )
 
 scenario_levels <- c("Mean VPD shift", "+28% extreme magnitude", "Combined")
