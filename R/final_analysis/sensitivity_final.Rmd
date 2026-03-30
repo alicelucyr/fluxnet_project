@@ -172,7 +172,7 @@ tibble(k = 2:6, silhouette = sil_scores)  # highest score = best k
 # ── Step 3: derive label order from mean slope ────────────────────────────────
 cluster_means_2 <- site_slopes %>%
   filter(!is.na(slope)) %>%
-  mutate(cluster_raw = factor(cutree(hclust_fit_2, k = 4))) %>%
+  mutate(cluster_raw = factor(cutree(hclust_fit_2, k = 3))) %>%
   group_by(cluster_raw) %>%
   summarise(
     mean_slope     = mean(slope),
@@ -233,6 +233,7 @@ ggplot(site_slopes %>% mutate(site = factor(site, levels = wet_to_dry_order)),
 ```{r}
 site_slopes <- site_slopes %>%
   left_join(site_meta, by = "site")
+ 
 ```
 
 ```{r}
@@ -256,15 +257,6 @@ site_slopes %>%
   theme_classic() +
   theme(legend.position = "none")
 ```
-
-```{r}
-site_slopes %>%
-  filter(cluster_multi == "Low") %>%
-  arrange(desc(MAL)) %>%
-  select(site, MAL)
-```
-
-
 
 ```{r}
 library(ggplot2)
@@ -322,7 +314,7 @@ site_slopes %>%
 aridity_cols <- c(
   "Humid"         = "#88CCEE",
   "Dry sub-humid" = "#DDCC77",
-  "Semi-Arid"     = "#CC6677",
+  "Semi-arid"     = "#CC6677",
   "Arid"          = "#AA4499"
 )
 
@@ -333,7 +325,7 @@ site_slopes %>%
     prop          = n / sum(n),
     cluster_multi = factor(cluster_multi, levels = c("Low", "Medium", "High")),
     aridity_index = factor(aridity_index,
-                           levels = c("Humid", "Dry sub-humid", "Semi-Arid", "Arid"))
+                           levels = c("Humid", "Dry sub-humid", "Semi-arid", "Arid"))
   ) %>%
   ggplot(aes(x = cluster_multi, y = prop, fill = aridity_index)) +
   geom_col(width = 0.7) +
