@@ -8,7 +8,7 @@ date: "2026-03-25"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-Testing if Cpr - pre and post-fire disturbance contributes to model fit
+Testing if Cpr - pre-fire, during-fire/recovery, and post-recovery disturbance contributes to model fit
 
 ```{r}
 library(tidyverse)
@@ -46,16 +46,18 @@ formula  <- as.formula(paste("GPP ~", paste(predictors, collapse = " + ")))
 mtry_val <- max(2, floor(sqrt(length(predictors))))
 
 # ── Define periods ────────────────────────────────────────────────────────────
-# Pre-fire:         2010-2013 — stable mature woodland
-# Recovery:         2014-2019 — excluded from period-specific tests
-# Post-recovery:    2020-2024 — recovered vegetation, new stable regime
-cpr_pre  <- cpr %>% filter(year >= 2010 & year <= 2013)
-cpr_post <- cpr %>% filter(year >= 2020 & year <= 2024)
-cpr_full <- cpr  # full record for baseline LOYO
+# Pre-fire:            2010-2013 — stable mature woodland
+# During-fire/recovery:2014-2019 — active disturbance and early recovery
+# Post-recovery:       2020-2025 — recovered vegetation, new stable regime
+cpr_pre    <- cpr %>% filter(year >= 2010 & year <= 2013)
+cpr_during <- cpr %>% filter(year >= 2014 & year <= 2019)
+cpr_post   <- cpr %>% filter(year >= 2020 & year <= 2025)
+cpr_full   <- cpr  # full record for baseline LOYO
 
-cat("Pre-fire rows:       ", nrow(cpr_pre),  " | years:", paste(unique(cpr_pre$year),  collapse = ", "), "\n")
-cat("Post-recovery rows:  ", nrow(cpr_post), " | years:", paste(unique(cpr_post$year), collapse = ", "), "\n")
-cat("Full record rows:    ", nrow(cpr_full), " | years:", paste(unique(cpr_full$year), collapse = ", "), "\n")
+cat("Pre-fire rows:              ", nrow(cpr_pre),    " | years:", paste(unique(cpr_pre$year),    collapse = ", "), "\n")
+cat("During-fire/recovery rows:  ", nrow(cpr_during), " | years:", paste(unique(cpr_during$year), collapse = ", "), "\n")
+cat("Post-recovery rows:         ", nrow(cpr_post),   " | years:", paste(unique(cpr_post$year),   collapse = ", "), "\n")
+cat("Full record rows:           ", nrow(cpr_full),   " | years:", paste(unique(cpr_full$year),   collapse = ", "), "\n")
 
 # ── Helper: LOYO within a data subset ────────────────────────────────────────
 run_loyo_subset <- function(df, label) {
@@ -84,15 +86,18 @@ run_loyo_subset <- function(df, label) {
 }
 
 # ── Test 1: Full record LOYO ──────────────────────────────────────────────────
-loyo_full <- run_loyo_subset(cpr_full, "Full record LOYO\n(2010-2024)")
+loyo_full <- run_loyo_subset(cpr_full, "Full record LOYO\n(2010-2025)")
 
 # ── Test 2: Pre-fire LOYO (2010-2013) ─────────────────────────────────────────
 loyo_pre <- run_loyo_subset(cpr_pre, "Pre-fire LOYO\n(2010-2013)")
 
-# ── Test 3: Post-recovery LOYO (2020-2024) ────────────────────────────────────
-loyo_post <- run_loyo_subset(cpr_post, "Post-recovery LOYO\n(2020-2024)")
+# ── Test 3: During-fire/recovery LOYO (2014-2019) ────────────────────────────
+loyo_during <- run_loyo_subset(cpr_during, "During-fire/recovery LOYO\n(2014-2019)")
 
-# ── Test 4: Train pre-fire, test post-recovery ────────────────────────────────
+# ── Test 4: Post-recovery LOYO (2020-2025) ────────────────────────────────────
+loyo_post <- run_loyo_subset(cpr_post, "Post-recovery LOYO\n(2020-2025)")
+
+# ── Test 5: Train pre-fire, test post-recovery ────────────────────────────────
 # Direct test of regime shift — if fire changed GPP-climate relationship,
 # pre-fire training should predict post-recovery poorly
 rf_pre <- randomForest(formula, data = cpr_pre,
@@ -107,11 +112,12 @@ cross_fire <- data.frame(
 )
 
 # ── Metrics ───────────────────────────────────────────────────────────────────
-all_results <- bind_rows(loyo_full, loyo_pre, loyo_post, cross_fire) %>%
+all_results <- bind_rows(loyo_full, loyo_pre, loyo_during, loyo_post, cross_fire) %>%
   mutate(label = factor(label, levels = c(
-    "Full record LOYO\n(2010-2024)",
+    "Full record LOYO\n(2010-2025)",
     "Pre-fire LOYO\n(2010-2013)",
-    "Post-recovery LOYO\n(2020-2024)",
+    "During-fire/recovery LOYO\n(2014-2019)",
+    "Post-recovery LOYO\n(2020-2025)",
     "Train pre-fire /\nTest post-recovery"
   )))
 
@@ -148,7 +154,7 @@ p_ts <- ggplot(ts_df, aes(x = date, y = GPP, colour = type, alpha = type)) +
   # Fire event marker on full record panel only
   geom_vline(
     data = data.frame(
-      label = factor("Full record LOYO\n(2010-2024)",
+      label = factor("Full record LOYO\n(2010-2025)",
                      levels = levels(ts_df$label)),
       xint  = as.Date("2014-01-15")
     ),
@@ -164,7 +170,7 @@ p_ts <- ggplot(ts_df, aes(x = date, y = GPP, colour = type, alpha = type)) +
   scale_x_date(date_breaks = "2 years", date_labels = "%Y") +
   labs(
     title    = "AU-Cpr: Fire regime shift diagnostic",
-    subtitle = "Red dashed line = January 2014 wildfire | Recovery period (2014-2019) excluded from period-specific tests",
+    subtitle = "Red dashed line = January 2014 wildfire",
     x        = NULL,
     y        = expression(GPP ~ (g ~ C ~ m^{-2} ~ d^{-1})),
     colour   = NULL, alpha = NULL
@@ -181,30 +187,35 @@ p_ts <- ggplot(ts_df, aes(x = date, y = GPP, colour = type, alpha = type)) +
   )
 
 # ── Plot 2: R² comparison bar chart ───────────────────────────────────────────
+# Extract full-record baseline R² dynamically
+baseline_r2 <- metrics %>%
+  filter(grepl("Full record", label)) %>%
+  pull(R2)
+
 p_r2 <- ggplot(metrics, aes(x = label, y = R2, fill = R2)) +
   geom_col(width = 0.6, alpha = 0.9) +
   geom_text(aes(label = R2), vjust = -0.4, size = 3.5,
             fontface = "bold", colour = "grey20") +
-  geom_hline(yintercept = 0.07, linetype = "dashed",
+  geom_hline(yintercept = baseline_r2, linetype = "dashed",
              colour = "#CC6677", linewidth = 0.6) +
-  annotate("text", x = 0.6, y = 0.08,
-           label = "Full record\nbaseline (R²=0.07)",
+  annotate("text", x = 0.6, y = baseline_r2 + 0.01,
+           label = paste0("Full record\nbaseline (R²=", baseline_r2, ")"),
            hjust = 0, size = 2.8, colour = "#CC6677", fontface = "italic") +
   scale_fill_gradient(low = "#E06C4B", high = "#4682B4",
                       limits = c(0, 1), oob = scales::squish) +
   scale_y_continuous(limits = c(0, 1)) +
   labs(
     title    = "AU-Cpr: R² by modelling period",
-    subtitle = "Improvement over full-record LOYO (R²=0.07) indicates fire-induced non-stationarity",
+    subtitle = "Improvement over full-record LOYO indicates fire-induced non-stationarity",
     x        = NULL,
     y        = "R²"
   ) +
   theme_classic(base_size = 12) +
   theme(
-    plot.title       = element_text(face = "bold", size = 13),
-    plot.subtitle    = element_text(colour = "grey40", size = 9),
-    axis.text.x      = element_text(size = 8),
-    legend.position  = "none",
+    plot.title         = element_text(face = "bold", size = 13),
+    plot.subtitle      = element_text(colour = "grey40", size = 9),
+    axis.text.x        = element_text(size = 8),
+    legend.position    = "none",
     panel.grid.major.y = element_line(colour = "grey92", linewidth = 0.3)
   )
 
@@ -212,7 +223,7 @@ print(p_ts)
 print(p_r2)
 ```
 
-Is VPD importance different pre-fire and post-fire recovery?
+Is VPD importance different pre-fire, during-fire/recovery, and post-fire recovery?
 
 ```{r}
 library(tidyverse)
@@ -249,9 +260,10 @@ cpr_full <- sites_daily[["Cpr"]] %>%
   ) %>%
   drop_na(all_of(predictors_with), GPP)
 
-# Pre-fire and post-recovery subsets
-cpr_pre  <- cpr_full %>% filter(year >= 2010 & year <= 2013)
-cpr_post <- cpr_full %>% filter(year >= 2020 & year <= 2024)
+# All three period subsets
+cpr_pre    <- cpr_full %>% filter(year >= 2010 & year <= 2013)
+cpr_during <- cpr_full %>% filter(year >= 2014 & year <= 2019)
+cpr_post   <- cpr_full %>% filter(year >= 2020 & year <= 2025)
 
 # ── LOYO with and without VPD for a given dataset ────────────────────────────
 run_vpd_importance <- function(df, period_label) {
@@ -323,20 +335,23 @@ run_vpd_importance <- function(df, period_label) {
 }
 
 # ── Run for each period ───────────────────────────────────────────────────────
-results_pre  <- run_vpd_importance(cpr_pre,  "Pre-fire (2010-2013)")
-results_post <- run_vpd_importance(cpr_post, "Post-recovery (2020-2024)")
-results_full <- run_vpd_importance(cpr_full, "Full record (2010-2024)")
+results_pre    <- run_vpd_importance(cpr_pre,    "Pre-fire (2010-2013)")
+results_during <- run_vpd_importance(cpr_during, "During-fire/recovery (2014-2019)")
+results_post   <- run_vpd_importance(cpr_post,   "Post-recovery (2020-2025)")
+results_full   <- run_vpd_importance(cpr_full,   "Full record (2010-2025)")
 
 # ── Compile metrics ───────────────────────────────────────────────────────────
 all_metrics <- bind_rows(
   results_full$metrics,
   results_pre$metrics,
+  results_during$metrics,
   results_post$metrics
 ) %>%
   mutate(period = factor(period, levels = c(
-    "Full record (2010-2024)",
+    "Full record (2010-2025)",
     "Pre-fire (2010-2013)",
-    "Post-recovery (2020-2024)"
+    "During-fire/recovery (2014-2019)",
+    "Post-recovery (2020-2025)"
   )))
 
 # ── ΔR² from adding VPD per period ───────────────────────────────────────────
@@ -352,13 +367,15 @@ print(delta_r2)
 all_importance <- bind_rows(
   results_full$importance,
   results_pre$importance,
+  results_during$importance,
   results_post$importance
 ) %>%
   filter(model == "with_VPD") %>%
   mutate(period = factor(period, levels = c(
-    "Full record (2010-2024)",
+    "Full record (2010-2025)",
     "Pre-fire (2010-2013)",
-    "Post-recovery (2020-2024)"
+    "During-fire/recovery (2014-2019)",
+    "Post-recovery (2020-2025)"
   )))
 
 # ── Plot 1: ΔR² from adding VPD by period ────────────────────────────────────
@@ -405,7 +422,7 @@ p_r2 <- all_metrics %>%
   scale_y_continuous(limits = c(0, 0.6)) +
   labs(
     title    = "AU-Cpr: Model R² with and without VPD by period",
-    subtitle = "Comparing VPD contribution across full record, pre-fire and post-recovery",
+    subtitle = "Comparing VPD contribution across full record, pre-fire, during-fire/recovery and post-recovery",
     x        = NULL,
     y        = "R²",
     fill     = NULL
@@ -427,9 +444,10 @@ p_imp <- ggplot(all_importance,
            width = 0.6, alpha = 0.9) +
   coord_flip() +
   scale_fill_manual(values = c(
-    "Full record (2010-2024)"    = "grey60",
-    "Pre-fire (2010-2013)"       = "#88CCEE",
-    "Post-recovery (2020-2024)"  = "#CC6677"
+    "Full record (2010-2025)"          = "grey60",
+    "Pre-fire (2010-2013)"             = "#88CCEE",
+    "During-fire/recovery (2014-2019)" = "#DDCC77",
+    "Post-recovery (2020-2025)"        = "#CC6677"
   )) +
   labs(
     title    = "AU-Cpr: Variable importance by period (%IncMSE)",
