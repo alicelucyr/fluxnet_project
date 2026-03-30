@@ -40,7 +40,7 @@ predictors <- c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day")
 humid_sites      <- c("Fog", "How", "Tum", "Wom")   
 dry_subhumid_sites <- c("Ade", "Cum", "Dap") 
 semi_arid_sites  <- c("Boy", "Das", "Dry", "Gin", "Rdf", "Rig", "Stp", "Whr")   
-arid_sites       <- c("Asm", "Cpr")
+arid_sites       <- c("Asm")
 
 # Aridity-index-specific VPD shifts
 aridity_vpd_shift <- c(
