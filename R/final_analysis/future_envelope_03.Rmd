@@ -415,6 +415,31 @@ print(p_aridity_abs)
 ```
 
 ```{r}
+# ── Mean % and absolute GPP change by aridity class and scenario ──────────────
+aridity_scenario_summary <- annual_summary %>%
+  group_by(aridity_class) %>%
+  summarise(
+    # % change
+    mean_pct_s1  = round(mean(delta_s1_pct, na.rm = TRUE), 2),
+    mean_pct_s2  = round(mean(delta_s2_pct, na.rm = TRUE), 2),
+    mean_pct_s3  = round(mean(delta_s3_pct, na.rm = TRUE), 2),
+    # absolute change
+    mean_abs_s1  = round(mean(delta_s1_abs, na.rm = TRUE), 2),
+    mean_abs_s2  = round(mean(delta_s2_abs, na.rm = TRUE), 2),
+    mean_abs_s3  = round(mean(delta_s3_abs, na.rm = TRUE), 2),
+    # n site-years for context
+    n_site_years = n(),
+    .groups = "drop"
+  ) %>%
+  mutate(aridity_class = factor(aridity_class, levels = aridity_levels)) %>%
+  arrange(aridity_class)
+
+print(aridity_scenario_summary)
+```
+
+
+
+```{r}
 # Check how many future VPD values exceed the training range per site
 vpd_range_check <- map_dfr(names(prepared_envelope), function(s) {
   
