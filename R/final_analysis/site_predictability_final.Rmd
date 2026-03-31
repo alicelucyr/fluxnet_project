@@ -274,20 +274,15 @@ Also a line of best fit to show the trend?
 
 ```{r}
 metrics_wide <- all_metrics_vpd %>%
-  select(site, model, R2, RMSE) %>%
+  select(site, model, R2, RMSE, NSE) %>%
   pivot_wider(
     names_from  = model,
-    values_from = c(R2, RMSE)
-  ) %>%
-  rename(
-    R2_with_VPD       = R2_with_VPD,
-    R2_without_VPD    = R2_without_VPD,
-    RMSE_with_VPD     = RMSE_with_VPD,
-    RMSE_without_VPD  = RMSE_without_VPD
+    values_from = c(R2, RMSE, NSE)
   ) %>%
   mutate(
-    delta_R2   = R2_with_VPD - R2_without_VPD,
-    delta_RMSE = RMSE_without_VPD - RMSE_with_VPD  # note direction!
+    delta_R2   = R2_with_VPD   - R2_without_VPD,
+    delta_RMSE = RMSE_without_VPD - RMSE_with_VPD,
+    delta_NSE  = NSE_with_VPD  - NSE_without_VPD
   )
 
 summary(metrics_wide)
