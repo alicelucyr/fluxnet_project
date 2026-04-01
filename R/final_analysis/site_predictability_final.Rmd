@@ -254,6 +254,14 @@ ggplot(plot_data, aes(x = value, y = R2)) +
                   max.overlaps = 15) +
   facet_wrap(~ variable, scales = "free_x", ncol = 3) +
   labs(y = "R² (RF with VPD)", x = NULL) +
+  var_labels <- c(
+  "MAP" = "Mean Annual Precipitation (mm)",
+  "MAT" = "Mean Annual Temperature (°C)",
+  "MAL" = "Maximum Annual LAI"
+) +
+# add labeller = labeller(variable = var_labels) to facet_wrap
+facet_wrap(~ variable, scales = "free_x", ncol = 3,
+           labeller = labeller(variable = var_labels))
   theme_bw(base_size = 13) +
   theme(
     strip.background = element_blank(),
@@ -269,6 +277,190 @@ ggplot(plot_data %>% distinct(site, R2, n_years), aes(x = n_years, y = R2)) +
   labs(x = "No. of Years of Observations", y = "R²") +
   theme_classic()
 ```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(ggrepel)
+
+# ── Shared theme and palette ──────────────────────────────────────────────────
+
+thesis_theme <- theme_classic(base_size = 12) +
+  theme(
+    axis.text        = element_text(size = 9),
+    axis.title       = element_text(size = 11),
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold", size = 11),
+    panel.grid.major = element_line(colour = "grey94", linewidth = 0.3),
+    legend.position  = "none"
+  )
+
+main_col <- thesis_cols["main"]   # your existing single colour
+
+# ── Plot 1: ΔR² from adding VPD ──────────────────────────────────────────────
+
+delta_r2_data <- all_metrics_vpd %>%
+  select(site, model, R2) %>%
+  pivot_wider(names_from = model, values_from = R2) %>%
+  mutate(
+    site    = factor(site, levels = wet_to_dry_order),
+    R2_gain = with_VPD - without_VPD
+  )
+
+mean_delta <- mean(delta_r2_data$R2_gain, na.rm = TRUE)
+
+p1 <- ggplot(delta_r2_data, aes(x = R2_gain, y = site)) +
+  geom_col(width = 0.7, fill = main_col) +
+  geom_vline(
+    xintercept = mean_delta,
+    linetype   = "dashed",
+    colour     = "grey30",
+    linewidth  = 0.5
+  ) +
+  annotate(
+    "text",
+    x     = mean_delta + 0.005,
+    y     = 1,
+    label = paste0("Mean = ", round(mean_delta, 3)),
+    hjust = 0,
+    size  = 3,
+    colour = "grey30"
+  ) +
+  scale_x_continuous(expand = expansion(mult = c(0.01, 0.05))) +
+  labs(
+    x = expression(Delta * R^2 ~ "(with − without VPD)"),
+    y = "Site (Wet to Dry)"
+  ) +
+  thesis_theme
+
+print(p1)
+
+# ── Plot 2: R² (with VPD) ordered by GPP variability ─────────────────────────
+
+median_r2 <- median(
+  all_metrics_vpd %>% filter(model == "with_VPD") %>% pull(R2),
+  na.rm = TRUE
+)
+
+p2 <- all_metrics_vpd %>%
+  filter(model == "with_VPD") %>%
+  mutate(site = factor(site, levels = GPP_variability_order)) %>%
+  ggplot(aes(x = R2, y = site)) +
+  geom_col(width = 0.7, fill = main_col) +
+  geom_vline(
+    xintercept = median_r2,
+    linetype   = "dashed",
+    colour     = "grey30",
+    linewidth  = 0.5
+  ) +
+  annotate(
+    "text",
+    x      = median_r2 + 0.01,
+    y      = 1,
+    label  = paste0("Median = ", round(median_r2, 2)),
+    hjust  = 0,
+    size   = 3,
+    colour = "grey30"
+  ) +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.05))) +
+  labs(
+    x = expression(R^2 ~ "(with VPD)"),
+    y = "Site (Wet to Dry)"
+  ) +
+  thesis_theme
+
+print(p2)
+
+# ── Plot 3: MAP, MAT, MAL vs R² ──────────────────────────────────────────────
+
+var_labels <- c(
+  "MAP" = "Mean Annual Precipitation (mm)",
+  "MAT" = "Mean Annual Temperature (°C)",
+  "MAL" = "Maximum Annual LAI"
+)
+
+plot_data <- all_metrics_vpd %>%
+  filter(model == "with_VPD") %>%
+  select(site, R2) %>%
+  left_join(
+    site_meta %>% select(site, MAP, MAT, MAL, n_years),
+    by = "site"
+  ) %>%
+  pivot_longer(
+    cols      = c(MAP, MAT, MAL),
+    names_to  = "variable",
+    values_to = "value"
+  ) %>%
+  mutate(variable = factor(variable, levels = c("MAP", "MAT", "MAL")))
+
+p3 <- ggplot(plot_data, aes(x = value, y = R2)) +
+  geom_point(size = 3, colour = main_col) +
+  geom_text_repel(
+    aes(label = site),
+    size         = 2.8,
+    colour       = "grey40",
+    max.overlaps = 15
+  ) +
+  facet_wrap(
+    ~ variable,
+    scales    = "free_x",
+    ncol      = 3,
+    labeller  = labeller(variable = var_labels)
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.05))) +
+  labs(
+    y = expression(R^2 ~ "(RF with VPD)"),
+    x = NULL
+  ) +
+  thesis_theme +
+  theme(panel.border = element_rect(colour = "black", fill = NA))
+
+print(p3)
+
+# ── Plot 4: Record length vs R² (null result — include only if needed) ────────
+
+record_data <- plot_data %>%
+  distinct(site, R2, n_years)
+
+# fit lm to extract p-value for annotation
+lm_fit  <- lm(R2 ~ n_years, data = record_data)
+lm_p    <- summary(lm_fit)$coefficients[2, 4]
+lm_r2   <- summary(lm_fit)$r.squared
+
+p4 <- ggplot(record_data, aes(x = n_years, y = R2)) +
+  geom_smooth(
+    method   = "lm",
+    se       = TRUE,
+    colour   = "grey50",
+    fill     = "grey85",
+    linewidth = 0.6
+  ) +
+  geom_point(size = 3, colour = main_col) +
+  geom_text_repel(
+    aes(label = site),
+    size   = 2.8,
+    colour = "grey40"
+  ) +
+  annotate(
+    "text",
+    x      = Inf, y = Inf,
+    label  = paste0("p = ", round(lm_p, 3), "  R² = ", round(lm_r2, 3)),
+    hjust  = 1.1, vjust = 1.5,
+    size   = 3.2,
+    colour = "grey30"
+  ) +
+  labs(
+    x = "Years of observation",
+    y = expression(R^2)
+  ) +
+  thesis_theme
+
+print(p4)
+```
+
+
+
 Units on the MAP, MAT and MAL? 
 Also a line of best fit to show the trend?
 
