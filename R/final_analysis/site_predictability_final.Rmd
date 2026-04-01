@@ -320,11 +320,11 @@ p1 <- ggplot(delta_r2_data, aes(x = R2_gain, y = site)) +
   ) +
   annotate(
     "text",
-    x     = mean_delta + 0.005,
-    y     = 1,
-    label = paste0("Mean = ", round(mean_delta, 3)),
-    hjust = 0,
-    size  = 3,
+    x      = mean_delta + 0.005,
+    y      = 1,
+    label  = paste0("Mean = ", round(mean_delta, 3)),
+    hjust  = 0,
+    size   = 3,
     colour = "grey30"
   ) +
   scale_x_continuous(expand = expansion(mult = c(0.01, 0.05))) +
@@ -375,9 +375,9 @@ print(p2)
 # ── Plot 3: MAP, MAT, MAL vs R² ──────────────────────────────────────────────
 
 var_labels <- c(
-  "MAP" = "Mean Annual Precipitation (mm)",
-  "MAT" = "Mean Annual Temperature (°C)",
-  "MAL" = "Maximum Annual LAI"
+  "MAP" = "MAP (mm)",
+  "MAT" = "MAT (°C)",
+  "MAL" = "MAL"
 )
 
 plot_data <- all_metrics_vpd %>%
@@ -404,17 +404,21 @@ p3 <- ggplot(plot_data, aes(x = value, y = R2)) +
   ) +
   facet_wrap(
     ~ variable,
-    scales    = "free_x",
-    ncol      = 3,
-    labeller  = labeller(variable = var_labels)
+    scales   = "free_x",
+    ncol     = 3,
+    labeller = labeller(variable = var_labels)
   ) +
   scale_y_continuous(expand = expansion(mult = c(0.05, 0.05))) +
   labs(
-    y = expression(R^2 ~ "(RF with VPD)"),
-    x = NULL
+    y       = expression(R^2 ~ "(RF with VPD)"),
+    x       = NULL,
+    caption = "MAP = Mean Annual Precipitation; MAT = Mean Annual Temperature; MAL = Maximum Annual LAI"
   ) +
   thesis_theme +
-  theme(panel.border = element_rect(colour = "black", fill = NA))
+  theme(
+    panel.border = element_rect(colour = "black", fill = NA),
+    plot.caption = element_text(size = 8, colour = "grey40", hjust = 0)
+  )
 
 print(p3)
 
@@ -424,16 +428,16 @@ record_data <- plot_data %>%
   distinct(site, R2, n_years)
 
 # fit lm to extract p-value for annotation
-lm_fit  <- lm(R2 ~ n_years, data = record_data)
-lm_p    <- summary(lm_fit)$coefficients[2, 4]
-lm_r2   <- summary(lm_fit)$r.squared
+lm_fit <- lm(R2 ~ n_years, data = record_data)
+lm_p   <- summary(lm_fit)$coefficients[2, 4]
+lm_r2  <- summary(lm_fit)$r.squared
 
 p4 <- ggplot(record_data, aes(x = n_years, y = R2)) +
   geom_smooth(
-    method   = "lm",
-    se       = TRUE,
-    colour   = "grey50",
-    fill     = "grey85",
+    method    = "lm",
+    se        = TRUE,
+    colour    = "grey50",
+    fill      = "grey85",
     linewidth = 0.6
   ) +
   geom_point(size = 3, colour = main_col) +
