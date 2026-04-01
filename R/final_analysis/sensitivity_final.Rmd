@@ -287,6 +287,10 @@ site_slopes %>%
   theme_classic() +
   theme(legend.position = "right")
 
+```
+
+```{r}
+
 # Define a colourblind-friendly palette that matches your thesis style
 climate_cols <- c(
   "Tropical" = "#88CCEE",    
@@ -305,6 +309,13 @@ site_slopes %>%
   ) %>%
   ggplot(aes(x = cluster_multi, y = prop, fill = koppen)) +
   geom_col(width = 0.7) +
+  geom_text(
+  aes(label = scales::percent(prop, accuracy = 1)),
+  position = position_stack(vjust = 0.5),
+  size = 3,
+  colour = "white",
+  fontface = "bold"
+) +
   scale_y_continuous(labels = scales::percent_format()) +
   scale_fill_manual(values = climate_cols) +  # <-- use custom colourblind palette
   labs(x = "Sensitivity cluster", y = "Proportion of sites", fill = "Climate") +
@@ -329,6 +340,13 @@ site_slopes %>%
   ) %>%
   ggplot(aes(x = cluster_multi, y = prop, fill = aridity_index)) +
   geom_col(width = 0.7) +
+  geom_text(
+  aes(label = scales::percent(prop, accuracy = 1)),
+  position = position_stack(vjust = 0.5),
+  size = 3,
+  colour = "white",
+  fontface = "bold"
+) +
   scale_y_continuous(labels = scales::percent_format()) +
   scale_fill_manual(values = aridity_cols) +
   labs(x = "Sensitivity cluster", y = "Proportion of sites", fill = "Aridity index") +
@@ -456,7 +474,11 @@ cluster_mean_lines <- cluster_mean_params %>%
 # ── Step 2: label for each panel showing n sites and mean slope ───────────────
 cluster_labels <- cluster_mean_params %>%
   mutate(
-    label = paste0("n = ", n_sites, " sites\nMean β = ", round(mean_slope, 3))
+    label = paste0(
+      "n = ", n_sites, " sites\n",
+      "Mean β = ", round(mean_slope, 3), "\n",
+      "Mean VPD peak = ", round(mean_vpd_peak, 2), " kPa"
+    )
   )
 
 # ── Step 3: build the three-panel plot ────────────────────────────────────────
