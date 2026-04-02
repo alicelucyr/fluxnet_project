@@ -402,3 +402,299 @@ ggplot(plot_df_abs,
   )
 ```
 
+```{r}
+# ── Prepare boxplot data ─────────────────────────────────────────────────────
+plot_df_box_pct <- site_summary %>%
+  pivot_longer(
+    cols = c(mean_delta_s1_pct, mean_delta_s2_pct, mean_delta_s3_pct),
+    names_to = "scenario",
+    values_to = "delta"
+  ) %>%
+  mutate(
+    scenario = recode(
+      scenario,
+      mean_delta_s1_pct = "Mean VPD shift",
+      mean_delta_s2_pct = "+28% extreme magnitude",
+      mean_delta_s3_pct = "Combined"
+    ),
+    aridity_class = factor(aridity_class,
+                           levels = aridity_levels),
+    scenario = factor(scenario, levels = scenario_levels)
+  )
+
+plot_df_box_abs <- site_summary %>%
+  pivot_longer(
+    cols = c(mean_delta_s1_abs, mean_delta_s2_abs, mean_delta_s3_abs),
+    names_to = "scenario",
+    values_to = "delta"
+  ) %>%
+  mutate(
+    scenario = recode(
+      scenario,
+      mean_delta_s1_abs = "Mean VPD shift",
+      mean_delta_s2_abs = "+28% extreme magnitude",
+      mean_delta_s3_abs = "Combined"
+    ),
+    aridity_class = factor(aridity_class,
+                           levels = aridity_levels),
+    scenario = factor(scenario, levels = scenario_levels)
+  )
+
+# ── Boxplot: % change ────────────────────────────────────────────────────────
+ggplot(plot_df_box_pct,
+       aes(x = aridity_class, y = delta, fill = scenario)) +
+  geom_boxplot(position = position_dodge(width = 0.8), outlier.size = 1) +
+  scale_fill_manual(values = scenario_colours) +
+  labs(
+    x = "Aridity class",
+    y = "Median % change in annual GPP",
+    fill = "Scenario"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    strip.text = element_text(face = "bold"),
+    legend.position = "top"
+  )
+
+# ── Boxplot: absolute change ─────────────────────────────────────────────────
+ggplot(plot_df_box_abs,
+       aes(x = aridity_class, y = delta, fill = scenario)) +
+  geom_boxplot(position = position_dodge(width = 0.8), outlier.size = 1) +
+  scale_fill_manual(values = scenario_colours) +
+  labs(
+    x = "Aridity class",
+    y = "Median absolute change in annual GPP",
+    fill = "Scenario"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    strip.text = element_text(face = "bold"),
+    legend.position = "top"
+  )
+```
+```{r}
+# ── Wet-to-dry order ─────────────────────────────────────────────────────────
+wet_to_dry_order <- c("Fog", "How", "Tum", "Wom", "Ade", "Cum", "Dap",
+                      "Boy", "Das", "Dry", "Gin", "Rdf", "Rig", "Stp", "Whr",
+                      "Asm")
+
+# ── Aridity label helper for faceted boxplots ────────────────────────────────
+aridity_label_df <- data.frame(
+  aridity_class = aridity_levels,
+  y             = Inf
+) %>%
+  mutate(aridity_class = factor(aridity_class, levels = aridity_levels))
+
+# ── PLOT 1: Mean % GPP change per site ───────────────────────────────────────
+p_pct <- make_plot_df(site_summary, "pct") %>%
+  mutate(
+    scenario = factor(scenario, levels = scenario_levels),
+    site     = factor(site, levels = wet_to_dry_order)
+  ) %>%
+  ggplot(aes(x = site, y = delta, fill = scenario)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7, alpha = 0.9) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey30") +
+  coord_flip() +
+  scale_fill_manual(values = scenario_colours) +
+  labs(
+    title    = "Projected GPP change under future VPD scenarios",
+    subtitle = "Mean annual % change vs baseline predicted GPP",
+    x        = "Site (Wet to Dry)",
+    y        = "Mean annual ΔGPP (%)",
+    fill     = "Scenario"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title      = element_text(face = "bold", size = 13),
+    plot.subtitle   = element_text(colour = "grey40", size = 10),
+    legend.position = "bottom"
+  )
+
+# ── PLOT 2: Mean absolute GPP change per site ────────────────────────────────
+p_abs <- make_plot_df(site_summary, "abs") %>%
+  mutate(
+    scenario = factor(scenario, levels = scenario_levels),
+    site     = factor(site, levels = wet_to_dry_order)
+  ) %>%
+  ggplot(aes(x = site, y = delta, fill = scenario)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7, alpha = 0.9) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey30") +
+  coord_flip() +
+  scale_fill_manual(values = scenario_colours) +
+  labs(
+    title    = "Projected GPP change under future VPD scenarios",
+    subtitle = "Mean annual absolute change vs baseline predicted GPP",
+    x        = "Site (Wet to Dry)",
+    y        = expression(Mean ~ annual ~ Delta*GPP ~ (g ~ C ~ m^{-2} ~ yr^{-1})),
+    fill     = "Scenario"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title      = element_text(face = "bold", size = 13),
+    plot.subtitle   = element_text(colour = "grey40", size = 10),
+    legend.position = "bottom"
+  )
+
+# ── PLOT 3: Boxplot of annual % change by aridity class ─────────────────────
+p_aridity_pct <- annual_summary %>%
+  pivot_longer(
+    cols      = c(delta_s1_pct, delta_s2_pct, delta_s3_pct),
+    names_to  = "scenario", values_to = "delta_pct"
+  ) %>%
+  mutate(
+    scenario      = recode(scenario,
+      delta_s1_pct = "Mean VPD shift",
+      delta_s2_pct = "+28% extreme magnitude",
+      delta_s3_pct = "Combined"
+    ),
+    scenario      = factor(scenario, levels = scenario_levels),
+    aridity_class = factor(aridity_class, levels = aridity_levels)
+  ) %>%
+  ggplot(aes(x = scenario, y = delta_pct, fill = scenario)) +
+  geom_boxplot(alpha = 0.85, outlier.shape = NA, width = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey30",
+             linewidth = 0.5) +
+  geom_text(
+    data        = aridity_label_df,
+    aes(x = 2, y = Inf, label = aridity_class),
+    inherit.aes = FALSE,
+    vjust       = 1.5, size = 4, fontface = "bold", colour = "grey20"
+  ) +
+  facet_wrap(~ aridity_class, ncol = 4) +
+  scale_fill_manual(values = scenario_colours) +
+  scale_x_discrete(labels = NULL) +
+  labs(
+    title    = "Annual GPP change by aridity class and scenario",
+    subtitle = "Distribution across site-years — % change vs baseline predicted GPP",
+    x        = NULL,
+    y        = "Annual ΔGPP (%)",
+    fill     = "Scenario"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title         = element_text(face = "bold", size = 13),
+    plot.subtitle      = element_text(colour = "grey40", size = 10),
+    strip.background   = element_blank(),
+    strip.text         = element_blank(),
+    legend.position    = "bottom",
+    axis.ticks.x       = element_blank(),
+    panel.grid.major.y = element_line(colour = "grey92", linewidth = 0.3)
+  )
+
+# ── PLOT 4: Boxplot of annual absolute change by aridity class ──────────────
+p_aridity_abs <- annual_summary %>%
+  pivot_longer(
+    cols      = c(delta_s1_abs, delta_s2_abs, delta_s3_abs),
+    names_to  = "scenario", values_to = "delta_abs"
+  ) %>%
+  mutate(
+    scenario      = recode(scenario,
+      delta_s1_abs = "Mean VPD shift",
+      delta_s2_abs = "+28% extreme magnitude",
+      delta_s3_abs = "Combined"
+    ),
+    scenario      = factor(scenario, levels = scenario_levels),
+    aridity_class = factor(aridity_class, levels = aridity_levels)
+  ) %>%
+  ggplot(aes(x = scenario, y = delta_abs, fill = scenario)) +
+  geom_boxplot(alpha = 0.85, outlier.shape = NA, width = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey30",
+             linewidth = 0.5) +
+  geom_text(
+    data        = aridity_label_df,
+    aes(x = 2, y = Inf, label = aridity_class),
+    inherit.aes = FALSE,
+    vjust       = 1.5, size = 4, fontface = "bold", colour = "grey20"
+  ) +
+  facet_wrap(~ aridity_class, ncol = 4) +
+  scale_fill_manual(values = scenario_colours) +
+  scale_x_discrete(labels = NULL) +
+  labs(
+    title    = "Annual GPP change by aridity class and scenario",
+    subtitle = "Distribution across site-years — absolute change vs baseline predicted GPP",
+    x        = NULL,
+    y        = expression(Annual ~ Delta*GPP ~ (g ~ C ~ m^{-2} ~ yr^{-1})),
+    fill     = "Scenario"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title         = element_text(face = "bold", size = 13),
+    plot.subtitle      = element_text(colour = "grey40", size = 10),
+    strip.background   = element_blank(),
+    strip.text         = element_blank(),
+    legend.position    = "bottom",
+    axis.ticks.x       = element_blank(),
+    panel.grid.major.y = element_line(colour = "grey92", linewidth = 0.3)
+  )
+
+# ── Print plots ─────────────────────────────────────────────────────────────
+print(p_pct)
+print(p_abs)
+print(p_aridity_pct)
+print(p_aridity_abs)
+```
+```{r}
+# ── Hardcoded sensitivity order — most negative slope first to least
+sensitivity_order <- c(
+  "Fog", "Ade", "Dap", "Rdf", "Das", "Asm", "How", "Dry",
+  "Rig", "Ync", "Stp", "Emr", "Gin", "Cpr", "Boy", "Wac",
+  "Wom", "Whr", "Cum", "Gww", "Tum"
+)
+
+# ── PLOT 1: Mean % GPP change per site — sensitivity order ────────────────
+p_pct_sensitivity <- make_plot_df(site_summary, "pct") %>%
+  mutate(
+    scenario = factor(scenario, levels = scenario_levels),
+    site     = factor(site, levels = rev(sensitivity_order)) # reversed for steepest first
+  ) %>%
+  filter(!is.na(site)) %>%
+  ggplot(aes(x = site, y = delta, fill = scenario)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7, alpha = 0.9) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey30") +
+  coord_flip() +
+  scale_fill_manual(values = scenario_colours) +
+  labs(
+    title    = "Projected GPP change under future VPD scenarios",
+    subtitle = "Sites ordered from highest to lowest GPP–VPD sensitivity (Fog = steepest slope)",
+    x        = "Site (Low to High Sensitivity)",
+    y        = "Mean annual ΔGPP (%)",
+    fill     = "Scenario"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title      = element_text(face = "bold", size = 13),
+    plot.subtitle   = element_text(colour = "grey40", size = 10),
+    legend.position = "bottom"
+  )
+
+# ── PLOT 2: Mean absolute GPP change per site — sensitivity order ─────────
+p_abs_sensitivity <- make_plot_df(site_summary, "abs") %>%
+  mutate(
+    scenario = factor(scenario, levels = scenario_levels),
+    site     = factor(site, levels = rev(sensitivity_order))
+  ) %>%
+  filter(!is.na(site)) %>%
+  ggplot(aes(x = site, y = delta, fill = scenario)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7, alpha = 0.9) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey30") +
+  coord_flip() +
+  scale_fill_manual(values = scenario_colours) +
+  labs(
+    title    = "Projected GPP change under future VPD scenarios",
+    subtitle = "Sites ordered from highest to lowest GPP–VPD sensitivity (Fog = steepest slope)",
+    x        = "Site (Low to High Sensitivity)",
+    y        = expression(Mean ~ annual ~ Delta*GPP ~ (g ~ C ~ m^{-2} ~ yr^{-1})),
+    fill     = "Scenario"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title      = element_text(face = "bold", size = 13),
+    plot.subtitle   = element_text(colour = "grey40", size = 10),
+    legend.position = "bottom"
+  )
+
+# ── Print plots ───────────────────────────────────────────────────────────
+print(p_pct_sensitivity)
+print(p_abs_sensitivity)
+```
+
