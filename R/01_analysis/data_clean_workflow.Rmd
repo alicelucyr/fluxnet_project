@@ -510,5 +510,11 @@ ggplot(canopy_order, aes(x = reorder(site, desc(max_LAI)), y = max_LAI)) +
   labs(x = "Site", y = "Mean LAI") +
   theme_classic()
 ```
+```{r}
+plot(sites_daily$Tum$date, sites_daily$Tum$VPD)
+```
 
+```{r}
+plot(sites_daily$Tum$date, sites_daily$Tum$Precip)
+```
 
