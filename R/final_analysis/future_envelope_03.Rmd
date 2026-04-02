@@ -563,6 +563,205 @@ p_pct_sensitivity <- make_plot_df(site_summary, "pct") %>%
 
 print(p_pct_sensitivity)
 ```
+```{r}
+library(tidyverse)
+library(lubridate)
+
+# ── DAILY GPP RESPONSE ─────────────────────────────────────────────────────────
+
+daily_summary <- envelope_results %>%
+  mutate(
+    month = month(date),
+    season = case_when(
+      month %in% c(12, 1, 2)  ~ "Summer",
+      month %in% c(3, 4, 5)   ~ "Autumn",
+      month %in% c(6, 7, 8)   ~ "Winter",
+      month %in% c(9, 10, 11) ~ "Spring"
+    )
+  )
+
+# Mean daily change across all observations
+daily_change_summary <- daily_summary %>%
+  summarise(
+    mean_daily_s1_abs = mean(delta_s1_abs, na.rm = TRUE),
+    mean_daily_s2_abs = mean(delta_s2_abs, na.rm = TRUE),
+    mean_daily_s3_abs = mean(delta_s3_abs, na.rm = TRUE),
+    
+    mean_daily_s1_pct = mean(delta_s1_pct, na.rm = TRUE),
+    mean_daily_s2_pct = mean(delta_s2_pct, na.rm = TRUE),
+    mean_daily_s3_pct = mean(delta_s3_pct, na.rm = TRUE)
+  )
+
+print(daily_change_summary)
+
+# Mean daily change by aridity class
+daily_aridity_summary <- daily_summary %>%
+  group_by(aridity_class) %>%
+  summarise(
+    mean_daily_s1_abs = mean(delta_s1_abs, na.rm = TRUE),
+    mean_daily_s2_abs = mean(delta_s2_abs, na.rm = TRUE),
+    mean_daily_s3_abs = mean(delta_s3_abs, na.rm = TRUE),
+    
+    mean_daily_s1_pct = mean(delta_s1_pct, na.rm = TRUE),
+    mean_daily_s2_pct = mean(delta_s2_pct, na.rm = TRUE),
+    mean_daily_s3_pct = mean(delta_s3_pct, na.rm = TRUE),
+    
+    .groups = "drop"
+  )
+
+print(daily_aridity_summary)
+
+# Boxplot of daily % GPP change by aridity class and scenario
+daily_plot_df <- daily_summary %>%
+  pivot_longer(
+    cols = c(delta_s1_pct, delta_s2_pct, delta_s3_pct),
+    names_to = "scenario",
+    values_to = "delta_pct"
+  ) %>%
+  mutate(
+    scenario = recode(scenario,
+      delta_s1_pct = "Mean VPD shift",
+      delta_s2_pct = "+28% extreme magnitude",
+      delta_s3_pct = "Combined"
+    ),
+    scenario = factor(scenario, levels = scenario_levels),
+    aridity_class = factor(aridity_class, levels = aridity_levels)
+  )
+
+p_daily_pct <- ggplot(daily_plot_df,
+                      aes(x = scenario, y = delta_pct, fill = scenario)) +
+  geom_boxplot(alpha = 0.85, outlier.shape = NA, width = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey30") +
+  facet_wrap(~ aridity_class, ncol = 4) +
+  scale_fill_manual(values = scenario_colours) +
+  labs(
+    title = "Daily GPP change by aridity class and scenario",
+    subtitle = "Distribution across all site-days",
+    x = NULL,
+    y = "Daily ΔGPP (%)",
+    fill = "Scenario"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    legend.position = "bottom",
+    strip.background = element_blank(),
+    strip.text = element_text(face = "bold")
+  )
+
+print(p_daily_pct)
+```
+```{r}
+# ── SEASONAL GPP RESPONSE ──────────────────────────────────────────────────────
+
+seasonal_summary <- envelope_results %>%
+  mutate(
+    month = month(date),
+    season = case_when(
+      month %in% c(12, 1, 2)  ~ "Summer",
+      month %in% c(3, 4, 5)   ~ "Autumn",
+      month %in% c(6, 7, 8)   ~ "Winter",
+      month %in% c(9, 10, 11) ~ "Spring"
+    )
+  ) %>%
+  group_by(site, aridity_class, year, season) %>%
+  summarise(
+    GPP_baseline_season = sum(GPP_baseline, na.rm = TRUE),
+    GPP_s1_season       = sum(GPP_s1, na.rm = TRUE),
+    GPP_s2_season       = sum(GPP_s2, na.rm = TRUE),
+    GPP_s3_season       = sum(GPP_s3, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    delta_s1_abs = GPP_s1_season - GPP_baseline_season,
+    delta_s2_abs = GPP_s2_season - GPP_baseline_season,
+    delta_s3_abs = GPP_s3_season - GPP_baseline_season,
+    
+    delta_s1_pct = (delta_s1_abs / GPP_baseline_season) * 100,
+    delta_s2_pct = (delta_s2_abs / GPP_baseline_season) * 100,
+    delta_s3_pct = (delta_s3_abs / GPP_baseline_season) * 100
+  )
+
+print(seasonal_summary)
+
+# Mean seasonal response by season and aridity class
+seasonal_aridity_summary <- seasonal_summary %>%
+  group_by(aridity_class, season) %>%
+  summarise(
+    mean_s1_pct = mean(delta_s1_pct, na.rm = TRUE),
+    mean_s2_pct = mean(delta_s2_pct, na.rm = TRUE),
+    mean_s3_pct = mean(delta_s3_pct, na.rm = TRUE),
+    
+    mean_s1_abs = mean(delta_s1_abs, na.rm = TRUE),
+    mean_s2_abs = mean(delta_s2_abs, na.rm = TRUE),
+    mean_s3_abs = mean(delta_s3_abs, na.rm = TRUE),
+    
+    .groups = "drop"
+  )
+
+print(seasonal_aridity_summary)
+
+# Prepare data for plotting
+seasonal_plot_df <- seasonal_summary %>%
+  pivot_longer(
+    cols = c(delta_s1_pct, delta_s2_pct, delta_s3_pct),
+    names_to = "scenario",
+    values_to = "delta_pct"
+  ) %>%
+  mutate(
+    scenario = recode(scenario,
+      delta_s1_pct = "Mean VPD shift",
+      delta_s2_pct = "+28% extreme magnitude",
+      delta_s3_pct = "Combined"
+    ),
+    scenario = factor(scenario, levels = scenario_levels),
+    aridity_class = factor(aridity_class, levels = aridity_levels),
+    season = factor(season, levels = c("Summer", "Autumn", "Winter", "Spring"))
+  )
+
+# Boxplot of seasonal % GPP change
+p_seasonal_pct <- ggplot(seasonal_plot_df,
+                         aes(x = season, y = delta_pct, fill = scenario)) +
+  geom_boxplot(
+    position = position_dodge(width = 0.8),
+    alpha = 0.85,
+    outlier.shape = NA
+  ) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey30") +
+  facet_wrap(~ aridity_class, ncol = 4) +
+  scale_fill_manual(values = scenario_colours) +
+  labs(
+    title = "Seasonal GPP change by aridity class and scenario",
+    subtitle = "Distribution across site-seasons",
+    x = "Season",
+    y = "Seasonal ΔGPP (%)",
+    fill = "Scenario"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    legend.position = "bottom",
+    strip.background = element_blank(),
+    strip.text = element_text(face = "bold")
+  )
+
+print(p_seasonal_pct)
+```
+```{r}
+extreme_day_check <- envelope_results %>%
+  group_by(site) %>%
+  mutate(
+    vpd_90 = quantile(VPD, 0.90, na.rm = TRUE),
+    extreme_day = VPD >= vpd_90
+  ) %>%
+  group_by(site, aridity_class, extreme_day) %>%
+  summarise(
+    mean_GPP_baseline = mean(GPP_baseline, na.rm = TRUE),
+    mean_VPD = mean(VPD, na.rm = TRUE),
+    n_days = n(),
+    .groups = "drop"
+  )
+
+print(extreme_day_check)
+```
 
 
 
