@@ -1,0 +1,404 @@
+---
+title: "envelope_04"
+output: html_document
+date: "2026-04-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(randomForest)
+library(zoo)
+library(lubridate)
+library(purrr)
+
+set.seed(42)
+
+predictors <- c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day")
+extreme_magnitude_increase <- 1.28
+
+# Remove unwanted sites before running
+sites_daily <- sites_daily[!names(sites_daily) %in%
+  c("Emr", "Wac", "Ync")]
+
+# ── Aridity index site groupings ──────────────────────────────────────────────
+humid_sites <- c("Fog", "How", "Tum", "Wom")
+dry_subhumid_sites <- c("Ade", "Cum", "Dap")
+semi_arid_sites <- c("Boy", "Das", "Dry", "Gin", "Rdf", "Rig", "Stp", "Whr")
+arid_sites <- c("Asm")
+
+# ── Aridity-index-specific VPD shifts ────────────────────────────────────────
+aridity_vpd_shift <- c(
+  humid = 0.255,
+  dry_subhumid = 0.340,
+  semi_arid = 0.4675,
+  arid = 0.680
+)
+```
+
+```{r}
+prepare_site_envelope <- function(df, site_name) {
+
+  df <- df %>%
+    drop_na(GPP, Tair, SW_rad, VPD, cwd, date) %>%
+    arrange(date) %>%
+    mutate(
+      year = year(date),
+      cumulative_cwd_7day = rollapply(
+        cwd,
+        width = 7,
+        FUN = sum,
+        align = "right",
+        fill = NA,
+        na.rm = TRUE
+      )
+    ) %>%
+    drop_na(all_of(predictors), GPP)
+
+  if (nrow(df) < 100) {
+    message("Skipping ", site_name, ": insufficient data")
+    return(NULL)
+  }
+
+  message("Prepared ", site_name, ": ", nrow(df), " rows")
+  df
+}
+```
+
+```{r}
+run_future_envelope <- function(df, site_name) {
+
+  message("Running future envelope: ", site_name)
+
+  vpd_shift <- case_when(
+    site_name %in% humid_sites ~ aridity_vpd_shift["humid"],
+    site_name %in% dry_subhumid_sites ~ aridity_vpd_shift["dry_subhumid"],
+    site_name %in% semi_arid_sites ~ aridity_vpd_shift["semi_arid"],
+    site_name %in% arid_sites ~ aridity_vpd_shift["arid"],
+    TRUE ~ NA_real_
+  )
+
+  if (is.na(vpd_shift)) {
+    warning(site_name, " not assigned to an aridity class — skipping")
+    return(NULL)
+  }
+
+  # Pull site-specific threshold from sensitivity analysis
+  vpd_peak <- site_slopes %>%
+    filter(site == site_name) %>%
+    pull(vpd_at_peak)
+
+  if (length(vpd_peak) == 0 || is.na(vpd_peak)) {
+    warning(site_name, " missing vpd_at_peak — skipping")
+    return(NULL)
+  }
+
+  # Train RF once on observed data
+  formula <- as.formula(paste("GPP ~", paste(predictors, collapse = " + ")))
+  mtry_val <- max(2, floor(sqrt(length(predictors))))
+
+  rf_model <- randomForest(
+    formula,
+    data = df,
+    ntree = 500,
+    mtry = mtry_val,
+    importance = FALSE
+  )
+
+  # Scenario 1: mean shift only
+  df_s1 <- df %>%
+    mutate(VPD = VPD + vpd_shift)
+
+  # Scenario 2: +28% increase above site-specific VPD threshold
+  df_s2 <- df %>%
+    mutate(
+      VPD = ifelse(
+        VPD >= vpd_peak,
+        VPD * extreme_magnitude_increase,
+        VPD
+      )
+    )
+
+  # Scenario 3: combined scenario
+  vpd_peak_shifted <- vpd_peak + vpd_shift
+
+  df_s3 <- df %>%
+    mutate(
+      VPD = VPD + vpd_shift,
+      VPD = ifelse(
+        VPD >= vpd_peak_shifted,
+        VPD * extreme_magnitude_increase,
+        VPD
+      )
+    )
+
+  # Predictions
+  GPP_baseline <- predict(rf_model, df)
+  GPP_s1 <- predict(rf_model, df_s1)
+  GPP_s2 <- predict(rf_model, df_s2)
+  GPP_s3 <- predict(rf_model, df_s3)
+
+  df %>%
+    mutate(
+      site = site_name,
+      aridity_class = case_when(
+        site_name %in% humid_sites ~ "Humid",
+        site_name %in% dry_subhumid_sites ~ "Dry sub-humid",
+        site_name %in% semi_arid_sites ~ "Semi-Arid",
+        site_name %in% arid_sites ~ "Arid"
+      ),
+      vpd_shift = vpd_shift,
+      vpd_peak_threshold = vpd_peak,
+      vpd_peak_shifted = vpd_peak_shifted,
+
+      GPP_obs = GPP,
+      GPP_baseline = GPP_baseline,
+      GPP_s1 = GPP_s1,
+      GPP_s2 = GPP_s2,
+      GPP_s3 = GPP_s3,
+
+      delta_s1_abs = GPP_s1 - GPP_baseline,
+      delta_s2_abs = GPP_s2 - GPP_baseline,
+      delta_s3_abs = GPP_s3 - GPP_baseline,
+
+      delta_s1_pct = (delta_s1_abs / GPP_baseline) * 100,
+      delta_s2_pct = (delta_s2_abs / GPP_baseline) * 100,
+      delta_s3_pct = (delta_s3_abs / GPP_baseline) * 100
+    )
+}
+```
+
+```{r}
+prepared_envelope <- map2(
+  sites_daily,
+  names(sites_daily),
+  prepare_site_envelope
+)
+
+prepared_envelope <- Filter(Negate(is.null), prepared_envelope)
+
+envelope_results <- map2_dfr(
+  prepared_envelope,
+  names(prepared_envelope),
+  run_future_envelope
+)
+
+message("\nSites completed: ", n_distinct(envelope_results$site))
+```
+
+```{r}
+annual_summary <- envelope_results %>%
+  group_by(site, aridity_class, year) %>%
+  summarise(
+    GPP_baseline_annual = sum(GPP_baseline, na.rm = TRUE),
+    GPP_s1_annual = sum(GPP_s1, na.rm = TRUE),
+    GPP_s2_annual = sum(GPP_s2, na.rm = TRUE),
+    GPP_s3_annual = sum(GPP_s3, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    delta_s1_abs = GPP_s1_annual - GPP_baseline_annual,
+    delta_s2_abs = GPP_s2_annual - GPP_baseline_annual,
+    delta_s3_abs = GPP_s3_annual - GPP_baseline_annual,
+
+    delta_s1_pct = (delta_s1_abs / GPP_baseline_annual) * 100,
+    delta_s2_pct = (delta_s2_abs / GPP_baseline_annual) * 100,
+    delta_s3_pct = (delta_s3_abs / GPP_baseline_annual) * 100
+  )
+
+site_summary <- annual_summary %>%
+  group_by(site, aridity_class) %>%
+  summarise(
+    mean_delta_s1_pct = round(mean(delta_s1_pct, na.rm = TRUE), 2),
+    mean_delta_s2_pct = round(mean(delta_s2_pct, na.rm = TRUE), 2),
+    mean_delta_s3_pct = round(mean(delta_s3_pct, na.rm = TRUE), 2),
+
+    mean_delta_s1_abs = round(mean(delta_s1_abs, na.rm = TRUE), 3),
+    mean_delta_s2_abs = round(mean(delta_s2_abs, na.rm = TRUE), 3),
+    mean_delta_s3_abs = round(mean(delta_s3_abs, na.rm = TRUE), 3),
+    .groups = "drop"
+  ) %>%
+  arrange(mean_delta_s3_pct)
+
+print(site_summary)
+```
+
+```{r}
+scenario_colours <- c(
+  "Mean VPD shift" = "#CCBB44",
+  "+28% extreme magnitude" = "#EE6677",
+  "Combined" = "#4477AA"
+)
+
+scenario_levels <- c(
+  "Mean VPD shift",
+  "+28% extreme magnitude",
+  "Combined"
+)
+
+aridity_levels <- c(
+  "Humid",
+  "Dry sub-humid",
+  "Semi-Arid",
+  "Arid"
+)
+
+make_plot_df <- function(data, pct_or_abs) {
+
+  if (pct_or_abs == "pct") {
+
+    data %>%
+      pivot_longer(
+        cols = c(mean_delta_s1_pct, mean_delta_s2_pct, mean_delta_s3_pct),
+        names_to = "scenario",
+        values_to = "delta"
+      ) %>%
+      mutate(
+        scenario = recode(
+          scenario,
+          mean_delta_s1_pct = "Mean VPD shift",
+          mean_delta_s2_pct = "+28% extreme magnitude",
+          mean_delta_s3_pct = "Combined"
+        )
+      )
+
+  } else {
+
+    data %>%
+      pivot_longer(
+        cols = c(mean_delta_s1_abs, mean_delta_s2_abs, mean_delta_s3_abs),
+        names_to = "scenario",
+        values_to = "delta"
+      ) %>%
+      mutate(
+        scenario = recode(
+          scenario,
+          mean_delta_s1_abs = "Mean VPD shift",
+          mean_delta_s2_abs = "+28% extreme magnitude",
+          mean_delta_s3_abs = "Combined"
+        )
+      )
+  }
+}
+```
+
+```{r}
+vpd_range_check <- map_dfr(names(prepared_envelope), function(s) {
+
+  df <- prepared_envelope[[s]]
+
+  vpd_shift <- case_when(
+    s %in% humid_sites ~ aridity_vpd_shift["humid"],
+    s %in% dry_subhumid_sites ~ aridity_vpd_shift["dry_subhumid"],
+    s %in% semi_arid_sites ~ aridity_vpd_shift["semi_arid"],
+    s %in% arid_sites ~ aridity_vpd_shift["arid"]
+  )
+
+  vpd_peak <- site_slopes %>%
+    filter(site == s) %>%
+    pull(vpd_at_peak)
+
+  vpd_max_observed <- max(df$VPD, na.rm = TRUE)
+
+  vpd_s1 <- df$VPD + vpd_shift
+
+  vpd_s2 <- ifelse(
+    df$VPD >= vpd_peak,
+    df$VPD * 1.28,
+    df$VPD
+  )
+
+  vpd_peak_shifted <- vpd_peak + vpd_shift
+
+  vpd_s3_step1 <- df$VPD + vpd_shift
+
+  vpd_s3 <- ifelse(
+    vpd_s3_step1 >= vpd_peak_shifted,
+    vpd_s3_step1 * 1.28,
+    vpd_s3_step1
+  )
+
+  data.frame(
+    site = s,
+    vpd_peak_threshold = round(vpd_peak, 3),
+    vpd_max_observed = round(vpd_max_observed, 3),
+    vpd_max_s1 = round(max(vpd_s1, na.rm = TRUE), 3),
+    vpd_max_s2 = round(max(vpd_s2, na.rm = TRUE), 3),
+    vpd_max_s3 = round(max(vpd_s3, na.rm = TRUE), 3)
+  )
+})
+
+print(vpd_range_check)
+```
+```{r}
+# ── Percentage change plot ────────────────────────────────────────────────────
+plot_df_pct <- make_plot_df(site_summary, "pct")
+
+plot_df_pct$scenario <- factor(
+  plot_df_pct$scenario,
+  levels = scenario_levels
+)
+
+plot_df_pct$aridity_class <- factor(
+  plot_df_pct$aridity_class,
+  levels = aridity_levels
+)
+
+ggplot(plot_df_pct,
+       aes(x = reorder(site, delta),
+           y = delta,
+           fill = scenario)) +
+  geom_col(position = position_dodge(width = 0.8)) +
+  facet_wrap(~ aridity_class, scales = "free_x", nrow = 1) +
+  coord_flip() +
+  scale_fill_manual(values = scenario_colours) +
+  labs(
+    x = "Site",
+    y = "Mean % change in annual GPP",
+    fill = "Scenario"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    strip.text = element_text(face = "bold"),
+    axis.text.y = element_text(size = 9),
+    legend.position = "top"
+  )
+```
+```{r}
+# ── Absolute change plot ──────────────────────────────────────────────────────
+plot_df_abs <- make_plot_df(site_summary, "abs")
+
+plot_df_abs$scenario <- factor(
+  plot_df_abs$scenario,
+  levels = scenario_levels
+)
+
+plot_df_abs$aridity_class <- factor(
+  plot_df_abs$aridity_class,
+  levels = aridity_levels
+)
+
+ggplot(plot_df_abs,
+       aes(x = reorder(site, delta),
+           y = delta,
+           fill = scenario)) +
+  geom_col(position = position_dodge(width = 0.8)) +
+  facet_wrap(~ aridity_class, scales = "free_x", nrow = 1) +
+  coord_flip() +
+  scale_fill_manual(values = scenario_colours) +
+  labs(
+    x = "Site",
+    y = "Mean absolute change in annual GPP",
+    fill = "Scenario"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    strip.text = element_text(face = "bold"),
+    axis.text.y = element_text(size = 9),
+    legend.position = "top"
+  )
+```
+
