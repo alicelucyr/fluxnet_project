@@ -395,6 +395,14 @@ plot_data <- all_metrics_vpd %>%
   mutate(variable = factor(variable, levels = c("MAP", "MAT", "MAL")))
 
 p3 <- ggplot(plot_data, aes(x = value, y = R2)) +
+  geom_smooth(
+    method    = "loess",
+    se        = TRUE,
+    colour    = "grey40",
+    fill      = "grey85",
+    linewidth = 0.6,
+    span      = 0.9       # increase if the line is too wiggly, decrease for more flex
+  ) +
   geom_point(size = 3, colour = main_col) +
   geom_text_repel(
     aes(label = site),
@@ -461,6 +469,7 @@ p4 <- ggplot(record_data, aes(x = n_years, y = R2)) +
   thesis_theme
 
 print(p4)
+
 ```
 
 
