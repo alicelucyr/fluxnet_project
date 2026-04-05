@@ -511,10 +511,10 @@ ggplot(canopy_order, aes(x = reorder(site, desc(max_LAI)), y = max_LAI)) +
   theme_classic()
 ```
 ```{r}
-plot(sites_daily$Tum$date, sites_daily$Tum$VPD)
+plot(sites_daily$Dry$date, sites_daily$Dry$Precip)
 ```
 
 ```{r}
-plot(sites_daily$Tum$date, sites_daily$Tum$Precip)
+plot(sites_daily$Cpr$date, sites_daily$Cpr$Precip)
 ```
 

@@ -345,7 +345,7 @@ median_r2 <- median(
 
 p2 <- all_metrics_vpd %>%
   filter(model == "with_VPD") %>%
-  mutate(site = factor(site, levels = GPP_variability_order)) %>%
+  mutate(site = factor(site, levels = wet_to_dry_order)) %>%
   ggplot(aes(x = R2, y = site)) +
   geom_col(width = 0.7, fill = main_col) +
   geom_vline(
