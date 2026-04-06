@@ -564,8 +564,6 @@ p_aridity_pct <- annual_summary %>%
   scale_fill_manual(values = scenario_colours) +
   scale_x_discrete(labels = NULL) +
   labs(
-    title    = "Annual GPP change by aridity class and scenario",
-    subtitle = "Distribution across site-years — % change vs baseline predicted GPP",
     x        = NULL,
     y        = "Annual ΔGPP (%)",
     fill     = "Scenario"
@@ -610,8 +608,6 @@ p_aridity_abs <- annual_summary %>%
   scale_fill_manual(values = scenario_colours) +
   scale_x_discrete(labels = NULL) +
   labs(
-    title    = "Annual GPP change by aridity class and scenario",
-    subtitle = "Distribution across site-years — absolute change vs baseline predicted GPP",
     x        = NULL,
     y        = expression(Annual ~ Delta*GPP ~ (g ~ C ~ m^{-2} ~ yr^{-1})),
     fill     = "Scenario"
@@ -654,8 +650,6 @@ p_pct_sensitivity <- make_plot_df(site_summary, "pct") %>%
   coord_flip() +
   scale_fill_manual(values = scenario_colours) +
   labs(
-    title    = "Projected GPP change under future VPD scenarios",
-    subtitle = "Sites ordered from highest to lowest GPP–VPD sensitivity (Fog = steepest slope)",
     x        = "Site (Low to High Sensitivity)",
     y        = "Mean annual ΔGPP (%)",
     fill     = "Scenario"
