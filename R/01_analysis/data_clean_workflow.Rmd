@@ -515,6 +515,6 @@ plot(sites_daily$Dry$date, sites_daily$Dry$Precip)
 ```
 
 ```{r}
-plot(sites_daily$Cpr$date, sites_daily$Cpr$Precip)
+plot(sites_daily$Emr$date, sites_daily$Emr$Precip)
 ```
 
