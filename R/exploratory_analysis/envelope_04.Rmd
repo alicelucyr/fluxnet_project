@@ -21,7 +21,7 @@ predictors <- c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day")
 extreme_magnitude_increase <- 1.28
 
 # Remove unwanted sites before running
-sites_daily <- sites_daily[!names(sites_daily) %in%
+sites_future <- sites_daily[!names(sites_daily) %in%
   c("Emr", "Wac", "Ync")]
 
 # ── Aridity index site groupings ──────────────────────────────────────────────
@@ -173,8 +173,8 @@ run_future_envelope <- function(df, site_name) {
 
 ```{r}
 prepared_envelope <- map2(
-  sites_daily,
-  names(sites_daily),
+  sites_future,
+  names(sites_future),
   prepare_site_envelope
 )
 
