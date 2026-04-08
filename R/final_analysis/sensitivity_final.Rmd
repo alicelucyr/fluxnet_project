@@ -117,6 +117,130 @@ walk(plots, print)
 ```
 
 ```{r}
+# ── Join site-level environmental variables before clustering ─────────────────
+site_slopes_env <- site_slopes %>%
+  left_join(
+    site_meta %>%
+      select(site, MAP, MAT, MAL, AI),
+    by = "site"
+  )
+
+# ── Quick pairwise scatterplots: slope vs environmental variables ─────────────
+env_labels <- c(
+  MAP = "Mean Annual Precipitation (mm)",
+  MAT = "Mean Annual Temperature (°C)",
+  MAL = "Mean Annual LAI",
+  AI  = "Aridity Index"
+)
+
+site_slopes_env %>%
+  pivot_longer(
+    cols = c(MAP, MAT, MAL, AI),
+    names_to = "variable",
+    values_to = "value"
+  ) %>%
+  ggplot(aes(x = value, y = vpd_at_peak)) +
+  geom_point(size = 3, alpha = 0.8, colour = "#3366AA") +
+  geom_smooth(method = "lm", se = TRUE, colour = "firebrick", linewidth = 0.8) +
+  facet_wrap(~ variable, scales = "free_x",
+             labeller = as_labeller(env_labels)) +
+  labs(
+    x = NULL,
+    y = "VPD threshold",
+    title = "Relationship between VPD sensitivity and environmental variables"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    strip.background = element_blank(),
+    strip.text = element_text(face = "bold")
+  )
+```
+
+
+```{r}
+# ── Optional: label sites on the scatterplots ─────────────────────────────────
+library(ggrepel)
+
+site_slopes_env %>%
+  pivot_longer(
+    cols = c(MAP, MAT, MAL, AI),
+    names_to = "variable",
+    values_to = "value"
+  ) %>%
+  ggplot(aes(x = value, y = slope)) +
+  geom_point(size = 3, alpha = 0.8, colour = "#3366AA") +
+  geom_smooth(method = "lm", se = TRUE, colour = "firebrick", linewidth = 0.8) +
+  geom_text_repel(aes(label = site), size = 3, max.overlaps = 20) +
+  facet_wrap(~ variable, scales = "free_x",
+             labeller = as_labeller(env_labels)) +
+  labs(
+    x = NULL,
+    y = "Post-peak GPP~VPD slope",
+    title = "Relationship between VPD sensitivity and environmental variables"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    strip.background = element_blank(),
+    strip.text = element_text(face = "bold")
+  )
+```
+```{r}
+site_slopes_env %>%
+  pivot_longer(
+    cols = c(MAP, MAT),
+    names_to = "variable",
+    values_to = "value"
+  ) %>%
+  ggplot(aes(x = value, y = vpd_at_peak)) +
+  geom_point(size = 3, alpha = 0.8, colour = "#3366AA") +
+  geom_smooth(method = "lm", se = TRUE, colour = "firebrick", linewidth = 0.8) +
+  geom_text_repel(aes(label = site), size = 3, max.overlaps = 20) +
+  facet_wrap(~ variable, scales = "free_x",
+             labeller = as_labeller(env_labels)) +
+  labs(
+    x = NULL,
+    y = "Post-peak GPP-VPD slope",
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    strip.background = element_blank(),
+    strip.text = element_text(face = "bold")
+  )
+```
+
+```{r}
+site_slopes_env %>%
+  pivot_longer(
+    cols = c(MAP, MAT),
+    names_to = "variable",
+    values_to = "value"
+  ) %>%
+  ggplot(aes(x = value, y = vpd_at_peak, colour = cluster_multi)) +
+  geom_point(size = 3, alpha = 0.8) +
+  geom_smooth(method = "lm", se = TRUE, colour = "black", linewidth = 0.8) +
+  geom_text_repel(aes(label = site), size = 3, max.overlaps = 20) +
+  scale_colour_manual(
+    values = c(
+      "Low"    = "#44AA99",
+      "Medium" = "#DDCC77",
+      "High"   = "#AA4499"
+    )
+  ) +
+  facet_wrap(~ variable, scales = "free_x",
+             labeller = as_labeller(env_labels)) +
+  labs(
+    x = NULL,
+    y = "VPD threshold (kPa)",
+    colour = "Sensitivity"
+  ) +
+  theme_bw(base_size = 12) +
+  theme(
+    strip.background = element_blank(),
+    strip.text = element_text(face = "bold")
+  )
+```
+
+```{r}
 # Step 1: fit and assign clusters
 slopes_mat_2 <- site_slopes %>%
   filter(!is.na(slope)) %>%
