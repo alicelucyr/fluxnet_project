@@ -68,7 +68,7 @@ site_meta <- tibble(
          0.396, 0.365, 1.118, 0.349, 0.854, 0.23, 0.122, 1.221, 0.62, 0.227),
   aridity_index = c("Humid", "Semi-arid", "Dry sub-humid", "Semi-arid", "Semi-arid", "Arid", "Dry sub-humid", "Semi-arid", "Humid", "Semi-arid", "Semi-arid", "Semi-arid", "Humid", "Semi-arid", "Humid", "Semi-arid", "Arid", "Humid", "Dry sub-humid", "Semi-arid" ),
   
-  Precip_regime = c("Summer", "Summer", "Summer", "Summer", "Summer", "Arid", "Summer", "Arid", "Summer", "Winter", "Summer", "Winter", "Winter", "Winter", "Winter", "Uniform", "Arid", "Uniform", "Summer", "Winter")
+  Precip_regime = c("Summer dominant", "Summer dominant", "Summer dominant", "Summer dominant", "Summer dominant", "Arid", "Summer", "Arid", "Summer dominant", "Winter dominant", "Summer dominant", "Winter", "Uniform", "Winter", "Winter", "Uniform", "Arid", "Uniform", "Summer dominant", "Winter dominant")
   
 )
 
