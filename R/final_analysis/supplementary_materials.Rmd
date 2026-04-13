@@ -29,7 +29,7 @@ tol_muted
 
 ```{r}
 thesis_cols <- c(
-  main = "#44AA99",
+  main = "#4477AA",
   secondary = "#88CCEE",
   highlight = "#CC6677",
   extra = "#999933",
@@ -172,6 +172,12 @@ site_meta <- site_meta %>%
 
 
 ```
+
+```{r}
+sites_sf <- site_meta %>%
+  st_as_sf(coords = c("lon", "lat"), crs = 4326)
+```
+
 
 ```{r}
 library(ggplot2)
@@ -328,10 +334,61 @@ ggplot() +
   theme(plot.title = element_text(face = "bold"))
 ```
 
-
 ```{r}
-GPP_variability_order <- c("Ync", "Asm", "Stp", "Cpr", "Rdf", "Dap", "Whr", "Ade", "Boy", "How", "Gin", "Gww", "Dry", "Cum", "Emr", "Rig", "Fog", "Tum", "Das", "Wom", "Wac")
+# Mean Annual Precipitation sites map
+
+ggplot() +
+  geom_sf(data = australia, fill = "grey95", colour = "grey60", linewidth = 0.4) +
+  geom_sf(
+    data = sites_sf,
+    aes(colour = MAP),
+    size  = 3,
+    shape = 19
+  ) +
+  geom_text_repel(
+    data          = site_meta,
+    aes(x = lon, y = lat, label = site),
+    size          = 2.8,
+    fontface      = "bold",
+    colour        = "grey20",
+    segment.size  = 0.35,
+    segment.color = "grey50",
+    box.padding   = 0.5,
+    point.padding = 0.3,
+    max.overlaps  = Inf,
+    show.legend   = FALSE
+  ) +
+ scale_colour_gradientn(
+    colours = c("#8C510A", "#BF812D", "#F6E8C3", "#80CDC1", "#01665E"),
+    values  = scales::rescale(c(200, 500, 800, 1000, 1500, 2500), to = c(0, 1)),
+    limits  = c(200, 2800),
+    breaks  = c(500, 1000, 1500, 2000, 2500),
+    name    = "Mean annual precipitation (mm)",
+    guide   = guide_colorbar(
+      barwidth       = 10,
+      barheight      = 0.5,
+      title.position = "top",
+      title.hjust    = 0.5
+    )
+  ) +
+  coord_sf(xlim = c(110, 155), ylim = c(-45, -10)) +
+  labs(
+    x = "Longitude",
+    y = "Latitude"
+  ) +
+  theme_bw(base_size = 11) +
+  theme(
+    legend.position   = "bottom",
+    legend.direction  = "horizontal",
+    legend.margin = ggplot2::margin(t = 8, r = 12, b = 8, l = 12),
+    legend.background = element_rect(fill = "white", colour = "grey80", linewidth = 0.3),
+    legend.key        = element_blank(),
+    plot.title        = element_text(face = "bold", size = 13),
+    plot.subtitle     = element_text(size = 9, colour = "grey40"),
+    axis.title        = element_text(size = 9)
+  )
 ```
+
 
 
 

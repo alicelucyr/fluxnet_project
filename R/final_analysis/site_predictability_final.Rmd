@@ -235,7 +235,7 @@ all_metrics_vpd %>%
 # 2) R² (with_VPD only) - wet to dry order
 all_metrics_vpd %>%
   filter(model == "with_VPD") %>%
-  mutate(site = factor(site, levels = GPP_variability_order)) %>%
+  mutate(site = factor(site, levels = wet_to_dry_order)) %>%
   ggplot(aes(x = site, y = R2)) +
   geom_col(width = 0.7, fill = thesis_cols["main"]) +
   coord_flip() +
@@ -394,6 +394,7 @@ plot_data <- all_metrics_vpd %>%
   ) %>%
   mutate(variable = factor(variable, levels = c("MAP", "MAT", "MAL")))
 
+
 p3 <- ggplot(plot_data, aes(x = value, y = R2)) +
   geom_smooth(
     method    = "loess",
@@ -401,7 +402,7 @@ p3 <- ggplot(plot_data, aes(x = value, y = R2)) +
     colour    = "grey40",
     fill      = "grey85",
     linewidth = 0.6,
-    span      = 0.9       # increase if the line is too wiggly, decrease for more flex
+    span      = 1.3       # increase if the line is too wiggly, decrease for more flex
   ) +
   geom_point(size = 3, colour = main_col) +
   geom_text_repel(
@@ -416,7 +417,10 @@ p3 <- ggplot(plot_data, aes(x = value, y = R2)) +
     ncol     = 3,
     labeller = labeller(variable = var_labels)
   ) +
-  scale_y_continuous(expand = expansion(mult = c(0.05, 0.05))) +
+  scale_y_continuous(
+  limits = c(0, 0.8),
+  expand = expansion(mult = c(0.02, 0.05))
+) +
   labs(
     y       = expression(R^2 ~ "(RF with VPD)"),
     x       = NULL,

@@ -129,6 +129,168 @@ cat("\n── AU-Cpr fire regime shift diagnostic ──\n")
 print(metrics)
 
 ```
+```{r}
+range(loyo_during$date)
+```
+
+```{r}
+# ── Step 1: Run LOYO predictions for each period and combine ──────────────────
+# You already have these from your script:
+# loyo_pre, loyo_during, loyo_post, loyo_full
+# If not, re-run run_loyo_subset() for each period
+
+# Combine all period predictions into one dataframe
+ts_combined <- bind_rows(
+  loyo_pre %>% mutate(period = "Pre-fire"),
+  loyo_during %>% mutate(period = "During Fire / Recovery"),
+  loyo_post %>% mutate(period = "Post-fire")
+) %>%
+  mutate(
+    period = factor(period, levels = c(
+      "Pre-fire",
+      "During Fire / Recovery",
+      "Post-fire"
+    )),
+    date = as.Date(date)
+  )
+
+```
+
+```{r}
+
+# ── Step 2: Compute R² per period and full record ─────────────────────────────
+period_r2 <- ts_combined %>%
+  group_by(period) %>%
+  summarise(
+    r2    = round(cor(GPP_obs, GPP_pred, use = "complete.obs")^2, 3),
+    .groups = "drop"
+  )
+
+full_r2 <- round(cor(loyo_full$GPP_obs, loyo_full$GPP_pred,
+                     use = "complete.obs")^2, 3)
+
+```
+
+```{r}
+
+# ── Step 3: Define period date ranges for shading and annotations ─────────────
+period_bands <- tibble(
+  period = factor(c("Pre-fire", "During Fire / Recovery", "Post-fire"),
+                  levels = c("Pre-fire", "During Fire / Recovery", "Post-fire")),
+  xmin   = as.Date(c("2010-08-05", "2014-01-01", "2020-01-01")),
+  xmax   = as.Date(c("2013-12-31", "2019-12-31", "2024-12-31"))
+)
+
+# Label x positions — centre of each band for R² annotation
+period_labels <- period_bands %>%
+  mutate(x_mid = xmin + (xmax - xmin) / 2) %>%
+  left_join(period_r2, by = "period")
+
+# ── Step 4: Period colours ─────────────────────────────────────────────────────
+period_fill_cols <- c(
+  "Pre-fire"               = "#EE8866",
+  "During Fire / Recovery" = "#EE6677",
+  "Post-fire"              = "#CCBB44" 
+)
+
+# ── Step 5: Build the plot ────────────────────────────────────────────────────
+ggplot() +
+
+  # Background shading per period
+  geom_rect(
+    data = period_bands,
+    aes(xmin = xmin, xmax = xmax,
+        ymin = -Inf, ymax = Inf,
+        fill = period),
+    alpha = 0.08,
+    inherit.aes = FALSE
+  ) +
+
+  # Vertical dashed dividers between periods
+  geom_vline(
+    xintercept = as.numeric(as.Date(c("2014-01-01", "2020-01-01"))),
+    linetype   = "dashed",
+    colour     = "grey40",
+    linewidth  = 0.5
+  ) +
+
+  # Observed GPP — dark, semi-transparent
+  geom_line(
+    data   = ts_combined,
+    aes(x = date, y = GPP_obs),
+    colour = "grey20",
+    alpha  = 0.5,
+    linewidth = 0.35
+  ) +
+
+  # Predicted GPP — coloured by period
+  geom_line(
+    data = ts_combined,
+    aes(x = date, y = GPP_pred, colour = period),
+    alpha = 0.85,
+    linewidth = 0.5
+  ) +
+
+  # Period R² annotations — inside each shaded band, top
+  geom_text(
+    data = period_labels,
+    aes(x = x_mid, y = Inf,
+        label = paste0("R² = ", r2),
+        colour = period),
+    vjust      = 1.6,
+    fontface   = "bold",
+    size       = 3.5,
+    inherit.aes = FALSE
+  ) +
+
+  # Period name annotations — just below R²
+  geom_text(
+    data = period_labels,
+    aes(x = x_mid, y = Inf, label = as.character(period),
+        colour = period),
+    vjust      = 3.2,
+    size       = 3,
+    inherit.aes = FALSE
+  ) +
+
+  # Full record R² — top left corner
+  annotate(
+    "text",
+    x        = as.Date("2010-03-01"),
+    y        = -Inf,
+    label    = paste0("Full record R² = ", full_r2),
+    hjust    = 0,
+    vjust    = -0.8,
+    size     = 3.2,
+    colour   = "grey30",
+    fontface = "italic"
+  ) +
+
+  scale_colour_manual(values = period_fill_cols) +
+  scale_fill_manual(values = period_fill_cols) +
+
+  scale_x_date(
+    date_breaks = "2 years",
+    date_labels = "%Y",
+    expand      = expansion(mult = c(0.01, 0.01))
+  ) +
+
+  labs(
+    x      = NULL,
+    y      = expression(GPP ~ (g ~ C ~ m^{-2} ~ d^{-1})),
+    colour = NULL
+  ) +
+
+  theme_classic(base_size = 12) +
+  theme(
+    axis.text.x      = element_text(angle = 45, hjust = 1),
+    legend.position  = "none",
+    panel.grid.major.y = element_line(colour = "grey93", linewidth = 0.3),
+    strip.background = element_blank()
+  )
+```
+
+
 
 ```{r}
 

@@ -115,476 +115,389 @@ plots <- map(site_groups, function(sites_subset) {
 walk(plots, print)
 
 ```
-
 ```{r}
-# ── Join site-level environmental variables before clustering ─────────────────
 site_slopes_env <- site_slopes %>%
+  filter(!is.na(slope)) %>%
   left_join(
-    site_meta %>%
-      select(site, MAP, MAT, MAL, AI),
+    site_meta %>% select(site, MAP, MAT, Precip_regime, MAL),
     by = "site"
   )
+```
 
-# ── Quick pairwise scatterplots: slope vs environmental variables ─────────────
-env_labels <- c(
-  MAP = "Mean Annual Precipitation (mm)",
-  MAT = "Mean Annual Temperature (°C)",
-  MAL = "Mean Annual LAI",
-  AI  = "Aridity Index"
+
+```{r}
+glimpse(site_slopes_env)
+unique(site_slopes_env$Precip_regime)
+```
+```{r}
+# ── Fix duplicate MAL columns ─────────────────────────────────────────────────
+site_slopes_env <- site_slopes_env %>%
+  select(-MAL.y) %>%                    # drop the duplicate
+  rename(MAL = MAL.x)                   # rename the keeper
+
+# ── Check it worked ───────────────────────────────────────────────────────────
+names(site_slopes_env)
+```
+
+
+```{r}
+precip_colours <- c(
+  "Summer"  = "#4477AA",
+  "Winter"  = "#228833",
+  "Arid"    = "#EE6677",
+  "Uniform" = "#AA3377", 
+  "Summer dominant" = "#EE8866", 
+  "Winter dominant" = "#66CCEE"
 )
-
-site_slopes_env %>%
-  pivot_longer(
-    cols = c(MAP, MAT, MAL, AI),
-    names_to = "variable",
-    values_to = "value"
-  ) %>%
-  ggplot(aes(x = value, y = vpd_at_peak)) +
-  geom_point(size = 3, alpha = 0.8, colour = "#3366AA") +
-  geom_smooth(method = "lm", se = TRUE, colour = "firebrick", linewidth = 0.8) +
-  facet_wrap(~ variable, scales = "free_x",
-             labeller = as_labeller(env_labels)) +
-  labs(
-    x = NULL,
-    y = "VPD threshold",
-    title = "Relationship between VPD sensitivity and environmental variables"
-  ) +
-  theme_classic(base_size = 12) +
-  theme(
-    strip.background = element_blank(),
-    strip.text = element_text(face = "bold")
-  )
-```
-
-
-```{r}
-# ── Optional: label sites on the scatterplots ─────────────────────────────────
-library(ggrepel)
-
-site_slopes_env %>%
-  pivot_longer(
-    cols = c(MAP, MAT, MAL, AI),
-    names_to = "variable",
-    values_to = "value"
-  ) %>%
-  ggplot(aes(x = value, y = slope)) +
-  geom_point(size = 3, alpha = 0.8, colour = "#3366AA") +
-  geom_smooth(method = "lm", se = TRUE, colour = "firebrick", linewidth = 0.8) +
-  geom_text_repel(aes(label = site), size = 3, max.overlaps = 20) +
-  facet_wrap(~ variable, scales = "free_x",
-             labeller = as_labeller(env_labels)) +
-  labs(
-    x = NULL,
-    y = "Post-peak GPP~VPD slope",
-    title = "Relationship between VPD sensitivity and environmental variables"
-  ) +
-  theme_classic(base_size = 12) +
-  theme(
-    strip.background = element_blank(),
-    strip.text = element_text(face = "bold")
-  )
-```
-```{r}
-site_slopes_env %>%
-  pivot_longer(
-    cols = c(MAP, MAT),
-    names_to = "variable",
-    values_to = "value"
-  ) %>%
-  ggplot(aes(x = value, y = vpd_at_peak)) +
-  geom_point(size = 3, alpha = 0.8, colour = "#3366AA") +
-  geom_smooth(method = "lm", se = TRUE, colour = "firebrick", linewidth = 0.8) +
-  geom_text_repel(aes(label = site), size = 3, max.overlaps = 20) +
-  facet_wrap(~ variable, scales = "free_x",
-             labeller = as_labeller(env_labels)) +
-  labs(
-    x = NULL,
-    y = "Post-peak GPP-VPD slope",
-  ) +
-  theme_classic(base_size = 12) +
-  theme(
-    strip.background = element_blank(),
-    strip.text = element_text(face = "bold")
-  )
 ```
 
 ```{r}
-site_slopes_env %>%
+env_labels <- c(
+  MAP = "MAP (mm/year)",
+  MAT = "MAT (°C)", 
+  MAL = "MAL"
+)
+```
+
+```{r}
+p_slope <- site_slopes_env %>%
   pivot_longer(
-    cols = c(MAP, MAT),
-    names_to = "variable",
+    cols      = c(MAP, MAT),
+    names_to  = "variable",
     values_to = "value"
   ) %>%
-  ggplot(aes(x = value, y = vpd_at_peak, colour = cluster_multi)) +
-  geom_point(size = 3, alpha = 0.8) +
-  geom_smooth(method = "lm", se = TRUE, colour = "black", linewidth = 0.8) +
-  geom_text_repel(aes(label = site), size = 3, max.overlaps = 20) +
+  ggplot(aes(x = value, y = slope, colour = Precip_regime)) +
+  
+  geom_smooth(
+    method    = "lm",
+    se        = TRUE,
+    colour    = "grey30",
+    fill      = "grey85",
+    linewidth = 0.7,
+    alpha     = 0.4
+  ) +
+  
+  geom_point(
+    size  = 3,
+    alpha = 0.9
+  ) +
+  
+  geom_text_repel(
+    aes(label = site),
+    size         = 2.8,
+    max.overlaps = 20,
+    show.legend  = FALSE
+  ) +
+  
   scale_colour_manual(
-    values = c(
-      "Low"    = "#44AA99",
-      "Medium" = "#DDCC77",
-      "High"   = "#AA4499"
-    )
+    values = precip_colours,
+    name   = "Precipitation regime"
   ) +
-  facet_wrap(~ variable, scales = "free_x",
-             labeller = as_labeller(env_labels)) +
+  
+  facet_wrap(
+    ~ variable,
+    scales   = "free_x",
+    labeller = as_labeller(env_labels)
+  ) +
+  
   labs(
     x = NULL,
-    y = "VPD threshold (kPa)",
-    colour = "Sensitivity"
+    y = "Post-peak GPP~VPD slope (β)"
   ) +
+  
   theme_bw(base_size = 12) +
   theme(
     strip.background = element_blank(),
-    strip.text = element_text(face = "bold")
-  )
-```
-
-```{r}
-# Step 1: fit and assign clusters
-slopes_mat_2 <- site_slopes %>%
-  filter(!is.na(slope)) %>%
-  column_to_rownames("site") %>%
-  select(slope, vpd_at_peak) %>%
-  scale()
-
-hclust_fit_2 <- hclust(dist(slopes_mat_2, method = "euclidean"), method = "ward.D2")
-
-# Step 2: derive level order from hclust_fit_2 specifically
-cluster_means_2 <- site_slopes %>%
-  filter(!is.na(slope)) %>%
-  mutate(cluster_raw = factor(cutree(hclust_fit_2, k = 3))) %>%
-  group_by(cluster_raw) %>%
-  summarise(mean_slope = mean(slope)) %>%
-  arrange(mean_slope)  # most negative = high sensitivity
-
-level_order_2 <- cluster_means_2$cluster_raw
-
-# Step 3: assign and recode in one clean step
-site_slopes <- site_slopes %>%
-  filter(!is.na(slope)) %>%
-  mutate(
-    cluster_multi = factor(cutree(hclust_fit_2, k = 3)),
-    cluster_multi = fct_recode(cluster_multi,
-      "high"   = as.character(level_order_2[1]),
-      "medium" = as.character(level_order_2[2]),
-      "low"    = as.character(level_order_2[3])
-    ),
-    cluster_multi = factor(cluster_multi, levels = c("low", "medium", "high"))
-  )
-```
-
-```{r}
-# ── Step 1: scale and fit ─────────────────────────────────────────────────────
-slopes_mat_2 <- site_slopes %>%
-  filter(!is.na(slope)) %>%
-  column_to_rownames("site") %>%
-  select(slope, vpd_at_peak) %>%
-  scale()
-
-hclust_fit_2 <- hclust(dist(slopes_mat_2, method = "euclidean"), method = "ward.D2")
-
-# ── Step 2: verify cluster number is justified ────────────────────────────────
-# Silhouette score — confirm k=3 is optimal
-library(cluster)
-sil_scores <- map_dbl(2:6, function(k) {
-  clusters <- cutree(hclust_fit_2, k = k)
-  mean(silhouette(clusters, dist(slopes_mat_2))[, 3])
-})
-tibble(k = 2:6, silhouette = sil_scores)  # highest score = best k
-
-# ── Step 3: derive label order from mean slope ────────────────────────────────
-cluster_means_2 <- site_slopes %>%
-  filter(!is.na(slope)) %>%
-  mutate(cluster_raw = factor(cutree(hclust_fit_2, k = 3))) %>%
-  group_by(cluster_raw) %>%
-  summarise(
-    mean_slope     = mean(slope),
-    mean_intercept = mean(intercept),
-    mean_peak_vpd  = mean(vpd_at_peak),
-    n_sites        = n()             # useful to check cluster sizes
-  ) %>%
-  arrange(mean_slope)                # most negative = high sensitivity
-
-print(cluster_means_2)               # sanity check before labelling
-level_order_2 <- cluster_means_2$cluster_raw
-
-# ── Step 4: assign labels ─────────────────────────────────────────────────────
-site_slopes <- site_slopes %>%
-  filter(!is.na(slope)) %>%
-  mutate(
-    cluster_multi = factor(cutree(hclust_fit_2, k = 3)),
-    cluster_multi = fct_recode(cluster_multi,
-      "High"   = as.character(level_order_2[1]),
-      "Medium" = as.character(level_order_2[2]),
-      "Low" = as.character(level_order_2[3])
-    ),
-    cluster_multi = factor(cluster_multi, levels = c("Low", "Medium", "High"))
-  )
-
-# ── Step 5: verify — check mean slope per labelled cluster ───────────────────
-site_slopes %>%
-  group_by(cluster_multi) %>%
-  summarise(mean_slope = mean(slope), n = n())
-```
-
-```{r}
-unique(site_slopes$cluster_multi)
-```
-
-
-```{r}
-
-# Step 4: plot
-ggplot(site_slopes %>% mutate(site = factor(site, levels = wet_to_dry_order)),
-       aes(x = site, y = slope, colour = cluster_multi)) +
-  geom_point(size = 3) +
-  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
-  coord_flip() +
-  scale_colour_manual(values = c(
-    "Low"    = "#44AA99",
-    "Medium" = "#DDCC77",
-    "High"   = "#AA4499"
-  )) +
-  labs(
-    x = "Site (Wet to Dry)",
-    y = "GPP~VPD Slope",
-    colour = "Sensitivity",
-    title = "GPP sensitivity clusters"
+    strip.text       = element_text(face = "bold", size = 11),
+    legend.position  = "none",
+    legend.title     = element_text(face = "bold"),
+    panel.grid.minor = element_blank()
   ) +
-  theme_classic()
-```
-```{r}
-site_slopes <- site_slopes %>%
-  left_join(site_meta, by = "site")
- 
-```
-
-```{r}
-site_slopes <- site_slopes %>%
-  mutate(cluster_multi = factor(cluster_multi, levels = c("Low", "Medium", "High")))
-
-cluster_colours <- c(
- "Low"    = "#44AA99",
-    "Medium" = "#DDCC77",
-    "High"   = "#AA4499" 
-)
-
-site_slopes %>%
-  pivot_longer(cols = c(MAP, MAT, MAL), names_to = "variable", values_to = "value") %>%
-  ggplot(aes(x = cluster_multi, y = value, fill = cluster_multi)) +
-  geom_boxplot(alpha = 0.85, outlier.shape = NA) +
-  geom_jitter(width = 0.1, size = 2, alpha = 0.6) +
-  scale_fill_manual(values = cluster_colours) +
-  facet_wrap(~ variable, scales = "free_y") +
-  labs(x = "Sensitivity cluster", y = NULL) +
-  theme_classic() +
-  theme(legend.position = "none")
-```
-
-```{r}
-library(ggplot2)
-library(dplyr)
-library(scico)
-
-# Define a colourblind-friendly palette that matches your thesis style
-pft_cols <- c(
-  "WSA" = "#DDCC77",   
-  "SAV"  = "#CC6677",    
-  "WET" = "#88CCEE",    
-  "EBF" = "#999933", 
-  "GRA" = "#661100"
-)
-
-site_slopes %>%
-  count(cluster_multi, PFT) %>%
-  group_by(cluster_multi) %>%
-  mutate(
-    prop          = n / sum(n),
-    cluster_multi = factor(cluster_multi, levels = c("Low", "Medium", "High"))
-  ) %>%
-  ggplot(aes(x = cluster_multi, y = prop, fill = PFT)) +
-  geom_col(width = 0.7) +
-  scale_y_continuous(labels = scales::percent_format()) +
-  scale_fill_manual(values = pft_cols) +  # <-- use custom colourblind palette
-  labs(x = "Sensitivity cluster", y = "Proportion of sites", fill = "PFT") +
-  theme_classic() +
-  theme(legend.position = "right")
-
-```
-
-```{r}
-
-# Define a colourblind-friendly palette that matches your thesis style
-climate_cols <- c(
-  "Tropical" = "#88CCEE",    
-  "Temperate"  = "#CC6677",    
-  "Desert" = "#DDCC77",    
-  "Subtropical" = "#999933",
-  "Grassland" = "#661100"
-)
-
-site_slopes %>%
-  count(cluster_multi, koppen) %>%
-  group_by(cluster_multi) %>%
-  mutate(
-    prop          = n / sum(n),
-    cluster_multi = factor(cluster_multi, levels = c("Low", "Medium", "High"))
-  ) %>%
-  ggplot(aes(x = cluster_multi, y = prop, fill = koppen)) +
-  geom_col(width = 0.7) +
-  geom_text(
-  aes(label = scales::percent(prop, accuracy = 1)),
-  position = position_stack(vjust = 0.5),
-  size = 3,
-  colour = "white",
-  fontface = "bold"
-) +
-  scale_y_continuous(labels = scales::percent_format()) +
-  scale_fill_manual(values = climate_cols) +  # <-- use custom colourblind palette
-  labs(x = "Sensitivity cluster", y = "Proportion of sites", fill = "Climate") +
-  theme_classic() +
-  theme(legend.position = "right")
-
-aridity_cols <- c(
-  "Humid"         = "#6699CC", 
-  "Dry sub-humid" = "#EE99AA",
-  "Semi-arid"     = "#EECC66",
-  "Arid"          = "#882255"
-)
-
-site_slopes %>%
-  count(cluster_multi, aridity_index) %>%
-  group_by(cluster_multi) %>%
-  mutate(
-    prop          = n / sum(n),
-    cluster_multi = factor(cluster_multi, levels = c("Low", "Medium", "High")),
-    aridity_index = factor(aridity_index,
-                           levels = c("Humid", "Dry sub-humid", "Semi-arid", "Arid"))
-  ) %>%
-  ggplot(aes(x = cluster_multi, y = prop, fill = aridity_index)) +
-  geom_col(width = 0.7) +
-  geom_text(
-  aes(label = scales::percent(prop, accuracy = 1)),
-  position = position_stack(vjust = 0.5),
-  size = 3,
-  colour = "white",
-  fontface = "bold"
-) +
-  scale_y_continuous(labels = scales::percent_format()) +
-  scale_fill_manual(values = aridity_cols) +
-  labs(x = "Sensitivity cluster", y = "Proportion of sites", fill = "Aridity index") +
-  theme_classic() +
-  theme(legend.position = "right")
-
-```
-
-```{r}
-# ── Join cluster labels onto clouds and fitted lines ──────────────────────────
-cluster_lookup <- site_slopes %>% select(site, cluster_multi)
-
-all_clouds_cl  <- all_clouds  %>% left_join(cluster_lookup, by = "site")
-fitted_lines_cl <- fitted_lines %>% left_join(cluster_lookup, by = "site")
-
-# ── Order sites wet to dry within each cluster ────────────────────────────────
-site_order <- site_slopes %>%
-  arrange(cluster_multi, slope) %>%
-  pull(site)
-
-all_clouds_cl   <- all_clouds_cl   %>% mutate(site = factor(site, levels = site_order))
-fitted_lines_cl <- fitted_lines_cl %>% mutate(site = factor(site, levels = site_order))
-site_slopes_cl  <- site_slopes     %>% mutate(site = factor(site, levels = site_order))
-
-# ── Cluster colours (from earlier) ───────────────────────────────────────────
-cluster_colours <- c(
-  "Low"    = "#44AA99",
-  "Medium" = "#DDCC77",
-  "High"   = "#AA4499"
-)
-
-# ── Split into pages of 6 sites, preserving cluster order ────────────────────
-site_names_ordered <- levels(all_clouds_cl$site)
-site_groups        <- split(site_names_ordered,
-                            ceiling(seq_along(site_names_ordered) / 6))
-
-plots <- map(site_groups, function(sites_subset) {
   
-  cloud_sub   <- all_clouds_cl   %>% filter(site %in% sites_subset)
-  fitted_sub  <- fitted_lines_cl %>% filter(site %in% sites_subset)
-  slopes_sub  <- site_slopes_cl  %>% filter(site %in% sites_subset)
-  
-  ggplot() +
-    # Raw binned point cloud — coloured by cluster, small and transparent
-    geom_point(data = cloud_sub,
-               aes(x = VPD, y = gpp_norm, colour = cluster_multi),
-               size = 0.4, alpha = 0.15) +
-    # Fitted slope line — solid, full opacity
-    geom_line(data = fitted_sub,
-              aes(x = vpd_mid, y = fitted, colour = cluster_multi),
-              linewidth = 0.9) +
-    # Peak VPD marker
-    geom_vline(data = slopes_sub,
-               aes(xintercept = vpd_at_peak, colour = cluster_multi),
-               linetype = "dashed", linewidth = 0.4, alpha = 0.6) +
-    # Slope annotation in corner of each panel
-    geom_text(data = slopes_sub,
-              aes(label = paste0("β = ", round(slope, 2)),
-                  colour = cluster_multi),
-              x = Inf, y = Inf, hjust = 1.1, vjust = 1.4,
-              size = 2.8, fontface = "bold") +
-    scale_colour_manual(values = cluster_colours, name = "Sensitivity") +
-    facet_wrap(~ site, scales = "free_x", ncol = 2) +
-    coord_cartesian(ylim = c(0, 1.3)) +
-    labs(x = "VPD (kPa)", y = "Normalised GPP") +
-    theme_classic(base_size = 10) +
-    theme(
-      strip.background = element_blank(),
-      strip.text       = element_text(face = "bold", size = 8),
-      legend.position  = "bottom",
-      legend.text      = element_text(size = 9),
-      panel.grid.major = element_line(colour = "grey94", linewidth = 0.3)
-    ) +
-    guides(colour = guide_legend(
-      override.aes = list(size = 3, alpha = 1, linewidth = 1)
-    ))
-})
+  guides(colour = guide_legend(
+    nrow         = 2,
+    override.aes = list(size = 4)
+  ))
 
-walk(plots, print)
-
-# ── Optional: save all pages to a single PDF ──────────────────────────────────
-pdf("vpd_slopes_by_site.pdf", width = 7, height = 9)
-walk(plots, print)
-dev.off()
-
+print(p_slope)
 ```
+
+
+```{r}
+p_threshold <- site_slopes_env %>%
+  pivot_longer(
+    cols      = c(MAP, MAT),
+    names_to  = "variable",
+    values_to = "value"
+  ) %>%
+  ggplot(aes(x = value, y = vpd_at_peak, colour = Precip_regime)) +
+  
+  geom_smooth(
+    method    = "lm",
+    se        = TRUE,
+    colour    = "grey30",
+    fill      = "grey85",
+    linewidth = 0.7,
+    alpha     = 0.4
+  ) +
+  
+  geom_point(
+    size  = 3,
+    alpha = 0.9
+  ) +
+  
+  geom_text_repel(
+    aes(label = site),
+    size         = 2.8,
+    max.overlaps = 20,
+    show.legend  = FALSE
+  ) +
+  
+  scale_colour_manual(
+    values = precip_colours,
+    name   = "Precipitation regime"
+  ) +
+  
+  facet_wrap(
+    ~ variable,
+    scales   = "free_x",
+    labeller = as_labeller(env_labels)
+  ) +
+  
+  labs(
+    x = NULL,
+    y = "VPD threshold (kPa)"
+  ) +
+  
+  theme_bw(base_size = 12) +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold", size = 11),
+    legend.position  = "bottom",
+    legend.title     = element_text(face = "bold"),
+    panel.grid.minor = element_blank()
+  ) +
+  
+  guides(colour = guide_legend(
+    nrow         = 2,
+    override.aes = list(size = 4)
+  ))
+
+print(p_threshold)
+```
+
+```{r}
+summary(site_slopes$vpd_at_peak)
+```
+
+```{r}
+p_slope <- site_slopes_env %>%
+  pivot_longer(
+    cols      = c(MAP, MAT, MAL),       # added MAL here
+    names_to  = "variable",
+    values_to = "value"
+  ) %>%
+  ggplot(aes(x = value, y = vpd_at_peak, colour = Precip_regime)) +
+  
+  geom_smooth(
+    method    = "lm",
+    se        = TRUE,
+    colour    = "grey30",
+    fill      = "grey85",
+    linewidth = 0.7,
+    alpha     = 0.4
+  ) +
+  
+  geom_point(
+    size  = 3,
+    alpha = 0.9
+  ) +
+  
+  geom_text_repel(
+    aes(label = site),
+    size         = 2.8,
+    max.overlaps = 20,
+    show.legend  = FALSE
+  ) +
+  
+  scale_colour_manual(
+    values = precip_colours,
+    name   = "Precipitation regime"
+  ) +
+  
+  facet_wrap(
+    ~ factor(variable, levels = c("MAP", "MAT", "MAL")),  # control panel order
+    scales   = "free_x",
+    labeller = as_labeller(env_labels),
+    ncol     = 3                        # force all three panels in one row
+  ) +
+  
+  labs(
+    x = NULL,
+    y = "VPD peak (kPa)"
+  ) +
+  
+theme_bw(base_size = 12) +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold", size = 10),
+    legend.position  = "bottom",
+    legend.text      = element_text(size = 7),
+    legend.title     = element_text(size = 8, face = "bold"),
+    legend.key.size  = unit(0.4, "cm"),   # shrinks the colour swatch too
+    panel.grid.minor = element_blank()
+  )
+
+print(p_slope)
+```
+
+
 
 ```{r}
 library(tidyverse)
+library(ggrepel)
+library(patchwork)
 
-# ── Cluster colours ───────────────────────────────────────────────────────────
+# ── MASTER COLOURS ────────────────────────────────────────────────────────────
 cluster_colours <- c(
-  "Low"    = "#44AA99",
-  "Medium" = "#DDCC77",
-  "High"   = "#AA4499"
+  "Low"    = "#4477AA",
+  "Medium" = "#CCBB44",
+  "High"   = "#EE6677"
 )
 
-# ── Step 1: compute mean slope line per cluster ───────────────────────────────
-# Average the intercept, slope and vpd_at_peak across sites within each cluster
-# then generate a fitted line from the mean parameters
+climate_colours <- c(
+  "Tropical"    = "#EE8866",
+  "Subtropical" = "#FFAABB",
+  "Temperate"   = "#77AADD",
+  "Grassland"   = "#BBCC33",
+  "Desert"      = "#EEDD88"
+)
+
+pft_colours <- c(
+  "WSA" = "#EEDD88",
+  "SAV" = "#EE8866",
+  "WET" = "#77AADD",
+  "EBF" = "#BBCC33",
+  "GRA" = "#FFAABB"
+)
+
+```
+
+```{r}
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 1: PREPARE SCALED MATRIX
+# ══════════════════════════════════════════════════════════════════════════════
+
+slopes_mat <- site_slopes %>%
+  filter(!is.na(slope), !is.na(vpd_at_peak)) %>%
+  column_to_rownames("site") %>%
+  select(slope, vpd_at_peak) %>%
+  scale()
+
+```
+
+```{r}
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 2: ELBOW PLOT — find optimal k (for supplementary)
+# ══════════════════════════════════════════════════════════════════════════════
+
+set.seed(42)
+
+wss <- map_dbl(1:8, function(k) {
+  kmeans(slopes_mat, centers = k, nstart = 25, iter.max = 100)$tot.withinss
+})
+
+p_elbow <- tibble(k = 1:8, wss = wss) %>%
+  ggplot(aes(x = k, y = wss)) +
+  geom_line(linewidth = 0.8, colour = "grey40") +
+  geom_point(size = 3, colour = "#4477AA") +
+  geom_vline(xintercept = 3, linetype = "dashed",
+             colour = "#EE6677", linewidth = 0.6) +
+  annotate("text", x = 3.15, y = max(wss) * 0.95,
+           label = "k = 3 selected",
+           hjust = 0, size = 3.5,
+           colour = "#EE6677", fontface = "italic") +
+  scale_x_continuous(breaks = 1:8) +
+  labs(
+    x        = "Number of clusters (k)",
+    y        = "Total within-cluster sum of squares",
+    title    = "Elbow plot — k-means cluster selection",
+    subtitle = "Slope and VPD threshold used as clustering variables"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title    = element_text(face = "bold"),
+    plot.subtitle = element_text(colour = "grey40", size = 9)
+  )
+
+print(p_elbow)  # save this to supplementary
+
+```
+
+```{r}
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 3: FIT K-MEANS WITH k = 3
+# ══════════════════════════════════════════════════════════════════════════════
+
+set.seed(42)
+km_fit <- kmeans(slopes_mat, centers = 3, nstart = 25, iter.max = 100)
+
+# ── Assign raw cluster labels ─────────────────────────────────────────────────
+site_slopes <- site_slopes %>%
+  filter(!is.na(slope), !is.na(vpd_at_peak)) %>%
+  mutate(cluster_raw = factor(km_fit$cluster))
+
+# ── Order clusters by mean slope (most negative = High sensitivity) ───────────
+cluster_order <- site_slopes %>%
+  group_by(cluster_raw) %>%
+  summarise(mean_slope = mean(slope), .groups = "drop") %>%
+  arrange(mean_slope) %>%          # most negative first = High
+  mutate(cluster_multi = c("High", "Medium", "Low"))
+
+site_slopes <- site_slopes %>%
+  left_join(cluster_order %>% select(cluster_raw, cluster_multi),
+            by = "cluster_raw") %>%
+  mutate(cluster_multi = factor(cluster_multi,
+                                levels = c("Low", "Medium", "High")))
+
+# ── Sanity check ──────────────────────────────────────────────────────────────
+site_slopes %>%
+  group_by(cluster_multi) %>%
+  summarise(
+    mean_slope     = round(mean(slope), 3),
+    mean_threshold = round(mean(vpd_at_peak), 3),
+    n              = n()
+  )
+
+```
+
+```{r}
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 4: JOIN site_meta AND rebuild cloud/fitted objects
+# ══════════════════════════════════════════════════════════════════════════════
+
+site_slopes <- site_slopes %>%
+  left_join(site_meta, by = "site")
+
+cluster_lookup  <- site_slopes %>% select(site, cluster_multi)
+all_clouds_cl   <- all_clouds   %>% left_join(cluster_lookup, by = "site")
+fitted_lines_cl <- fitted_lines %>% left_join(cluster_lookup, by = "site")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 5: THREE-PANEL CLUSTER SUMMARY PLOT
+# ══════════════════════════════════════════════════════════════════════════════
 
 cluster_mean_params <- site_slopes %>%
   filter(!is.na(slope)) %>%
   group_by(cluster_multi) %>%
   summarise(
-    mean_slope      = mean(slope,       na.rm = TRUE),
-    mean_intercept  = mean(intercept,   na.rm = TRUE),
-    mean_vpd_peak   = mean(vpd_at_peak, na.rm = TRUE),
-    n_sites         = n(),
+    mean_slope     = mean(slope,       na.rm = TRUE),
+    mean_intercept = mean(intercept,   na.rm = TRUE),
+    mean_vpd_peak  = mean(vpd_at_peak, na.rm = TRUE),
+    n_sites        = n(),
     .groups = "drop"
   )
 
-# Generate the mean fitted line for each cluster
-# starting from the mean VPD peak, running to VPD = 6
 cluster_mean_lines <- cluster_mean_params %>%
   rowwise() %>%
   reframe(
@@ -596,7 +509,6 @@ cluster_mean_lines <- cluster_mean_params %>%
     fitted        = mean_intercept + mean_slope * vpd_mid
   )
 
-# ── Step 2: label for each panel showing n sites and mean slope ───────────────
 cluster_labels <- cluster_mean_params %>%
   mutate(
     label = paste0(
@@ -606,41 +518,32 @@ cluster_labels <- cluster_mean_params %>%
     )
   )
 
-# ── Step 3: build the three-panel plot ────────────────────────────────────────
 p_cluster_summary <- ggplot() +
 
-  # All individual site points — pooled within each cluster panel
-  # small and transparent so the mean line is the visual focus
   geom_point(
     data  = all_clouds_cl,
     aes(x = VPD, y = gpp_norm, colour = cluster_multi),
     size  = 0.3, alpha = 0.08
   ) +
 
-  # Individual site fitted lines — thin, semi-transparent
-  # shows the spread of slopes within each cluster
   geom_line(
     data      = fitted_lines_cl,
     aes(x = vpd_mid, y = fitted, group = site, colour = cluster_multi),
     linewidth = 0.4, alpha = 0.35
   ) +
 
-  # Mean slope line per cluster — thick and fully opaque
-  # this is the key visual element the reader focuses on
   geom_line(
     data      = cluster_mean_lines,
     aes(x = vpd_mid, y = fitted, colour = cluster_multi),
-    linewidth = 1.4, alpha = 1
+    linewidth = 1.5, alpha = 1
   ) +
 
-  # Mean VPD peak marker per cluster
   geom_vline(
     data     = cluster_mean_params,
     aes(xintercept = mean_vpd_peak, colour = cluster_multi),
-    linetype = "dashed", linewidth = 0.5, alpha = 0.7
+    linetype = "dashed", linewidth = 0.5, alpha = 0.8
   ) +
 
-  # Annotation showing n sites and mean slope in each panel
   geom_text(
     data        = cluster_labels,
     aes(label   = label, colour = cluster_multi),
@@ -650,29 +553,377 @@ p_cluster_summary <- ggplot() +
     inherit.aes = FALSE
   ) +
 
-  # Facet by cluster — three panels
   facet_wrap(
     ~ factor(cluster_multi, levels = c("Low", "Medium", "High")),
     ncol   = 3,
     scales = "free_x"
   ) +
 
-  scale_colour_manual(values = cluster_colours, name = "Sensitivity") +
+  scale_colour_manual(values = cluster_colours) +
   coord_cartesian(ylim = c(0, 1.3)) +
-  labs(
-    x        = "VPD (kPa)",
-    y        = "Normalised GPP"
-  ) +
+  labs(x = "VPD (kPa)", y = "Normalised GPP") +
   theme_classic(base_size = 12) +
   theme(
-    plot.title       = element_text(face = "bold", size = 13),
-    plot.subtitle    = element_text(colour = "grey40", size = 9),
     strip.background = element_blank(),
     strip.text       = element_text(face = "bold", size = 11),
-    legend.position  = "none",  # cluster is shown by facet label, legend redundant
+    legend.position  = "none",
     panel.grid.major = element_line(colour = "grey94", linewidth = 0.3)
   )
 
 print(p_cluster_summary)
+
 ```
+
+```{r}
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 6: BAR PLOTS — PFT, CLIMATE, PRECIP REGIME PER CLUSTER
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Helper function to avoid repeating bar plot code ─────────────────────────
+make_bar_plot <- function(data, group_var, fill_colours, legend_title) {
+  data %>%
+    count(cluster_multi, {{ group_var }}) %>%
+    group_by(cluster_multi) %>%
+    mutate(
+      prop          = n / sum(n),
+      cluster_multi = factor(cluster_multi, levels = c("Low", "Medium", "High"))
+    ) %>%
+    ggplot(aes(x = cluster_multi, y = prop, fill = {{ group_var }})) +
+    geom_col(width = 0.7) +
+    geom_text(
+      aes(label = scales::percent(prop, accuracy = 1)),
+      position = position_stack(vjust = 0.5),
+      size     = 3,
+      colour   = "white",
+      fontface = "bold"
+    ) +
+    scale_y_continuous(labels = scales::percent_format()) +
+    scale_fill_manual(values = fill_colours, name = legend_title) +
+    labs(x = "Sensitivity cluster", y = "Proportion of sites") +
+    theme_classic(base_size = 11) +
+    theme(
+      legend.position = "right",
+      legend.title    = element_text(face = "bold", size = 9),
+      legend.text     = element_text(size = 8)
+    )
+}
+
+# ── Check column names match your data ───────────────────────────────────────
+# update "koppen", "PFT", "Precip_regime" if your columns are named differently
+names(site_slopes)
+
+p_pft     <- make_bar_plot(site_slopes, PFT,          pft_colours,    "PFT")
+p_climate <- make_bar_plot(site_slopes, koppen,        climate_colours, "Climate")
+p_precip  <- make_bar_plot(site_slopes, Precip_regime, precip_colours,  "Precipitation\nregime")
+
+# ── Print individually ────────────────────────────────────────────────────────
+print(p_pft)
+print(p_climate)
+print(p_precip)
+
+```
+```{r}
+names(metrics_wide)   # check exact column names
+names(site_meta)      # check latitude/longitude column names
+names(site_slopes)    # check site and cluster_multi are there
+```
+
+```{r}
+site_map_data <- site_slopes %>%
+  select(site, cluster_multi) %>%
+  left_join(
+    metrics_wide %>% select(site, R2_with_VPD),
+    by = "site"
+  ) %>%
+  left_join(
+    site_meta %>% select(site, lat, lon),
+    by = "site"
+  ) %>%
+  filter(!is.na(lat), !is.na(lon), !is.na(R2_with_VPD)) %>%
+  mutate(R2_with_VPD = pmax(R2_with_VPD, 0))  # clamp negative R² to 0
+
+# Check it looks right
+glimpse(site_map_data)
+```
+
+```{r}
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(sf)
+
+# ── Get Australia shapefile ───────────────────────────────────────────────────
+australia_sf <- ne_countries(
+  country    = "Australia",
+  scale      = "medium",
+  returnclass = "sf"
+)
+
+```
+
+```{r}
+
+p_map <- ggplot() +
+
+  geom_sf(
+    data      = australia_sf,
+    fill      = "grey92",
+    colour    = "grey60",
+    linewidth = 0.3
+  ) +
+
+  geom_point(
+    data  = site_map_data,
+    aes(x      = lon,
+        y      = lat,
+        colour = R2_with_VPD,
+        shape  = cluster_multi),
+    size  = 4,
+    alpha = 0.9
+  ) +
+
+  geom_text_repel(
+    data  = site_map_data,
+    aes(x     = lon,
+        y     = lat,
+        label = site),
+    size           = 2.8,
+    colour         = "grey20",
+    max.overlaps   = 25,
+    segment.size   = 0.3,
+    segment.colour = "grey50"
+  ) +
+
+  # Continuous colour scale for R² — low = warm/red, high = cool/blue
+scale_colour_gradientn(
+    colours = c("#CC3311", "#EE8866", "#FFFFCC", "#6699CC", "#004488"),
+    values  = scales::rescale(c(0, 0.2, 0.4, 0.6, 0.8)),
+    limits  = c(0, 0.8),
+    name    = expression(Model ~ R^2),
+    breaks  = c(0, 0.2, 0.4, 0.6, 0.8),
+    labels  = c("0.0\n(low)", "0.2", "0.4", "0.6", "0.8\n(high)"),
+    guide   = guide_colourbar(
+      barwidth  = 0.8,
+      barheight = 7,
+      ticks     = TRUE
+    )
+  ) +
+
+  # Shape scale for sensitivity cluster
+  scale_shape_manual(
+    values = c(
+      "Low"    = 16,   # filled circle
+      "Medium" = 17,   # filled triangle
+      "High"   = 8     # star/asterisk
+    ),
+    name = "VPD sensitivity"
+  ) +
+
+  coord_sf(
+    xlim = c(113, 154),
+    ylim = c(-44, -10)
+  ) +
+
+  labs(x = NULL, y = NULL) +
+
+  theme_void(base_size = 12) +
+  theme(
+    legend.position  = "right",
+    legend.title     = element_text(face = "bold", size = 10),
+    legend.text      = element_text(size = 9),
+    legend.spacing.y = unit(0.5, "cm"),
+    panel.background = element_rect(fill = "#d6eaf8", colour = NA)
+  ) +
+
+  guides(
+    shape  = guide_legend(
+      order        = 1,
+      override.aes = list(size = 4, colour = "grey30")
+    ),
+    colour = guide_colourbar(order = 2)
+  )
+
+print(p_map)
+```
+```{r}
+# ── Northern Territory zoom ───────────────────────────────────────────────────
+p_map_NT <- ggplot() +
+
+  geom_sf(
+    data      = australia_sf,
+    fill      = "grey92",
+    colour    = "grey60",
+    linewidth = 0.3
+  ) +
+
+  geom_point(
+    data  = site_map_data,
+    aes(x      = lon,
+        y      = lat,
+        colour = R2_with_VPD,
+        shape  = cluster_multi),
+    size  = 5,
+    alpha = 0.9
+  ) +
+
+  geom_text_repel(
+    data  = site_map_data,
+    aes(x     = lon,
+        y     = lat,
+        label = site),
+    size           = 3.2,
+    colour         = "grey20",
+    max.overlaps   = 25,
+    segment.size   = 0.3,
+    segment.colour = "grey50"
+  ) +
+
+  scale_colour_gradientn(
+    colours = c("#CC3311", "#EE8866", "#FFFFCC", "#6699CC", "#004488"),
+    values  = scales::rescale(c(0, 0.2, 0.4, 0.6, 0.8)),
+    limits  = c(0, 0.8),
+    name    = expression(Model ~ R^2),
+    breaks  = c(0, 0.2, 0.4, 0.6, 0.8),
+    labels  = c("0.0", "0.2", "0.4", "0.6", "0.8"),
+    guide   = guide_colourbar(
+      barwidth  = 0.8,
+      barheight = 6,
+      ticks     = TRUE
+    )
+  ) +
+
+  scale_shape_manual(
+    values = c(
+      "Low"    = 16,
+      "Medium" = 17,
+      "High"   = 8
+    ),
+    name = "VPD sensitivity"
+  ) +
+
+  # ── Zoom to Northern Territory ─────────────────────────────────────────────
+  coord_sf(
+    xlim = c(129, 137),
+    ylim = c(-16, -11)
+  ) +
+
+  labs(
+    x        = NULL,
+    y        = NULL,
+    title    = "Northern Territory sites"
+  ) +
+
+  theme_void(base_size = 12) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 11, hjust = 0.5),
+    legend.position  = "right",
+    legend.title     = element_text(face = "bold", size = 10),
+    legend.text      = element_text(size = 9),
+    legend.spacing.y = unit(0.5, "cm"),
+    panel.background = element_rect(fill = "#d6eaf8", colour = NA),
+    panel.border     = element_rect(colour = "grey40", fill = NA, linewidth = 0.5)
+  ) +
+
+  guides(
+    shape  = guide_legend(
+      order        = 1,
+      override.aes = list(size = 4, colour = "grey30")
+    ),
+    colour = guide_colourbar(order = 2)
+  )
+
+print(p_map_NT)
+
+# ── Southeastern Australia zoom ───────────────────────────────────────────────
+p_map_SE <- ggplot() +
+
+  geom_sf(
+    data      = australia_sf,
+    fill      = "grey92",
+    colour    = "grey60",
+    linewidth = 0.3
+  ) +
+
+  geom_point(
+    data  = site_map_data,
+    aes(x      = lon,
+        y      = lat,
+        colour = R2_with_VPD,
+        shape  = cluster_multi),
+    size  = 5,
+    alpha = 0.9
+  ) +
+
+  geom_text_repel(
+    data  = site_map_data,
+    aes(x     = lon,
+        y     = lat,
+        label = site),
+    size           = 3.2,
+    colour         = "grey20",
+    max.overlaps   = 25,
+    segment.size   = 0.3,
+    segment.colour = "grey50"
+  ) +
+
+  scale_colour_gradientn(
+    colours = c("#CC3311", "#EE8866", "#FFFFCC", "#6699CC", "#004488"),
+    values  = scales::rescale(c(0, 0.2, 0.4, 0.6, 0.8)),
+    limits  = c(0, 0.8),
+    name    = expression(Model ~ R^2),
+    breaks  = c(0, 0.2, 0.4, 0.6, 0.8),
+    labels  = c("0.0", "0.2", "0.4", "0.6", "0.8"),
+    guide   = guide_colourbar(
+      barwidth  = 0.8,
+      barheight = 6,
+      ticks     = TRUE
+    )
+  ) +
+
+  scale_shape_manual(
+    values = c(
+      "Low"    = 16,
+      "Medium" = 17,
+      "High"   = 8
+    ),
+    name = "VPD sensitivity"
+  ) +
+
+  # ── Zoom to Southeastern Australia ─────────────────────────────────────────
+  coord_sf(
+    xlim = c(143, 152),
+    ylim = c(-39, -30)
+  ) +
+
+  labs(
+    x     = NULL,
+    y     = NULL,
+    title = "Southeastern Australia sites"
+  ) +
+
+  theme_void(base_size = 12) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 11, hjust = 0.5),
+    legend.position  = "right",
+    legend.title     = element_text(face = "bold", size = 10),
+    legend.text      = element_text(size = 9),
+    legend.spacing.y = unit(0.5, "cm"),
+    panel.background = element_rect(fill = "#d6eaf8", colour = NA),
+    panel.border     = element_rect(colour = "grey40", fill = NA, linewidth = 0.5)
+  ) +
+
+  guides(
+    shape  = guide_legend(
+      order        = 1,
+      override.aes = list(size = 4, colour = "grey30")
+    ),
+    colour = guide_colourbar(order = 2)
+  )
+
+print(p_map_SE)
+```
+
+
+
+
+
 
