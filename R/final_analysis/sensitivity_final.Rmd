@@ -922,6 +922,175 @@ p_map_SE <- ggplot() +
 print(p_map_SE)
 ```
 
+```{r}
+# ── Install/load required packages ───────────────────────────────────────────
+library(terra)
+library(tidyterra)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(sf)
+library(ggplot2)
+library(ggrepel)
+
+# ── Step 1: Download and load Köppen-Geiger raster ───────────────────────────
+# Download from Beck et al. (2018) — 1km resolution
+# URL: https://figshare.com/articles/dataset/Present_and_future_Köppen-Geiger_climate_classification_maps_at_1-km_resolution/6396959
+
+# If you haven't downloaded it yet, you can do so directly in R:
+koppen_url <- "https://figshare.com/ndownloader/files/12407516"
+download.file(koppen_url, destfile = "koppen_present.tif", mode = "wb")
+
+# Load raster
+koppen_rast <- rast("koppen_present.tif")
+
+# ── Step 2: Crop to Australia extent ─────────────────────────────────────────
+aus_extent   <- ext(113, 154, -44, -10)
+koppen_aus   <- crop(koppen_rast, aus_extent)
+
+# ── Step 3: Define Köppen zone colours ───────────────────────────────────────
+# Beck et al. use integer codes 1-30 for climate zones
+# Below are the codes relevant to Australia with matched colours
+# Full legend: https://www.nature.com/articles/sdata2018214
+
+koppen_colours <- c(
+  "1"  = "#960000",  # Af  - Tropical rainforest
+  "2"  = "#FF0000",  # Am  - Tropical monsoon
+  "3"  = "#FFCC00",  # Aw  - Tropical savanna
+  "4"  = "#CC8D14",  # BWh - Hot desert
+  "5"  = "#CCAA54",  # BWk - Cold desert
+  "6"  = "#FFCC64",  # BSh - Hot semi-arid
+  "7"  = "#FFFF64",  # BSk - Cold semi-arid
+  "14" = "#96FF00",  # Cfa - Humid subtropical
+  "15" = "#64FF32",  # Cfb - Oceanic/temperate
+  "16" = "#32C800",  # Cfc - Subpolar oceanic
+  "17" = "#C8FF50",  # Csa - Hot-summer Mediterranean
+  "18" = "#96D232",  # Csb - Warm-summer Mediterranean
+  "20" = "#64C8FF",  # Cwa - Monsoon-influenced humid subtropical
+  "21" = "#B4E1FF"   # Cwb - Subtropical highland
+)
+
+# ── Step 4: Convert raster values to factor for discrete colouring ────────────
+koppen_aus <- as.factor(koppen_aus)
+
+# ── Step 5: Define readable zone labels for legend ───────────────────────────
+koppen_labels <- c(
+  "1"  = "Tropical rainforest (Af)",
+  "2"  = "Tropical monsoon (Am)",
+  "3"  = "Tropical savanna (Aw)",
+  "4"  = "Hot desert (BWh)",
+  "6"  = "Hot semi-arid (BSh)",
+  "14" = "Humid subtropical (Cfa)",
+  "15" = "Temperate oceanic (Cfb)",
+  "17" = "Mediterranean (Csa)",
+  "18" = "Mediterranean (Csb)",
+  "20" = "Monsoon subtropical (Cwa)"
+)
+
+# ── Step 6: Build the map ─────────────────────────────────────────────────────
+p_map_koppen <- ggplot() +
+
+  # Köppen background raster
+  geom_spatraster(
+    data  = koppen_aus,
+    alpha = 0.75
+  ) +
+
+  # Match integer codes to colours
+  scale_fill_manual(
+    values   = koppen_colours,
+    labels   = koppen_labels,
+    name     = "Köppen climate",
+    na.value = "grey90",
+    guide    = guide_legend(
+      ncol         = 1,
+      keywidth     = 0.8,
+      keyheight    = 0.6,
+      override.aes = list(alpha = 1)
+    )
+  ) +
+
+  # Australia border outline on top of raster
+  geom_sf(
+    data      = australia_sf,
+    fill      = NA,
+    colour    = "grey30",
+    linewidth = 0.4
+  ) +
+
+  # Site points — R² as colour, cluster as shape
+  geom_point(
+    data  = site_map_data,
+    aes(x      = lon,
+        y      = lat,
+        colour = R2_with_VPD,
+        shape  = cluster_multi),
+    size  = 4,
+    alpha = 0.95
+  ) +
+
+  # Site labels
+  geom_text_repel(
+    data  = site_map_data,
+    aes(x     = lon,
+        y     = lat,
+        label = site),
+    size           = 2.8,
+    colour         = "grey10",
+    max.overlaps   = 25,
+    segment.size   = 0.3,
+    segment.colour = "grey40",
+    bg.colour      = "white",   # white halo behind text for legibility
+    bg.r           = 0.1
+  ) +
+
+  # R² colour scale
+  scale_colour_gradientn(
+    colours = c("#CC3311", "#EE8866", "#FFFFCC", "#6699CC", "#004488"),
+    values  = scales::rescale(c(0, 0.2, 0.4, 0.6, 0.8)),
+    limits  = c(0, 0.8),
+    name    = expression(Model ~ R^2),
+    breaks  = c(0, 0.2, 0.4, 0.6, 0.8),
+    labels  = c("0.0\n(low)", "0.2", "0.4", "0.6", "0.8\n(high)"),
+    guide   = guide_colourbar(
+      barwidth  = 0.8,
+      barheight = 6,
+      ticks     = TRUE,
+      order     = 2
+    )
+  ) +
+
+  # Cluster shape scale
+  scale_shape_manual(
+    values = c(
+      "Low"    = 16,
+      "Medium" = 17,
+      "High"   = 8
+    ),
+    name  = "VPD sensitivity",
+    guide = guide_legend(
+      order        = 3,
+      override.aes = list(size = 4, colour = "grey10")
+    )
+  ) +
+
+  coord_sf(
+    xlim = c(113, 154),
+    ylim = c(-44, -10)
+  ) +
+
+  labs(x = NULL, y = NULL) +
+
+  theme_void(base_size = 12) +
+  theme(
+    legend.position  = "right",
+    legend.title     = element_text(face = "bold", size = 9),
+    legend.text      = element_text(size = 8),
+    legend.spacing.y = unit(0.3, "cm"),
+    panel.background = element_rect(fill = "#d6eaf8", colour = NA)
+  )
+
+print(p_map_koppen)
+```
 
 
 
