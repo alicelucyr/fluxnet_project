@@ -1,0 +1,274 @@
+---
+title: "calperum_VPD"
+output: html_document
+date: "2026-04-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Define fire periods for Calperum
+# Fire occurred January 2014
+
+calperum_partitioned <- sites_daily_capped[["Cpr"]] %>%
+  mutate(
+    period = case_when(
+      date < as.Date("2014-01-01")                                      ~ "Pre-fire",
+      date >= as.Date("2014-01-01") & date < as.Date("2015-01-01")      ~ "During/post-fire",
+      date >= as.Date("2015-01-01")                                     ~ "Post-fire recovery"
+    ),
+    period = factor(period, levels = c("Pre-fire", "During/post-fire", "Post-fire recovery"))
+  )
+
+# Then run the same binning and slope fitting per period
+calperum_slopes <- map_dfr(c("Pre-fire", "During/post-fire", "Post-fire recovery"), function(p) {
+  
+  df <- calperum_partitioned %>% filter(period == p)
+  
+  binned <- df %>%
+    drop_na(VPD, GPP) %>%
+    mutate(vpd_bin = cut(VPD, breaks = seq(0, 6, by = 0.2))) %>%
+    group_by(vpd_bin) %>%
+    summarise(
+      gpp_max = quantile(GPP, 0.95, na.rm = TRUE),
+      vpd_mid = mean(VPD, na.rm = TRUE),
+      n = n(),
+      .groups = "drop"
+    ) %>%
+    filter(n >= 3) %>%
+    mutate(gpp_norm = gpp_max / max(gpp_max, na.rm = TRUE))
+  
+  vpd_at_peak <- binned$vpd_mid[which.max(binned$gpp_norm)]
+  descending  <- binned %>% filter(vpd_mid >= vpd_at_peak)
+  
+  if (nrow(descending) < 3) {
+    return(tibble(period = p, intercept = NA, slope = NA,
+                  vpd_at_peak = NA, n_bins = nrow(descending)))
+  }
+  
+  model <- lm(gpp_norm ~ vpd_mid, data = descending)
+  coefs <- coef(model)
+  
+  tibble(
+    period      = p,
+    intercept   = coefs[1],
+    slope       = coefs[2],
+    vpd_at_peak = vpd_at_peak,
+    n_bins      = nrow(descending)
+  )
+})
+```
+
+```{r}
+period_colours <- c(
+  "Pre-fire"             = "#6699CC",
+  "During/post-fire"     = "#CC6677",
+  "Post-fire recovery"   = "#44AA99"
+)
+
+# Generate fitted lines per period
+calperum_fitted <- calperum_slopes %>%
+  filter(!is.na(slope)) %>%
+  rowwise() %>%
+  reframe(
+    period  = period,
+    vpd_mid = seq(vpd_at_peak, 6, by = 0.05),
+    fitted  = intercept + slope * vpd_mid
+  )
+
+# Point cloud per period
+calperum_cloud <- calperum_partitioned %>%
+  drop_na(VPD, GPP) %>%
+  mutate(gpp_norm = GPP / max(GPP, na.rm = TRUE))
+
+ggplot() +
+  geom_point(
+    data  = calperum_cloud,
+    aes(x = VPD, y = gpp_norm, colour = period),
+    size  = 0.4, alpha = 0.12
+  ) +
+  geom_line(
+    data      = calperum_fitted,
+    aes(x = vpd_mid, y = fitted, colour = period),
+    linewidth = 1.2
+  ) +
+  geom_vline(
+    data     = calperum_slopes %>% filter(!is.na(slope)),
+    aes(xintercept = vpd_at_peak, colour = period),
+    linetype = "dashed", linewidth = 0.5, alpha = 0.7
+  ) +
+  geom_text(
+    data = calperum_slopes %>% filter(!is.na(slope)),
+    aes(label  = paste0("β = ", round(slope, 3)),
+        colour = period),
+    x = Inf, y = Inf, hjust = 1.1, vjust = 1.4,
+    size = 3.2, fontface = "bold"
+  ) +
+  scale_colour_manual(values = period_colours, name = "Fire period") +
+  coord_cartesian(ylim = c(0, 1.3)) +
+  labs(
+    x = "VPD (kPa)",
+    y = "Normalised GPP",
+    title = "Calperum: GPP-VPD sensitivity across fire periods"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    strip.background = element_blank(),
+    legend.position  = "bottom"
+  )
+```
+```{r}
+ggplot() +
+  geom_point(
+    data  = calperum_cloud,
+    aes(x = VPD, y = gpp_norm, colour = period),
+    size  = 0.4, alpha = 0.15
+  ) +
+  geom_line(
+    data      = calperum_fitted,
+    aes(x = vpd_mid, y = fitted, colour = period),
+    linewidth = 1.1
+  ) +
+  geom_vline(
+    data     = calperum_slopes %>% filter(!is.na(slope)),
+    aes(xintercept = vpd_at_peak, colour = period),
+    linetype = "dashed", linewidth = 0.5, alpha = 0.7
+  ) +
+  geom_text(
+    data = calperum_slopes %>% filter(!is.na(slope)),
+    aes(label  = paste0("β = ", round(slope, 3), "\nVPD peak = ",
+                        round(vpd_at_peak, 2), " kPa"),
+        colour = period),
+    x = Inf, y = Inf, hjust = 1.1, vjust = 1.3,
+    size = 3, fontface = "bold"
+  ) +
+  facet_wrap(~ factor(period,
+                      levels = c("Pre-fire", "During/post-fire", "Post-fire recovery")),
+             ncol = 3) +
+  scale_colour_manual(values = period_colours) +
+  coord_cartesian(ylim = c(0, 1.3)) +
+  labs(x = "VPD (kPa)", y = "Normalised GPP") +
+  theme_classic(base_size = 11) +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold", size = 10),
+    legend.position  = "none"
+  )
+```
+```{r}
+# Partition Howard Springs into three equal time periods
+how_partitioned <- sites_daily_capped[["How"]] %>%
+  mutate(
+    period = case_when(
+      date < as.Date("2006-01-01")                                    ~ "Early (2001-2005)",
+      date >= as.Date("2006-01-01") & date < as.Date("2011-01-01")    ~ "Middle (2006-2010)",
+      date >= as.Date("2011-01-01")                                   ~ "Late (2011-2015)"
+    ),
+    period = factor(period, levels = c("Early (2001-2005)",
+                                       "Middle (2006-2010)",
+                                       "Late (2011-2015)"))
+  )
+
+# Fit slopes per period using same method as main analysis
+how_slopes <- map_dfr(levels(how_partitioned$period), function(p) {
+  
+  df <- how_partitioned %>% filter(period == p)
+  
+  binned <- df %>%
+    drop_na(VPD, GPP) %>%
+    mutate(vpd_bin = cut(VPD, breaks = seq(0, 6, by = 0.2))) %>%
+    group_by(vpd_bin) %>%
+    summarise(
+      gpp_max = quantile(GPP, 0.95, na.rm = TRUE),
+      vpd_mid = mean(VPD, na.rm = TRUE),
+      n       = n(),
+      .groups = "drop"
+    ) %>%
+    filter(n >= 3) %>%
+    mutate(gpp_norm = gpp_max / max(gpp_max, na.rm = TRUE))
+  
+  vpd_at_peak <- binned$vpd_mid[which.max(binned$gpp_norm)]
+  descending  <- binned %>% filter(vpd_mid >= vpd_at_peak)
+  
+  if (nrow(descending) < 3) {
+    return(tibble(period = p, intercept = NA, slope = NA,
+                  vpd_at_peak = NA, n_bins = nrow(descending)))
+  }
+  
+  model <- lm(gpp_norm ~ vpd_mid, data = descending)
+  coefs <- coef(model)
+  
+  tibble(
+    period      = p,
+    intercept   = coefs[1],
+    slope       = coefs[2],
+    vpd_at_peak = vpd_at_peak,
+    n_bins      = nrow(descending)
+  )
+})
+
+# Point cloud
+how_cloud <- how_partitioned %>%
+  drop_na(VPD, GPP) %>%
+  mutate(gpp_norm = GPP / max(GPP, na.rm = TRUE))
+
+# Fitted lines
+how_fitted <- how_slopes %>%
+  filter(!is.na(slope)) %>%
+  rowwise() %>%
+  reframe(
+    period  = period,
+    vpd_mid = seq(vpd_at_peak, 6, by = 0.05),
+    fitted  = intercept + slope * vpd_mid
+  )
+```
+
+```{r}
+period_colours_how <- c(
+  "Early (2001-2005)"   = "#6699CC",
+  "Middle (2006-2010)"  = "#CC6677",
+  "Late (2011-2015)"    = "#44AA99"
+)
+
+ggplot() +
+  geom_point(
+    data  = how_cloud,
+    aes(x = VPD, y = gpp_norm, colour = period),
+    size  = 0.4, alpha = 0.12
+  ) +
+  geom_line(
+    data      = how_fitted,
+    aes(x = vpd_mid, y = fitted, colour = period),
+    linewidth = 1.1
+  ) +
+  geom_vline(
+    data     = how_slopes %>% filter(!is.na(slope)),
+    aes(xintercept = vpd_at_peak, colour = period),
+    linetype = "dashed", linewidth = 0.5, alpha = 0.7
+  ) +
+  geom_text(
+    data = how_slopes %>% filter(!is.na(slope)),
+    aes(label  = paste0("β = ", round(slope, 3), "\nVPD peak = ",
+                        round(vpd_at_peak, 2), " kPa"),
+        colour = period),
+    x = Inf, y = Inf, hjust = 1.1, vjust = 1.3,
+    size = 3, fontface = "bold"
+  ) +
+  facet_wrap(~ period, ncol = 3) +
+  scale_colour_manual(values = period_colours_how) +
+  coord_cartesian(ylim = c(0, 1.3)) +
+  labs(
+    x     = "VPD (kPa)",
+    y     = "Normalised GPP",
+    title = "Howard Springs: GPP-VPD sensitivity across time periods"
+  ) +
+  theme_classic(base_size = 11) +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold", size = 10),
+    legend.position  = "none"
+  )
+```
+

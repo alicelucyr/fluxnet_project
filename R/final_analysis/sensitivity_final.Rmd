@@ -115,6 +115,168 @@ plots <- map(site_groups, function(sites_subset) {
 walk(plots, print)
 
 ```
+
+```{r}
+sites_of_interest <- c("Asm", "Fog", "Cpr", "Das")
+
+cloud_single <- all_clouds %>%
+  filter(site %in% sites_of_interest)
+
+lines_single <- fitted_lines %>%
+  filter(site %in% sites_of_interest)
+
+slopes_single <- site_slopes %>%
+  filter(site %in% sites_of_interest)
+```
+
+```{r}
+binned_single <- map_dfr(sites_of_interest, function(site) {
+  
+  df <- sites_daily_capped[[paste0(site)]]
+  
+  df %>%
+    drop_na(VPD, GPP) %>%
+    mutate(vpd_bin = cut(VPD, breaks = seq(0, 6, by = 0.2))) %>%
+    group_by(vpd_bin) %>%
+    summarise(
+      vpd_mid = mean(VPD, na.rm = TRUE),
+      gpp_95  = quantile(GPP, 0.95, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      gpp_norm = gpp_95 / max(gpp_95, na.rm = TRUE),
+      site = site
+    )
+})
+```
+
+```{r}
+p_single <- ggplot() +
+  
+  # raw cloud
+  geom_point(
+    data = cloud_single,
+    aes(x = VPD, y = gpp_norm),
+    colour = "grey60",
+    alpha  = 0.15,
+    size   = 0.5
+  ) +
+  
+  # smooth response curve (KEY VISUAL)
+  geom_line(
+    data = binned_single,
+    aes(x = vpd_mid, y = gpp_norm),
+    colour = "#0072B2",
+    linewidth = 1.2
+  ) +
+  
+  # post-peak linear decline
+  geom_line(
+    data = lines_single,
+    aes(x = vpd_mid, y = fitted),
+    colour = "#EE6677",
+    linewidth = 1.2,
+    linetype = "solid"
+  ) +
+  
+  # VPD threshold
+  geom_vline(
+    data = slopes_single,
+    aes(xintercept = vpd_at_peak),
+    linetype = "dashed",
+    linewidth = 0.8,
+    colour = "black"
+  ) +
+  
+  facet_wrap(~ site, ncol = 2) +
+  
+  coord_cartesian(ylim = c(0, 1.3)) +
+  
+  labs(
+    x = "Vapour Pressure Deficit (kPa)",
+    y = "Normalised GPP",
+    title = "Distinct VPD sensitivity responses in tropical savanna ecosystems"
+  ) +
+  
+  theme_classic(base_size = 14) +
+  theme(
+    strip.text       = element_text(face = "bold", size = 13),
+    axis.title       = element_text(face = "bold"),
+    plot.title       = element_text(face = "bold", hjust = 0.5),
+    panel.grid       = element_blank()
+  )
+
+print(p_single)
+```
+```{r}
+make_plot <- function(site_name) {
+  
+  cloud <- subset(cloud_single, site == site_name)
+  binned <- subset(binned_single, site == site_name)
+  lines  <- subset(lines_single, site == site_name)
+  slopes <- subset(slopes_single, site == site_name)
+
+  ggplot() +
+    geom_point(
+      data = cloud,
+      aes(x = VPD, y = gpp_norm),
+      colour = "grey60", alpha = 0.15, size = 0.5
+    ) +
+    geom_line(
+      data = lines,
+      aes(x = vpd_mid, y = fitted),
+      colour = "#EE6677", linewidth = 1.2
+    ) +
+    geom_vline(
+      data = slopes,
+      aes(xintercept = vpd_at_peak),
+      linetype = "dashed",
+      linewidth = 0.8
+    ) +
+   geom_text(
+  data = slopes,
+  aes(
+    x = vpd_at_peak,
+    y = 1.2,
+    label = paste0("Threshold = ", round(vpd_at_peak, 2), " kPa")
+  ),
+  size = 3.5,
+  hjust = -0.1
+) +
+geom_text(
+  data = slopes,
+  aes(
+    x = vpd_at_peak,
+    y = 1.1,
+    label = paste0("Slope = ", round(slope, 2))
+  ),
+  size = 3.5,
+  hjust = -0.1
+) +
+    coord_cartesian(ylim = c(0, 1.3)) +
+    labs(
+      x = "Vapour Pressure Deficit (kPa)",
+      y = "Normalised GPP",
+      title = site_name
+    ) +
+    theme_bw(base_size = 14)
+}
+
+p_fog <- make_plot("Fog")
+p_asm <- make_plot("Asm")
+p_das <- make_plot("Das")
+p_cpr <- make_plot("Cpr")
+```
+
+```{r}
+print(p_fog)
+print(p_asm)
+print(p_das)
+print(p_cpr)
+```
+
+
+
 ```{r}
 site_slopes_env <- site_slopes %>%
   filter(!is.na(slope)) %>%
@@ -153,9 +315,9 @@ precip_colours <- c(
 
 ```{r}
 env_labels <- c(
-  MAP = "MAP (mm/year)",
-  MAT = "MAT (°C)", 
-  MAL = "MAL (m2 m-2)"
+  MAT = "MAT (°C)",
+  MAP = "MAP (mm / year)",
+  MAL = "MAL (m² / m²)"
 )
 ```
 
@@ -293,20 +455,11 @@ summary(site_slopes$vpd_at_peak)
 ```{r}
 p_slope <- site_slopes_env %>%
   pivot_longer(
-    cols      = c(MAP, MAT, MAL),       # added MAL here
+    cols      = c(MAT, MAP, MAL),       
     names_to  = "variable",
     values_to = "value"
   ) %>%
   ggplot(aes(x = value, y = vpd_at_peak, colour = Precip_regime)) +
-  
-  geom_smooth(
-    method    = "lm",
-    se        = TRUE,
-    colour    = "grey30",
-    fill      = "grey85",
-    linewidth = 0.7,
-    alpha     = 0.4
-  ) +
   
   geom_point(
     size  = 3,
@@ -326,7 +479,7 @@ p_slope <- site_slopes_env %>%
   ) +
   
   facet_wrap(
-    ~ factor(variable, levels = c("MAP", "MAT", "MAL")),  # control panel order
+    ~ factor(variable, levels = c("MAT", "MAP", "MAL")),  # control panel order
     scales   = "free_x",
     labeller = as_labeller(env_labels),
     ncol     = 3                        # force all three panels in one row
@@ -342,6 +495,67 @@ theme_bw(base_size = 12) +
     strip.background = element_blank(),
     strip.text       = element_text(face = "bold", size = 10),
     legend.position  = "bottom",
+    legend.text      = element_text(size = 9),
+    legend.title     = element_text(size = 10, face = "bold"),
+    legend.key.size  = unit(0.4, "cm"),   # shrinks the colour swatch too
+    panel.grid.minor = element_blank()
+  )
+
+print(p_slope)
+```
+```{r}
+p_slope <- site_slopes_env %>%
+  pivot_longer(
+    cols      = c(MAT, MAP, MAL),       
+    names_to  = "variable",
+    values_to = "value"
+  ) %>%
+  ggplot(aes(x = value, y = slope, colour = Precip_regime)) +
+  
+ geom_smooth(
+  data = ~ subset(.x, variable == "MAT"),
+  method    = "lm",
+  se        = TRUE,
+  colour    = "grey30",
+  fill      = "grey85",
+  linewidth = 0.7,
+  alpha     = 0.4
+) +
+  
+  geom_point(
+    size  = 3,
+    alpha = 0.9
+  ) +
+  
+  geom_text_repel(
+    aes(label = site),
+    size         = 2.8,
+    max.overlaps = 20,
+    show.legend  = FALSE
+  ) +
+  
+  scale_colour_manual(
+    values = precip_colours,
+    name   = "Precipitation regime"
+  ) +
+  
+  facet_wrap(
+    ~ factor(variable, levels = c("MAT", "MAP", "MAL")),  # control panel order
+    scales   = "free_x",
+    labeller = as_labeller(env_labels),
+    ncol     = 3                        # force all three panels in one row
+  ) +
+  
+  labs(
+    x = NULL,
+    y = "GPP-VPD slope (β)"
+  ) +
+  
+theme_bw(base_size = 12) +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold", size = 10),
+    legend.position  = "none",
     legend.text      = element_text(size = 7),
     legend.title     = element_text(size = 8, face = "bold"),
     legend.key.size  = unit(0.4, "cm"),   # shrinks the colour swatch too
@@ -351,6 +565,48 @@ theme_bw(base_size = 12) +
 print(p_slope)
 ```
 
+```{r}
+model_stats <- site_slopes_env %>%
+  pivot_longer(
+    cols = c(MAT, MAP, MAL),
+    names_to = "variable",
+    values_to = "value"
+  ) %>%
+  group_by(variable) %>%
+  do({
+    model <- lm(slope ~ value, data = .)
+    summary_model <- summary(model)
+    
+    tibble(
+      R2 = summary_model$r.squared,
+      p_value = coef(summary_model)[2, 4]
+    )
+  })
+
+threshold_stats <- site_slopes_env %>%
+  pivot_longer(
+    cols = c(MAT, MAP, MAL),
+    names_to = "variable",
+    values_to = "value"
+  ) %>%
+  group_by(variable) %>%
+  do({
+    model <- lm(vpd_at_peak ~ value, data = .)
+    summary_model <- summary(model)
+    
+    tibble(
+      R2 = summary_model$r.squared,
+      p_value = coef(summary_model)[2, 4]
+    )
+  })
+
+model_stats$type <- "Slope"
+threshold_stats$type <- "Threshold"
+
+all_stats <- bind_rows(model_stats, threshold_stats)
+
+print(all_stats)
+```
 
 
 ```{r}
@@ -937,13 +1193,6 @@ library(sf)
 library(ggplot2)
 library(ggrepel)
 
-# ── Step 1: Download and load Köppen-Geiger raster ───────────────────────────
-# Download from Beck et al. (2018) — 1km resolution
-# URL: https://figshare.com/articles/dataset/Present_and_future_Köppen-Geiger_climate_classification_maps_at_1-km_resolution/6396959
-
-```
-
-```{r}
 # Load raster
 koppen_rast <- rast("/Users/alicerolfe/year_4_project/fluxnet_project/Data/Beck_KG_V1_present_0p0083.tif")
 
@@ -956,53 +1205,61 @@ koppen_aus   <- crop(koppen_rast, aus_extent)
 # Below are the codes relevant to Australia with matched colours
 # Full legend: https://www.nature.com/articles/sdata2018214
 
-koppen_colours <- c(
-  "1"  = "#960000",  # Af  - Tropical rainforest
-  "2"  = "#FF0000",  # Am  - Tropical monsoon
-  "3"  = "#FFCC00",  # Aw  - Tropical savanna
-  "4"  = "#CC8D14",  # BWh - Hot desert
-  "5"  = "#CCAA54",  # BWk - Cold desert
-  "6"  = "#FFCC64",  # BSh - Hot semi-arid
-  "7"  = "#FFFF64",  # BSk - Cold semi-arid
-  "14" = "#96FF00",  # Cfa - Humid subtropical
-  "15" = "#64FF32",  # Cfb - Oceanic/temperate
-  "16" = "#32C800",  # Cfc - Subpolar oceanic
-  "17" = "#C8FF50",  # Csa - Hot-summer Mediterranean
-  "18" = "#96D232",  # Csb - Warm-summer Mediterranean
-  "20" = "#64C8FF",  # Cwa - Monsoon-influenced humid subtropical
-  "21" = "#B4E1FF"   # Cwb - Subtropical highland
+
+```
+
+```{r}
+# ── Simplified Köppen colour mapping ─────────────────────────────────────────
+# Remap individual zone codes to broader categories first
+
+koppen_categories <- c(
+  "1"  = "Tropical",
+  "2"  = "Tropical",
+  "3"  = "Tropical",
+  "4"  = "Desert",
+  "5"  = "Desert",
+  "6"  = "Semi-arid",
+  "7"  = "Semi-arid",
+  "14" = "Subtropical",
+  "15" = "Temperate",
+  "16" = "Temperate",
+  "17" = "Temperate",
+  "18" = "Temperate",
+  "20" = "Subtropical",
+  "21" = "Subtropical"
 )
 
-# ── Step 4: Convert raster values to factor for discrete colouring ────────────
-koppen_aus <- as.factor(koppen_aus)
-
-# ── Step 5: Define readable zone labels for legend ───────────────────────────
-koppen_labels <- c(
-  "1"  = "Tropical rainforest (Af)",
-  "2"  = "Tropical monsoon (Am)",
-  "3"  = "Tropical savanna (Aw)",
-  "4"  = "Hot desert (BWh)",
-  "6"  = "Hot semi-arid (BSh)",
-  "14" = "Humid subtropical (Cfa)",
-  "15" = "Temperate oceanic (Cfb)",
-  "17" = "Mediterranean (Csa)",
-  "18" = "Mediterranean (Csb)",
-  "20" = "Monsoon subtropical (Cwa)"
+# Simplified colour palette — one colour per broad category
+koppen_colours_simple <- c(
+  "Tropical"    = "#FF8C00",
+  "Desert"      = "#C8A45A",
+  "Semi-arid"   = "#F0D080",
+  "Subtropical" = "#90C060",
+  "Temperate"   = "#4A90A0"
 )
 
-# ── Step 6: Build the map ─────────────────────────────────────────────────────
+# ── Reclassify raster values to broad category codes ─────────────────────────
+# Convert raster to dataframe, remap, then back to factor
+koppen_df <- as.data.frame(koppen_aus, xy = TRUE) %>%
+  rename(lon = x, lat = y, zone_code = 3) %>%
+  mutate(
+    zone_code    = as.character(zone_code),
+    broad_zone   = koppen_categories[zone_code]
+  ) %>%
+  filter(!is.na(broad_zone))
+
+# ── Build map ─────────────────────────────────────────────────────────────────
 p_map_koppen <- ggplot() +
 
-  # Köppen background raster
-  geom_spatraster(
-    data  = koppen_aus,
-    alpha = 0.75
+  # Simplified Köppen background
+  geom_raster(
+    data  = koppen_df,
+    aes(x = lon, y = lat, fill = broad_zone),
+    alpha = 0.8
   ) +
 
-  # Match integer codes to colours
   scale_fill_manual(
-    values   = koppen_colours,
-    labels   = koppen_labels,
+    values   = koppen_colours_simple,
     name     = "Köppen climate",
     na.value = "grey90",
     guide    = guide_legend(
@@ -1013,7 +1270,7 @@ p_map_koppen <- ggplot() +
     )
   ) +
 
-  # Australia border outline on top of raster
+  # Australia border
   geom_sf(
     data      = australia_sf,
     fill      = NA,
@@ -1021,7 +1278,7 @@ p_map_koppen <- ggplot() +
     linewidth = 0.4
   ) +
 
-  # Site points — R² as colour, cluster as shape
+  # Site points — R² as colour, cluster as shape, no labels
   geom_point(
     data  = site_map_data,
     aes(x      = lon,
@@ -1032,21 +1289,6 @@ p_map_koppen <- ggplot() +
     alpha = 0.95
   ) +
 
-  # Site labels
-  geom_text_repel(
-    data  = site_map_data,
-    aes(x     = lon,
-        y     = lat,
-        label = site),
-    size           = 2.8,
-    colour         = "grey10",
-    max.overlaps   = 25,
-    segment.size   = 0.3,
-    segment.colour = "grey40",
-    bg.colour      = "white",   # white halo behind text for legibility
-    bg.r           = 0.1
-  ) +
-
   # R² colour scale
   scale_colour_gradientn(
     colours = c("#CC3311", "#EE8866", "#FFFFCC", "#6699CC", "#004488"),
@@ -1054,7 +1296,7 @@ p_map_koppen <- ggplot() +
     limits  = c(0, 0.8),
     name    = expression(Model ~ R^2),
     breaks  = c(0, 0.2, 0.4, 0.6, 0.8),
-    labels  = c("0.0\n(low)", "0.2", "0.4", "0.6", "0.8\n(high)"),
+    labels  = c("0.0", "0.2", "0.4", "0.6", "0.8"),
     guide   = guide_colourbar(
       barwidth  = 0.8,
       barheight = 6,
@@ -1094,9 +1336,24 @@ p_map_koppen <- ggplot() +
   )
 
 print(p_map_koppen)
+
+```
+```{r}
+library(terra)
+
+# Get all unique values in the raster
+vals <- sort(unique(values(koppen_aus)))
+
+vals
 ```
 
+```{r}
+koppen_lookup <- data.frame(
+  zone_code = as.character(vals)
+)
+```
 
+```{r}
 
-
+```
 

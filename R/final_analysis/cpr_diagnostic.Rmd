@@ -188,9 +188,9 @@ period_labels <- period_bands %>%
 
 # ── Step 4: Period colours ─────────────────────────────────────────────────────
 period_fill_cols <- c(
-  "Pre-fire"               = "#EE8866",
-  "During Fire / Recovery" = "#EE6677",
-  "Post-fire"              = "#CCBB44" 
+  "Pre-fire"               = "#80CDC1",
+  "During Fire / Recovery" = "#BF812D",
+  "Post-fire"              = "#01665E" 
 )
 
 # ── Step 5: Build the plot ────────────────────────────────────────────────────

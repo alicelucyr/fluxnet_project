@@ -375,24 +375,24 @@ print(p2)
 # ── Plot 3: MAP, MAT, MAL vs R² ──────────────────────────────────────────────
 
 var_labels <- c(
-  "MAP" = "MAP (mm)",
+  "MAP" = "MAP (mm / year)",
   "MAT" = "MAT (°C)",
-  "MAL" = "MAL"
+  "MAL" = "MAL (m² / m²)"
 )
 
 plot_data <- all_metrics_vpd %>%
   filter(model == "with_VPD") %>%
   select(site, R2) %>%
   left_join(
-    site_meta %>% select(site, MAP, MAT, MAL, n_years),
+    site_meta %>% select(site, MAT, MAP, MAL, n_years),
     by = "site"
   ) %>%
   pivot_longer(
-    cols      = c(MAP, MAT, MAL),
+    cols      = c(MAT, MAP, MAL),
     names_to  = "variable",
     values_to = "value"
   ) %>%
-  mutate(variable = factor(variable, levels = c("MAP", "MAT", "MAL")))
+  mutate(variable = factor(variable, levels = c("MAT", "MAP", "MAL")))
 
 
 p3 <- ggplot(plot_data, aes(x = value, y = R2)) +
