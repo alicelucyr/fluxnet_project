@@ -155,7 +155,7 @@ precip_colours <- c(
 env_labels <- c(
   MAP = "MAP (mm/year)",
   MAT = "MAT (°C)", 
-  MAL = "MAL"
+  MAL = "MAL (m2 m-2)"
 )
 ```
 
@@ -923,6 +923,11 @@ print(p_map_SE)
 ```
 
 ```{r}
+install.packages("dplyr")
+```
+
+
+```{r}
 # ── Install/load required packages ───────────────────────────────────────────
 library(terra)
 library(tidyterra)
@@ -936,12 +941,11 @@ library(ggrepel)
 # Download from Beck et al. (2018) — 1km resolution
 # URL: https://figshare.com/articles/dataset/Present_and_future_Köppen-Geiger_climate_classification_maps_at_1-km_resolution/6396959
 
-# If you haven't downloaded it yet, you can do so directly in R:
-koppen_url <- "https://figshare.com/ndownloader/files/12407516"
-download.file(koppen_url, destfile = "koppen_present.tif", mode = "wb")
+```
 
+```{r}
 # Load raster
-koppen_rast <- rast("koppen_present.tif")
+koppen_rast <- rast("/Users/alicerolfe/year_4_project/fluxnet_project/Data/Beck_KG_V1_present_0p0083.tif")
 
 # ── Step 2: Crop to Australia extent ─────────────────────────────────────────
 aus_extent   <- ext(113, 154, -44, -10)
