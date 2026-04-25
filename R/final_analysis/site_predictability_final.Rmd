@@ -54,7 +54,7 @@ run_rf_with_without_vpd <- function(df, site_name) {
     arrange(date) %>%
     mutate(
       year = lubridate::year(date),
-      cumulative_cwd_7day = rollapply(cwd, width = 7, FUN = sum,
+      cumulative_cwd_7day = rollapply(cwd, width = 14, FUN = sum,
                                       align = "right", fill = NA, na.rm = TRUE)
     )
   
@@ -269,7 +269,10 @@ facet_wrap(~ variable, scales = "free_x", ncol = 3,
     panel.grid       = element_blank(),
     panel.border     = element_rect(colour = "black", fill = NA)
   )
+```
 
+```{r}
+  
 # 4) Number of years vs R² 
 ggplot(plot_data %>% distinct(site, R2, n_years), aes(x = n_years, y = R2)) +
   geom_point(size = 3, colour = thesis_cols["main"]) +
@@ -288,8 +291,8 @@ library(ggrepel)
 
 thesis_theme <- theme_classic(base_size = 12) +
   theme(
-    axis.text        = element_text(size = 9),
-    axis.title       = element_text(size = 11),
+    axis.text        = element_text(size = 13),
+    axis.title       = element_text(size = 13),
     strip.background = element_blank(),
     strip.text       = element_text(face = "bold", size = 11),
     panel.grid.major = element_line(colour = "grey94", linewidth = 0.3),
@@ -384,7 +387,7 @@ plot_data <- all_metrics_vpd %>%
   filter(model == "with_VPD") %>%
   select(site, R2) %>%
   left_join(
-    site_meta %>% select(site, MAT, MAP, MAL, n_years),
+    site_meta %>% select(site, MAT, MAP, MAL, n_years.x),
     by = "site"
   ) %>%
   pivot_longer(
@@ -422,9 +425,9 @@ p3 <- ggplot(plot_data, aes(x = value, y = R2)) +
   expand = expansion(mult = c(0.02, 0.05))
 ) +
   labs(
-    y       = expression(R^2 ~ "(RF with VPD)"),
+    y       = expression(R^2 ~ "(with VPD)"),
     x       = NULL,
-    caption = "MAP = Mean Annual Precipitation; MAT = Mean Annual Temperature; MAL = Maximum Annual LAI"
+    caption = "MAT = Mean Annual Temperature, MAP = Mean Annual Precipitation, MAL = Maximum Annual LAI"
   ) +
   thesis_theme +
   theme(
@@ -437,14 +440,14 @@ print(p3)
 # ── Plot 4: Record length vs R² (null result — include only if needed) ────────
 
 record_data <- plot_data %>%
-  distinct(site, R2, n_years)
+  distinct(site, R2, n_years.x)
 
 # fit lm to extract p-value for annotation
-lm_fit <- lm(R2 ~ n_years, data = record_data)
+lm_fit <- lm(R2 ~ n_years.x, data = record_data)
 lm_p   <- summary(lm_fit)$coefficients[2, 4]
 lm_r2  <- summary(lm_fit)$r.squared
 
-p4 <- ggplot(record_data, aes(x = n_years, y = R2)) +
+p4 <- ggplot(record_data, aes(x = n_years.x, y = R2)) +
   geom_smooth(
     method    = "lm",
     se        = TRUE,
@@ -530,9 +533,9 @@ ggplot(plot_data, aes(x = value, y = R2)) +
 
 ```{r}
 years_r2_df <- plot_data %>% 
-  distinct(site, R2, n_years)
+  distinct(site, R2, n_years.x)
 
-model_years <- lm(R2 ~ n_years, data = years_r2_df)
+model_years <- lm(R2 ~ n_years.x, data = years_r2_df)
 
 summary(model_years)
 ```
