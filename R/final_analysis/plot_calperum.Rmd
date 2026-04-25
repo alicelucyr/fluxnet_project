@@ -1,0 +1,209 @@
+---
+title: "plot_calperum"
+output: html_document
+date: "2026-04-22"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# ── Updated period colours ────────────────────────────────────────────────────
+period_colours <- c(
+  "Pre-fire"              = "darkolivegreen",
+  "During Fire / Recovery" = "#BF812D",
+  "Post-fire"             = "#01665E"
+)
+
+# ── Partition Calperum by fire period ─────────────────────────────────────────
+cpr <- sites_daily_capped[["Cpr"]] %>%
+  mutate(year = lubridate::year(date))
+
+cpr_pre    <- cpr %>% filter(year >= 2010 & year <= 2013)
+cpr_during <- cpr %>% filter(year >= 2014 & year <= 2019)
+cpr_post   <- cpr %>% filter(year >= 2020 & year <= 2025)
+
+# ── Run slope fitting per period ──────────────────────────────────────────────
+fit_vpd_slope <- function(df, period_name) {
+  
+  binned <- df %>%
+    drop_na(VPD, GPP) %>%
+    mutate(vpd_bin = cut(VPD, breaks = seq(0, 6, by = 0.2))) %>%
+    group_by(vpd_bin) %>%
+    summarise(
+      gpp_max = quantile(GPP, 0.95, na.rm = TRUE),
+      vpd_mid = mean(VPD, na.rm = TRUE),
+      n       = n(),
+      .groups = "drop"
+    ) %>%
+    filter(n >= 3) %>%
+    mutate(gpp_norm = gpp_max / max(gpp_max, na.rm = TRUE))
+  
+  vpd_at_peak <- binned$vpd_mid[which.max(binned$gpp_norm)]
+  descending  <- binned %>% filter(vpd_mid >= vpd_at_peak)
+  
+  if (nrow(descending) < 3) {
+    return(tibble(period = period_name, intercept = NA, slope = NA,
+                  vpd_at_peak = NA, n_bins = nrow(descending)))
+  }
+  
+  model <- lm(gpp_norm ~ vpd_mid, data = descending)
+  coefs <- coef(model)
+  
+  tibble(
+    period      = period_name,
+    intercept   = coefs[1],
+    slope       = coefs[2],
+    vpd_at_peak = vpd_at_peak,
+    n_bins      = nrow(descending)
+  )
+}
+
+```
+
+```{r}
+# ── Apply to each period ──────────────────────────────────────────────────────
+calperum_slopes <- bind_rows(
+  fit_vpd_slope(cpr_pre,    "Pre-fire"),
+  fit_vpd_slope(cpr_during, "During Fire / Recovery"),
+  fit_vpd_slope(cpr_post,   "Post-fire")
+) %>%
+  mutate(period = factor(period, levels = c(
+    "Pre-fire",
+    "During Fire / Recovery",
+    "Post-fire"
+  )))
+
+print(calperum_slopes)
+
+# ── Build binned point cloud per period ───────────────────────────────────────
+make_cloud <- function(df, period_name) {
+  
+  cap <- quantile(df$GPP, 0.99, na.rm = TRUE)
+  df  <- df %>% mutate(GPP = ifelse(GPP > cap, NA, GPP))
+  
+  df %>%
+    drop_na(VPD, GPP) %>%
+    mutate(vpd_bin = cut(VPD, breaks = seq(0, 6, by = 0.2))) %>%
+    group_by(vpd_bin) %>%
+    summarise(
+      gpp_max = quantile(GPP, 0.95, na.rm = TRUE),
+      vpd_mid = mean(VPD, na.rm = TRUE),
+      n       = n(),
+      .groups = "drop"
+    ) %>%
+    filter(n >= 3) %>%
+    mutate(
+      gpp_norm = gpp_max / max(gpp_max, na.rm = TRUE),
+      period   = period_name
+    )
+}
+
+calperum_cloud <- bind_rows(
+  make_cloud(cpr_pre,    "Pre-fire"),
+  make_cloud(cpr_during, "During Fire / Recovery"),
+  make_cloud(cpr_post,   "Post-fire")
+) %>%
+  mutate(period = factor(period, levels = c(
+    "Pre-fire",
+    "During Fire / Recovery",
+    "Post-fire"
+  )))
+
+# ── Build fitted lines ────────────────────────────────────────────────────────
+calperum_fitted <- calperum_slopes %>%
+  filter(!is.na(slope)) %>%
+  rowwise() %>%
+  reframe(
+    period  = period,
+    vpd_mid = seq(vpd_at_peak, 6, by = 0.05),
+    fitted  = intercept + slope * vpd_mid
+  ) %>%
+  mutate(period = factor(period, levels = c(
+    "Pre-fire",
+    "During Fire / Recovery",
+    "Post-fire"
+  )))
+
+# ── Raw daily point cloud per period ─────────────────────────────────────────
+calperum_raw <- bind_rows(
+  cpr_pre    %>% mutate(period = "Pre-fire"),
+  cpr_during %>% mutate(period = "During Fire / Recovery"),
+  cpr_post   %>% mutate(period = "Post-fire")
+) %>%
+  drop_na(VPD, GPP) %>%
+  group_by(period) %>%
+  mutate(
+    cap      = quantile(GPP, 0.99, na.rm = TRUE),
+    GPP      = ifelse(GPP > cap, NA, GPP),
+    gpp_norm = GPP / max(GPP, na.rm = TRUE),
+    period   = factor(period, levels = c(
+      "Pre-fire",
+      "During Fire / Recovery",
+      "Post-fire"
+    ))
+  ) %>%
+  ungroup()
+
+```
+
+```{r}
+# ── Faceted plot with raw cloud + binned points + fitted line ─────────────────
+p_cpr_facet <- ggplot() +
+
+  # Raw daily scatter — background layer, very transparent
+  geom_point(
+    data  = calperum_raw,
+    aes(x = VPD, y = gpp_norm, colour = period),
+    size  = 0.3, alpha = 0.08
+  ) +
+
+  # Binned 95th percentile points — more visible on top
+  geom_point(
+    data  = calperum_cloud,
+    aes(x = vpd_mid, y = gpp_norm, colour = period),
+    size  = 2, alpha = 0.7
+  ) +
+
+  # Fitted slope line
+  geom_line(
+    data      = calperum_fitted,
+    aes(x = vpd_mid, y = fitted, colour = period),
+    linewidth = 1.1
+  ) +
+
+  # VPD peak threshold marker
+  geom_vline(
+    data     = calperum_slopes %>% filter(!is.na(slope)),
+    aes(xintercept = vpd_at_peak, colour = period),
+    linetype = "dashed", linewidth = 0.5, alpha = 0.7
+  ) +
+
+  # Slope and threshold annotation
+  geom_text(
+    data = calperum_slopes %>% filter(!is.na(slope)),
+    aes(label  = paste0("β = ", round(slope, 3),
+                        "\nVPD peak = ", round(vpd_at_peak, 2), " kPa"),
+        colour = period),
+    x = Inf, y = Inf, hjust = 1.1, vjust = 1.3,
+    size = 3, fontface = "bold"
+  ) +
+
+  facet_wrap(~ period, ncol = 3) +
+
+  scale_colour_manual(values = period_colours) +
+  coord_cartesian(ylim = c(0, 1.3)) +
+  labs(x = "VPD (kPa)", y = "Normalised GPP") +
+theme_classic(base_size = 11) +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold", size = 13),  # period titles
+    legend.position  = "none",
+    axis.title       = element_text(size = 13),                 # VPD and GPP labels
+    axis.text        = element_text(size = 10)                  # tick numbers
+  )
+
+print(p_cpr_facet)
+```
+
