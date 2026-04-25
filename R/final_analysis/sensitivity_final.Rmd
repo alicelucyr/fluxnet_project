@@ -211,61 +211,101 @@ print(p_single)
 ```{r}
 make_plot <- function(site_name) {
   
-  cloud <- subset(cloud_single, site == site_name)
+  cloud  <- subset(cloud_single,  site == site_name)
   binned <- subset(binned_single, site == site_name)
-  lines  <- subset(lines_single, site == site_name)
+  lines  <- subset(lines_single,  site == site_name)
   slopes <- subset(slopes_single, site == site_name)
-
+  
   ggplot() +
+    
+    # Raw daily scatter
     geom_point(
-      data = cloud,
+      data   = cloud,
       aes(x = VPD, y = gpp_norm),
       colour = "grey60", alpha = 0.15, size = 0.5
     ) +
+    
+    # Binned 95th percentile points
+    geom_point(
+      data   = binned,
+      aes(x = vpd_mid, y = gpp_norm),
+      colour = "#4477AA", size = 1.8, alpha = 0.7
+    ) +
+    
+    # Fitted slope line with legend label
     geom_line(
       data = lines,
-      aes(x = vpd_mid, y = fitted),
-      colour = "#EE6677", linewidth = 1.2
+      aes(x = vpd_mid, y = fitted,
+          linetype = "Fitted slope (95th percentile)"),
+      colour    = "#4477AA",
+      linewidth = 1.2
     ) +
+    
+    # Threshold line — thicker and coloured for visibility
     geom_vline(
       data = slopes,
-      aes(xintercept = vpd_at_peak),
-      linetype = "dashed",
-      linewidth = 0.8
+      aes(xintercept = vpd_at_peak,
+          colour = "VPD threshold"),
+      linetype  = "dashed",
+      linewidth = 1.1
     ) +
-   geom_text(
-  data = slopes,
-  aes(
-    x = vpd_at_peak,
-    y = 1.2,
-    label = paste0("Threshold = ", round(vpd_at_peak, 2), " kPa")
-  ),
-  size = 3.5,
-  hjust = -0.1
-) +
-geom_text(
-  data = slopes,
-  aes(
-    x = vpd_at_peak,
-    y = 1.1,
-    label = paste0("Slope = ", round(slope, 2))
-  ),
-  size = 3.5,
-  hjust = -0.1
-) +
+    
+    # Threshold label — above the line
+    geom_text(
+      data = slopes,
+      aes(
+        x     = vpd_at_peak,
+        y     = 1.25,
+        label = paste0("Threshold = ", round(vpd_at_peak, 2), " kPa")
+      ),
+      size     = 3.5,
+      hjust    = -0.1,
+      colour   = "#CC3311",
+      fontface = "bold"
+    ) +
+    
+    # Slope label
+    geom_text(
+      data = slopes,
+      aes(
+        x     = vpd_at_peak,
+        y     = 1.13,
+        label = paste0("Slope = ", round(slope, 2))
+      ),
+      size   = 3.5,
+      hjust  = -0.1,
+      colour = "#4477AA"
+    ) +
+    
+    # Manual scales for legend entries
+    scale_linetype_manual(
+      name   = NULL,
+      values = c("Fitted slope (95th percentile)" = "solid")
+    ) +
+    scale_colour_manual(
+      name   = NULL,
+      values = c("VPD threshold" = "#CC3311")
+    ) +
+    
     coord_cartesian(ylim = c(0, 1.3)) +
+    
     labs(
-      x = "Vapour Pressure Deficit (kPa)",
-      y = "Normalised GPP",
+      x     = "VPD (kPa)",
+      y     = "Normalised GPP",
       title = site_name
     ) +
-    theme_bw(base_size = 14)
+    
+    theme_classic(base_size = 14) +
+    theme(
+      plot.title      = element_text(face = "bold"),
+      legend.position = "bottom",
+      legend.text     = element_text(size = 12),
+      axis.text        = element_text(size = 13),
+    axis.title       = element_text(size = 13),
+    )
 }
-
 p_fog <- make_plot("Fog")
-p_asm <- make_plot("Asm")
-p_das <- make_plot("Das")
-p_cpr <- make_plot("Cpr")
+
 ```
 
 ```{r}
@@ -452,8 +492,51 @@ print(p_threshold)
 summary(site_slopes$vpd_at_peak)
 ```
 
+
 ```{r}
-p_slope <- site_slopes_env %>%
+# ── Calculate Spearman rho for slope plot ─────────────────────────────────────
+slope_cors <- site_slopes_env %>%
+  pivot_longer(cols = c(MAT, MAP, MAL),
+               names_to  = "variable",
+               values_to = "value") %>%
+  group_by(variable) %>%
+  summarise(
+    rho     = round(cor(slope, value, use = "complete.obs", 
+                        method = "spearman"), 2),
+    p_value = cor.test(slope, value, method = "spearman")$p.value,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    label = ifelse(p_value < 0.05,
+                   paste0("ρ = ", rho, "*"),
+                   paste0("ρ = ", rho)),
+    variable = factor(variable, levels = c("MAT", "MAP", "MAL"))
+  )
+
+# ── Calculate Spearman rho for threshold plot ─────────────────────────────────
+thresh_cors <- site_slopes_env %>%
+  pivot_longer(cols = c(MAT, MAP, MAL),
+               names_to  = "variable",
+               values_to = "value") %>%
+  group_by(variable) %>%
+  summarise(
+    rho     = round(cor(vpd_at_peak, value, use = "complete.obs",
+                        method = "spearman"), 2),
+    p_value = cor.test(vpd_at_peak, value, method = "spearman")$p.value,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    label = ifelse(p_value < 0.05,
+                   paste0("ρ = ", rho, "*"),
+                   paste0("ρ = ", rho)),
+    variable = factor(variable, levels = c("MAT", "MAP", "MAL"))
+  )
+```
+
+
+
+```{r}
+p_thresh <- site_slopes_env %>%
   pivot_longer(
     cols      = c(MAT, MAP, MAL),       
     names_to  = "variable",
@@ -485,6 +568,17 @@ p_slope <- site_slopes_env %>%
     ncol     = 3                        # force all three panels in one row
   ) +
   
+geom_text(
+  data        = thresh_cors,
+  aes(x = Inf, y = -Inf, label = label),
+  hjust       = 1.1,
+  vjust       = -0.5,
+  size        = 3.5,
+  colour      = "grey20",
+  fontface    = "bold",
+  inherit.aes = FALSE
+) +
+  
   labs(
     x = NULL,
     y = "VPD peak (kPa)"
@@ -494,15 +588,33 @@ theme_bw(base_size = 12) +
   theme(
     strip.background = element_blank(),
     strip.text       = element_text(face = "bold", size = 10),
-    legend.position  = "bottom",
+    legend.position  = "none",
     legend.text      = element_text(size = 9),
     legend.title     = element_text(size = 10, face = "bold"),
-    legend.key.size  = unit(0.4, "cm"),   # shrinks the colour swatch too
-    panel.grid.minor = element_blank()
+    legend.key.size  = unit(0.4, "cm"),
+    panel.grid.minor = element_blank(),
+    axis.text        = element_text(size = 14),  # x and y tick labels
+    axis.title.y     = element_text(size = 14)   # "VPD peak (kPa)" label
   )
 
-print(p_slope)
+print(p_thresh)
 ```
+```{r}
+site_slopes_env %>%
+  summarise(
+    across(
+      c(MAT, MAP, MAL),
+      ~ cor(vpd_at_peak, .x, use = "complete.obs", method = "spearman"),
+      .names = "rho_{.col}"
+    )
+  )
+```
+```{r}
+summary(site_slopes_env$vpd_at_peak)
+```
+
+
+
 ```{r}
 p_slope <- site_slopes_env %>%
   pivot_longer(
@@ -546,6 +658,18 @@ p_slope <- site_slopes_env %>%
     ncol     = 3                        # force all three panels in one row
   ) +
   
+  # Add this inside p_slope, just before labs()
+geom_text(
+  data        = slope_cors,
+  aes(x = Inf, y = Inf, label = label),
+  hjust       = 1.15,
+  vjust       = 1.5,
+  size        = 3.5,
+  colour      = "grey20",
+  fontface    = "bold",
+  inherit.aes = FALSE
+) +
+  
   labs(
     x = NULL,
     y = "GPP-VPD slope (β)"
@@ -556,57 +680,18 @@ theme_bw(base_size = 12) +
     strip.background = element_blank(),
     strip.text       = element_text(face = "bold", size = 10),
     legend.position  = "none",
-    legend.text      = element_text(size = 7),
-    legend.title     = element_text(size = 8, face = "bold"),
-    legend.key.size  = unit(0.4, "cm"),   # shrinks the colour swatch too
-    panel.grid.minor = element_blank()
+    legend.text      = element_text(size = 9),
+    legend.title     = element_text(size = 10, face = "bold"),
+    legend.key.size  = unit(0.4, "cm"),
+    panel.grid.minor = element_blank(),
+    axis.text        = element_text(size = 13),  # x and y tick labels
+    axis.title.y     = element_text(size = 13)   # "VPD peak (kPa)" label
   )
 
 print(p_slope)
 ```
 
-```{r}
-model_stats <- site_slopes_env %>%
-  pivot_longer(
-    cols = c(MAT, MAP, MAL),
-    names_to = "variable",
-    values_to = "value"
-  ) %>%
-  group_by(variable) %>%
-  do({
-    model <- lm(slope ~ value, data = .)
-    summary_model <- summary(model)
-    
-    tibble(
-      R2 = summary_model$r.squared,
-      p_value = coef(summary_model)[2, 4]
-    )
-  })
 
-threshold_stats <- site_slopes_env %>%
-  pivot_longer(
-    cols = c(MAT, MAP, MAL),
-    names_to = "variable",
-    values_to = "value"
-  ) %>%
-  group_by(variable) %>%
-  do({
-    model <- lm(vpd_at_peak ~ value, data = .)
-    summary_model <- summary(model)
-    
-    tibble(
-      R2 = summary_model$r.squared,
-      p_value = coef(summary_model)[2, 4]
-    )
-  })
-
-model_stats$type <- "Slope"
-threshold_stats$type <- "Threshold"
-
-all_stats <- bind_rows(model_stats, threshold_stats)
-
-print(all_stats)
-```
 
 
 ```{r}
@@ -614,12 +699,18 @@ library(tidyverse)
 library(ggrepel)
 library(patchwork)
 
-# ── MASTER COLOURS ────────────────────────────────────────────────────────────
+```
+
+```{r}
+
 cluster_colours <- c(
-  "Low"    = "#4477AA",
-  "Medium" = "#CCBB44",
-  "High"   = "#EE6677"
+  "Low"    = "deeppink2",  
+  "Medium" = "dodgerblue",  
+  "High"   = "aquamarine3"   
 )
+```
+
+```{r}
 
 climate_colours <- c(
   "Tropical"    = "#EE8866",
@@ -739,6 +830,9 @@ cluster_lookup  <- site_slopes %>% select(site, cluster_multi)
 all_clouds_cl   <- all_clouds   %>% left_join(cluster_lookup, by = "site")
 fitted_lines_cl <- fitted_lines %>% left_join(cluster_lookup, by = "site")
 
+```
+
+```{r}
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 5: THREE-PANEL CLUSTER SUMMARY PLOT
 # ══════════════════════════════════════════════════════════════════════════════
@@ -821,7 +915,7 @@ p_cluster_summary <- ggplot() +
   theme_classic(base_size = 12) +
   theme(
     strip.background = element_blank(),
-    strip.text       = element_text(face = "bold", size = 11),
+    strip.text       = element_text(face = "bold", size = 13),
     legend.position  = "none",
     panel.grid.major = element_line(colour = "grey94", linewidth = 0.3)
   )
@@ -829,6 +923,104 @@ p_cluster_summary <- ggplot() +
 print(p_cluster_summary)
 
 ```
+
+
+```{r}
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 5: THREE-PANEL CLUSTER SUMMARY PLOT
+# ══════════════════════════════════════════════════════════════════════════════
+
+cluster_mean_params <- site_slopes %>%
+  filter(!is.na(slope)) %>%
+  group_by(cluster_multi) %>%
+  summarise(
+    mean_slope     = mean(slope,       na.rm = TRUE),
+    mean_intercept = mean(intercept,   na.rm = TRUE),
+    mean_vpd_peak  = mean(vpd_at_peak, na.rm = TRUE),
+    n_sites        = n(),
+    .groups = "drop"
+  )
+
+cluster_mean_lines <- cluster_mean_params %>%
+  rowwise() %>%
+  reframe(
+    cluster_multi = cluster_multi,
+    n_sites       = n_sites,
+    mean_slope    = mean_slope,
+    mean_vpd_peak = mean_vpd_peak,
+    vpd_mid       = seq(mean_vpd_peak, 6, by = 0.05),
+    fitted        = mean_intercept + mean_slope * vpd_mid
+  )
+
+# 🔥 Shorter, cleaner labels
+cluster_labels <- cluster_mean_params %>%
+  mutate(
+    label = paste0(
+      "n = ", n_sites, "\n",
+      "β = ", round(mean_slope, 3), "\n",
+      "VPD-peak = ", round(mean_vpd_peak, 2), " kPa"
+    )
+  )
+
+p_cluster_summary <- ggplot() +
+
+  geom_point(
+    data  = all_clouds_cl,
+    aes(x = VPD, y = gpp_norm, colour = cluster_multi),
+    size  = 0.3, alpha = 0.08
+  ) +
+
+  geom_line(
+    data      = fitted_lines_cl,
+    aes(x = vpd_mid, y = fitted, group = site, colour = cluster_multi),
+    linewidth = 0.4, alpha = 0.35
+  ) +
+
+  geom_line(
+    data      = cluster_mean_lines,
+    aes(x = vpd_mid, y = fitted, colour = cluster_multi),
+    linewidth = 1.5, alpha = 1
+  ) +
+
+  geom_vline(
+    data     = cluster_mean_params,
+    aes(xintercept = mean_vpd_peak, colour = cluster_multi),
+    linetype = "dashed", linewidth = 0.5, alpha = 0.8
+  ) +
+
+  # 🔥 Improved text: bigger + slightly more right/top
+  geom_text(
+    data        = cluster_labels,
+    aes(label   = label, colour = cluster_multi),
+    x           = Inf, y = Inf,
+    hjust       = 1.05,   # slightly more right
+    vjust       = 1.05,   # slightly higher
+    size        = 4,      # bigger text
+    fontface    = "bold",
+    lineheight  = 1.1,    # tighter spacing
+    inherit.aes = FALSE
+  ) +
+
+  facet_wrap(
+    ~ factor(cluster_multi, levels = c("Low", "Medium", "High")),
+    ncol   = 3,
+    scales = "free_x"
+  ) +
+
+  scale_colour_manual(values = cluster_colours) +
+  coord_cartesian(ylim = c(0, 1.3)) +
+  labs(x = "VPD (kPa)", y = "Normalised GPP") +
+  theme_classic(base_size = 12) +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(face = "bold", size = 13),
+    legend.position  = "none",
+    panel.grid.major = element_line(colour = "grey94", linewidth = 0.3)
+  )
+
+print(p_cluster_summary)
+```
+
 
 ```{r}
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1000,6 +1192,7 @@ scale_colour_gradientn(
 
 print(p_map)
 ```
+
 ```{r}
 # ── Northern Territory zoom ───────────────────────────────────────────────────
 p_map_NT <- ggplot() +
@@ -1193,6 +1386,10 @@ library(sf)
 library(ggplot2)
 library(ggrepel)
 
+```
+
+```{r}
+
 # Load raster
 koppen_rast <- rast("/Users/alicerolfe/year_4_project/fluxnet_project/Data/Beck_KG_V1_present_0p0083.tif")
 
@@ -1220,6 +1417,12 @@ koppen_categories <- c(
   "5"  = "Desert",
   "6"  = "Semi-arid",
   "7"  = "Semi-arid",
+  "8" = "Temperate", 
+  "9" = "Temperate", 
+  "10" = "Temperate",
+  "11" = "Temperate", 
+  "12" = "Temperate", 
+  "13" = "Temperate",
   "14" = "Subtropical",
   "15" = "Temperate",
   "16" = "Temperate",
@@ -1288,6 +1491,16 @@ p_map_koppen <- ggplot() +
     size  = 4,
     alpha = 0.95
   ) +
+  
+  geom_text_repel(
+  data  = site_map_data,
+  aes(x = lon, y = lat, label = site),
+  size           = 3,
+  colour         = "grey20",
+  max.overlaps   = 20,
+  segment.size   = 0.2,
+  segment.colour = "grey50"
+) +
 
   # R² colour scale
   scale_colour_gradientn(
@@ -1338,22 +1551,339 @@ p_map_koppen <- ggplot() +
 print(p_map_koppen)
 
 ```
-```{r}
-library(terra)
-
-# Get all unique values in the raster
-vals <- sort(unique(values(koppen_aus)))
-
-vals
-```
 
 ```{r}
-koppen_lookup <- data.frame(
-  zone_code = as.character(vals)
+koppen_layer <- geom_raster(
+  data  = koppen_df,
+  aes(x = lon, y = lat, fill = broad_zone),
+  alpha = 0.8
 )
 ```
 
 ```{r}
+p_map_NT <- ggplot() +
 
+  # Köppen background
+  koppen_layer +
+
+  scale_fill_manual(
+    values = koppen_colours_simple,
+    name   = "Köppen climate",
+    na.value = "grey90"
+  ) +
+
+  # Australia border
+  geom_sf(
+    data      = australia_sf,
+    fill      = NA,
+    colour    = "grey30",
+    linewidth = 0.4
+  ) +
+
+  # Points
+  geom_point(
+    data  = site_map_data,
+    aes(x = lon, y = lat,
+        colour = R2_with_VPD,
+        shape  = cluster_multi),
+    size  = 5,
+    alpha = 0.9
+  ) +
+
+  geom_text_repel(
+    data  = site_map_data,
+    aes(x = lon, y = lat, label = site),
+    size = 3.2
+  ) +
+
+  scale_colour_gradientn(
+    colours = c("#CC3311", "#EE8866", "#FFFFCC", "#6699CC", "#004488"),
+    values  = scales::rescale(c(0, 0.2, 0.4, 0.6, 0.8)),
+    limits  = c(0, 0.8),
+    name    = expression(Model ~ R^2)
+  ) +
+
+  scale_shape_manual(
+    values = c("Low" = 16, "Medium" = 17, "High" = 8),
+    name = "VPD sensitivity"
+  ) +
+
+  coord_sf(
+    xlim = c(129, 137),
+    ylim = c(-16, -11)
+  ) +
+
+  labs(title = "Northern Territory sites") +
+
+  theme_void() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    panel.background = element_rect(fill = "#d6eaf8", colour = NA)
+  )
+
+print(p_map_NT)
+```
+
+
+```{r}
+p_map_SE <- ggplot() +
+
+  koppen_layer +
+
+  scale_fill_manual(
+    values = koppen_colours_simple,
+    name   = "Köppen climate",
+    na.value = "grey90"
+  ) +
+
+  geom_sf(
+    data      = australia_sf,
+    fill      = NA,
+    colour    = "grey30",
+    linewidth = 0.4
+  ) +
+
+  geom_point(
+    data  = site_map_data,
+    aes(x = lon, y = lat,
+        colour = R2_with_VPD,
+        shape  = cluster_multi),
+    size  = 5
+  ) +
+
+  geom_text_repel(
+    data  = site_map_data,
+    aes(x = lon, y = lat, label = site),
+    size = 3.2
+  ) +
+
+  scale_colour_gradientn(
+    colours = c("#CC3311", "#EE8866", "#FFFFCC", "#6699CC", "#004488"),
+    values  = scales::rescale(c(0, 0.2, 0.4, 0.6, 0.8)),
+    limits  = c(0, 0.8),
+    name    = expression(Model ~ R^2)
+  ) +
+
+  scale_shape_manual(
+    values = c("Low" = 16, "Medium" = 17, "High" = 8),
+    name = "VPD sensitivity"
+  ) +
+
+  coord_sf(
+    xlim = c(143, 152),
+    ylim = c(-39, -30)
+  ) +
+
+  labs(title = "Southeastern Australia sites") +
+
+  theme_void() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    panel.background = element_rect(fill = "#d6eaf8", colour = NA)
+  )
+
+print(p_map_SE)
+```
+
+
+```{r}
+p_map_koppen <- ggplot() +
+
+  # Simplified Köppen background
+  geom_raster(
+    data  = koppen_df,
+    aes(x = lon, y = lat, fill = broad_zone),
+    alpha = 0.8
+  ) +
+
+  scale_fill_manual(
+    values   = koppen_colours_simple,
+    name     = "Köppen climate",
+    na.value = "grey90",
+    guide    = guide_legend(
+      ncol         = 1,
+      keywidth     = 0.8,
+      keyheight    = 0.6,
+      override.aes = list(alpha = 1)
+    )
+  ) +
+
+  # Australia border
+  geom_sf(
+    data      = australia_sf,
+    fill      = NA,
+    colour    = "grey30",
+    linewidth = 0.4
+  ) +
+
+  # Site points — cluster as colour, fixed shape
+  geom_point(
+    data  = site_map_data,
+    aes(x      = lon,
+        y      = lat,
+        colour = cluster_multi),
+    size  = 4,
+    shape = 19,
+    alpha = 0.95
+  ) +
+
+  geom_text_repel(
+    data           = site_map_data,
+    aes(x = lon, y = lat, label = site),
+    size           = 3,
+    colour         = "grey20",
+    max.overlaps   = 20,
+    segment.size   = 0.2,
+    segment.colour = "grey50"
+  ) +
+
+  # Cluster colour scale
+  scale_colour_manual(
+    values = c(
+        "Low"    = "deeppink2",  
+  "Medium" = "dodgerblue",  
+  "High"   = "aquamarine3" 
+    ),
+    name  = "VPD sensitivity",
+    guide = guide_legend(
+      order        = 1,
+      ncol         = 1,
+      keywidth     = 0.8,
+      keyheight    = 0.6,
+      override.aes = list(size = 4)
+    )
+  ) +
+
+  coord_sf(
+    xlim = c(113, 154),
+    ylim = c(-44, -10)
+  ) +
+
+  labs(x = NULL, y = NULL) +
+
+  theme_void(base_size = 12) +
+  theme(
+    legend.position  = "right",
+    legend.title     = element_text(face = "bold", size = 9),
+    legend.text      = element_text(size = 8),
+    legend.spacing.y = unit(0.3, "cm"),
+    panel.background = element_rect(fill = "#d6eaf8", colour = NA)
+  )
+
+print(p_map_koppen)
+```
+
+
+```{r}
+p_map_NT <- ggplot() +
+  # Köppen background
+  koppen_layer +
+  scale_fill_manual(
+    values   = koppen_colours_simple,
+    name     = "Köppen climate",
+    na.value = "grey90"
+  ) +
+  # Australia border
+  geom_sf(
+    data      = australia_sf,
+    fill      = NA,
+    colour    = "grey30",
+    linewidth = 0.4
+  ) +
+  # Points — cluster as colour, fixed circle shape
+  geom_point(
+    data  = site_map_data,
+    aes(x      = lon,
+        y      = lat,
+        colour = cluster_multi),
+    size  = 5,
+    shape = 19,
+    alpha = 0.9
+  ) +
+  geom_text_repel(
+    data  = site_map_data,
+    aes(x = lon, y = lat, label = site),
+    size  = 3.2
+  ) +
+  scale_colour_manual(
+    values = c(
+        "Low"    = "deeppink2",  
+  "Medium" = "dodgerblue",  
+  "High"   = "aquamarine3" 
+    ),
+    name  = "VPD sensitivity",
+    guide = guide_legend(
+      override.aes = list(size = 4)
+    )
+  ) +
+  coord_sf(
+    xlim = c(129, 137),
+    ylim = c(-16, -11)
+  ) +
+  labs(title = "Northern Territory sites") +
+  theme_void() +
+  theme(
+    plot.title       = element_text(hjust = 0.5, face = "bold"),
+    panel.background = element_rect(fill = "#d6eaf8", colour = NA)
+  )
+
+print(p_map_NT)
+```
+
+
+```{r}
+p_map_SE <- ggplot() +
+  koppen_layer +
+  scale_fill_manual(
+    values   = koppen_colours_simple,
+    name     = "Köppen climate",
+    na.value = "grey90"
+  ) +
+  geom_sf(
+    data      = australia_sf,
+    fill      = NA,
+    colour    = "grey30",
+    linewidth = 0.4
+  ) +
+  geom_point(
+    data  = site_map_data,
+    aes(x      = lon,
+        y      = lat,
+        colour = cluster_multi),
+    size  = 5,
+    shape = 19,
+    alpha = 0.9
+  ) +
+  geom_text_repel(
+    data  = site_map_data,
+    aes(x = lon, y = lat, label = site),
+    size  = 3.2
+  ) +
+  scale_colour_manual(
+    values = c(
+      "Low"    = "deeppink2",  
+  "Medium" = "dodgerblue",  
+  "High"   = "aquamarine3" 
+    ),
+    name  = "VPD sensitivity",
+    guide = guide_legend(
+      override.aes = list(size = 4)
+    )
+  ) +
+  coord_sf(
+    xlim = c(143, 152),
+    ylim = c(-39, -30)
+  ) +
+  labs(title = "Southeastern Australia sites") +
+  theme_void() +
+  theme(
+    plot.title       = element_text(hjust = 0.5, face = "bold"),
+    panel.background = element_rect(fill = "#d6eaf8", colour = NA)
+  )
+
+print(p_map_SE)
+```
+```{r}
+summary(site_slopes_env$vpd_at_peak)
 ```
 
