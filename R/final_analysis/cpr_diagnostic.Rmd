@@ -36,7 +36,7 @@ cpr <- sites_daily[["Cpr"]] %>%
   mutate(
     year = year(date),
     cumulative_cwd_7day = rollapply(
-      cwd, width = 7, FUN = sum,
+      cwd, width = 14, FUN = sum,
       align = "right", fill = NA, na.rm = TRUE
     )
   ) %>%
@@ -130,10 +130,6 @@ print(metrics)
 
 ```
 ```{r}
-range(loyo_during$date)
-```
-
-```{r}
 # ── Step 1: Run LOYO predictions for each period and combine ──────────────────
 # You already have these from your script:
 # loyo_pre, loyo_during, loyo_post, loyo_full
@@ -156,24 +152,25 @@ ts_combined <- bind_rows(
 
 ```
 
+
 ```{r}
 
-# ── Step 2: Compute R² per period and full record ─────────────────────────────
-period_r2 <- ts_combined %>%
+# ── Step 2: Compute R² and RMSE per period ────────────────────────────────────
+period_metrics <- ts_combined %>%
   group_by(period) %>%
   summarise(
-    r2    = round(cor(GPP_obs, GPP_pred, use = "complete.obs")^2, 3),
-    .groups = "drop"
-  )
+    r2       = round(cor(GPP_obs, GPP_pred, use = "complete.obs")^2, 3),
+    rmse     = round(sqrt(mean((GPP_obs - GPP_pred)^2, na.rm = TRUE)), 3),
+    gpp_mean = round(mean(GPP_obs, na.rm = TRUE), 3),
+    .groups  = "drop"
+  ) %>%
+  mutate(nrmse = round(rmse / gpp_mean, 3))
 
-full_r2 <- round(cor(loyo_full$GPP_obs, loyo_full$GPP_pred,
-                     use = "complete.obs")^2, 3)
+full_r2   <- round(cor(loyo_full$GPP_obs, loyo_full$GPP_pred, use = "complete.obs")^2, 3)
+full_rmse <- round(sqrt(mean((loyo_full$GPP_obs - loyo_full$GPP_pred)^2, na.rm = TRUE)), 3)
+full_nrmse <- round(full_rmse / mean(loyo_full$GPP_obs, na.rm = TRUE), 3)
 
-```
-
-```{r}
-
-# ── Step 3: Define period date ranges for shading and annotations ─────────────
+# ── Step 3: Define period bands ───────────────────────────────────────────────
 period_bands <- tibble(
   period = factor(c("Pre-fire", "During Fire / Recovery", "Post-fire"),
                   levels = c("Pre-fire", "During Fire / Recovery", "Post-fire")),
@@ -181,14 +178,14 @@ period_bands <- tibble(
   xmax   = as.Date(c("2013-12-31", "2019-12-31", "2024-12-31"))
 )
 
-# Label x positions — centre of each band for R² annotation
+# ── Step 4: Build period_labels from period_metrics (NOT period_r2) ───────────
 period_labels <- period_bands %>%
   mutate(x_mid = xmin + (xmax - xmin) / 2) %>%
-  left_join(period_r2, by = "period")
+  left_join(period_metrics, by = "period")  # <-- period_metrics, not period_r2
 
 # ── Step 4: Period colours ─────────────────────────────────────────────────────
 period_fill_cols <- c(
-  "Pre-fire"               = "#80CDC1",
+  "Pre-fire"               ="darkolivegreen",
   "During Fire / Recovery" = "#BF812D",
   "Post-fire"              = "#01665E" 
 )
@@ -232,40 +229,53 @@ ggplot() +
   ) +
 
   # Period R² annotations — inside each shaded band, top
+# R² annotation
   geom_text(
     data = period_labels,
     aes(x = x_mid, y = Inf,
         label = paste0("R² = ", r2),
         colour = period),
-    vjust      = 1.6,
-    fontface   = "bold",
-    size       = 3.5,
+    vjust       = 1.6,
+    fontface    = "bold",
+    size        = 3.5,
     inherit.aes = FALSE
   ) +
 
-  # Period name annotations — just below R²
+  # RMSE annotation — just below R²
   geom_text(
     data = period_labels,
-    aes(x = x_mid, y = Inf, label = as.character(period),
+    aes(x = x_mid, y = Inf,
+        label = paste0("nRMSE = ", nrmse),
         colour = period),
-    vjust      = 3.2,
-    size       = 3,
+    vjust       = 3.2,
+    fontface = "bold",
+    size        = 3.5,
     inherit.aes = FALSE
   ) +
 
-  # Full record R² — top left corner
+  # Period name — below RMSE
+  geom_text(
+    data = period_labels,
+    aes(x = x_mid, y = Inf,
+        label = as.character(period),
+        colour = period),
+    vjust       = 4.8,
+    size        = 3.9,
+    inherit.aes = FALSE
+  ) +
+
+  # Full record annotations — bottom left
   annotate(
     "text",
     x        = as.Date("2010-03-01"),
     y        = -Inf,
-    label    = paste0("Full record R² = ", full_r2),
+    label    = paste0("Full record R² = ", full_r2, "  |  nRMSE = ", full_nrmse),
     hjust    = 0,
     vjust    = -0.8,
     size     = 3.2,
     colour   = "grey30",
     fontface = "italic"
   ) +
-
   scale_colour_manual(values = period_fill_cols) +
   scale_fill_manual(values = period_fill_cols) +
 
@@ -288,7 +298,28 @@ ggplot() +
     panel.grid.major.y = element_line(colour = "grey93", linewidth = 0.3),
     strip.background = element_blank()
   )
+
 ```
+
+
+```{r}
+# Check GPP range and variance per period to confirm scale explanation
+ts_combined %>%
+  group_by(period) %>%
+  summarise(
+    gpp_mean   = round(mean(GPP_obs, na.rm = TRUE), 3),
+    gpp_sd     = round(sd(GPP_obs, na.rm = TRUE), 3),
+    gpp_range  = round(max(GPP_obs, na.rm = TRUE) - 
+                       min(GPP_obs, na.rm = TRUE), 3),
+    rmse       = round(sqrt(mean((GPP_obs - GPP_pred)^2, na.rm = TRUE)), 3),
+    r2         = round(cor(GPP_obs, GPP_pred, 
+                           use = "complete.obs")^2, 3)
+  )
+```
+
+
+
+
 
 
 
@@ -629,6 +660,7 @@ print(p_delta)
 print(p_r2)
 print(p_imp)
 ```
+
 ```{r}
 library(tidyverse)
 
