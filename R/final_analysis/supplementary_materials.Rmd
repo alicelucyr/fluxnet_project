@@ -13,13 +13,9 @@ Supplementary materials and data:
 - Latitude and longitude for each site
 - PFT for each site
 - Climate for each site
-- Mean annual precip
+- Mean annual precipitation
 - Mean annual temp
 - Maximum LAI across all years
-
-
-Need to ensure that plots are colour-blind friendly and consistent across the thesis - one main accent colour followed by consistent supporting colours.
-
 
 ```{r}
 library(khroma)
@@ -397,7 +393,7 @@ library(ggplot2)
 library(ggrepel)
 library(sf)
 
-# ── Step 1: Download WorldClim precipitation raster ──────────────────────────
+# Step 1: Download WorldClim precipitation raster
 # geodata makes this straightforward — downloads WorldClim v2.1
 # res = 2.5 (arc-minutes) is a good balance of resolution vs file size
 # path = where to save the downloaded files
@@ -411,16 +407,16 @@ prec <- worldclim_global(
 # worldclim_global returns 12 monthly layers — sum them for MAP
 map_rast <- sum(prec)
 
-# ── Step 2: Crop to Australia ─────────────────────────────────────────────────
+# Step 2: Crop to Australia 
 aus_extent <- ext(110, 155, -45, -10)
 map_aus    <- crop(map_rast, aus_extent)
 
-# ── Step 3: Convert to dataframe for ggplot ───────────────────────────────────
+# Step 3: Convert to dataframe for ggplot 
 map_df <- as.data.frame(map_aus, xy = TRUE) %>%
   rename(lon = x, lat = y, MAP_rast = 3) %>%
   filter(!is.na(MAP_rast))
 
-# ── Step 4: Build map ─────────────────────────────────────────────────────────
+# Step 4: Build map
 ggplot() +
 
   # MAP raster background

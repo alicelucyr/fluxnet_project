@@ -8,7 +8,11 @@ date: "2026-03-16"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-Sensitivity analysis final script
+**Sensitivity analysis**
+
+Characterizing the relationship between gross primary productivity (GPP) and Vapour pressure deficit (VPD) - To do this we are going to quantify the slope of GPP decline above VPD optimum for each site.
+
+Daily GPP normalised by site-level maximum to account for differences in productivity across ecosystems, daily observations binned into 0.2 kPa VPD intervals and 95th percentile of each bin was calculated. This is to minimise the confounding effect of water stress on ecosystem VPD response (addressed in discussion of dissertation).
 
 ```{r}
 #cap for anomalous GPP
@@ -56,7 +60,7 @@ site_slopes <- map_dfr(names(sites_daily_capped), function(site) {
     n_bins      = nrow(descending)
   )
 }) %>%
-  mutate(site = str_remove(site, "_HH_daily"))  # this closing }) was also missing
+  mutate(site = str_remove(site, "_HH_daily"))  
 
 
 # Step 2: Build point cloud — raw daily points normalised per site
@@ -315,8 +319,6 @@ print(p_das)
 print(p_cpr)
 ```
 
-
-
 ```{r}
 site_slopes_env <- site_slopes %>%
   filter(!is.na(slope)) %>%
@@ -332,12 +334,11 @@ glimpse(site_slopes_env)
 unique(site_slopes_env$Precip_regime)
 ```
 ```{r}
-# ── Fix duplicate MAL columns ─────────────────────────────────────────────────
+# Fix duplicate MAL columns 
 site_slopes_env <- site_slopes_env %>%
   select(-MAL.y) %>%                    # drop the duplicate
   rename(MAL = MAL.x)                   # rename the keeper
 
-# ── Check it worked ───────────────────────────────────────────────────────────
 names(site_slopes_env)
 ```
 
@@ -494,7 +495,7 @@ summary(site_slopes$vpd_at_peak)
 
 
 ```{r}
-# ── Calculate Spearman rho for slope plot ─────────────────────────────────────
+# Calculate Spearman rho for slope plot 
 slope_cors <- site_slopes_env %>%
   pivot_longer(cols = c(MAT, MAP, MAL),
                names_to  = "variable",
@@ -513,7 +514,7 @@ slope_cors <- site_slopes_env %>%
     variable = factor(variable, levels = c("MAT", "MAP", "MAL"))
   )
 
-# ── Calculate Spearman rho for threshold plot ─────────────────────────────────
+# Calculate Spearman rho for threshold plot
 thresh_cors <- site_slopes_env %>%
   pivot_longer(cols = c(MAT, MAP, MAL),
                names_to  = "variable",
@@ -731,9 +732,7 @@ pft_colours <- c(
 ```
 
 ```{r}
-# ══════════════════════════════════════════════════════════════════════════════
 # STEP 1: PREPARE SCALED MATRIX
-# ══════════════════════════════════════════════════════════════════════════════
 
 slopes_mat <- site_slopes %>%
   filter(!is.na(slope), !is.na(vpd_at_peak)) %>%
@@ -744,9 +743,7 @@ slopes_mat <- site_slopes %>%
 ```
 
 ```{r}
-# ══════════════════════════════════════════════════════════════════════════════
 # STEP 2: ELBOW PLOT — find optimal k (for supplementary)
-# ══════════════════════════════════════════════════════════════════════════════
 
 set.seed(42)
 
@@ -782,19 +779,18 @@ print(p_elbow)  # save this to supplementary
 ```
 
 ```{r}
-# ══════════════════════════════════════════════════════════════════════════════
+
 # STEP 3: FIT K-MEANS WITH k = 3
-# ══════════════════════════════════════════════════════════════════════════════
 
 set.seed(42)
 km_fit <- kmeans(slopes_mat, centers = 3, nstart = 25, iter.max = 100)
 
-# ── Assign raw cluster labels ─────────────────────────────────────────────────
+# Assign raw cluster labels
 site_slopes <- site_slopes %>%
   filter(!is.na(slope), !is.na(vpd_at_peak)) %>%
   mutate(cluster_raw = factor(km_fit$cluster))
 
-# ── Order clusters by mean slope (most negative = High sensitivity) ───────────
+# Order clusters by mean slope (most negative = High sensitivity) 
 cluster_order <- site_slopes %>%
   group_by(cluster_raw) %>%
   summarise(mean_slope = mean(slope), .groups = "drop") %>%
@@ -807,7 +803,7 @@ site_slopes <- site_slopes %>%
   mutate(cluster_multi = factor(cluster_multi,
                                 levels = c("Low", "Medium", "High")))
 
-# ── Sanity check ──────────────────────────────────────────────────────────────
+# Sanity check 
 site_slopes %>%
   group_by(cluster_multi) %>%
   summarise(
@@ -819,9 +815,7 @@ site_slopes %>%
 ```
 
 ```{r}
-# ══════════════════════════════════════════════════════════════════════════════
 # STEP 4: JOIN site_meta AND rebuild cloud/fitted objects
-# ══════════════════════════════════════════════════════════════════════════════
 
 site_slopes <- site_slopes %>%
   left_join(site_meta, by = "site")
@@ -833,9 +827,8 @@ fitted_lines_cl <- fitted_lines %>% left_join(cluster_lookup, by = "site")
 ```
 
 ```{r}
-# ══════════════════════════════════════════════════════════════════════════════
+
 # STEP 5: THREE-PANEL CLUSTER SUMMARY PLOT
-# ══════════════════════════════════════════════════════════════════════════════
 
 cluster_mean_params <- site_slopes %>%
   filter(!is.na(slope)) %>%
@@ -926,9 +919,7 @@ print(p_cluster_summary)
 
 
 ```{r}
-# ══════════════════════════════════════════════════════════════════════════════
 # STEP 5: THREE-PANEL CLUSTER SUMMARY PLOT
-# ══════════════════════════════════════════════════════════════════════════════
 
 cluster_mean_params <- site_slopes %>%
   filter(!is.na(slope)) %>%
@@ -952,7 +943,6 @@ cluster_mean_lines <- cluster_mean_params %>%
     fitted        = mean_intercept + mean_slope * vpd_mid
   )
 
-# 🔥 Shorter, cleaner labels
 cluster_labels <- cluster_mean_params %>%
   mutate(
     label = paste0(
@@ -988,16 +978,15 @@ p_cluster_summary <- ggplot() +
     linetype = "dashed", linewidth = 0.5, alpha = 0.8
   ) +
 
-  # 🔥 Improved text: bigger + slightly more right/top
   geom_text(
     data        = cluster_labels,
     aes(label   = label, colour = cluster_multi),
     x           = Inf, y = Inf,
-    hjust       = 1.05,   # slightly more right
-    vjust       = 1.05,   # slightly higher
-    size        = 4,      # bigger text
+    hjust       = 1.05,   
+    vjust       = 1.05,   
+    size        = 4,      
     fontface    = "bold",
-    lineheight  = 1.1,    # tighter spacing
+    lineheight  = 1.1,    
     inherit.aes = FALSE
   ) +
 
@@ -1023,11 +1012,9 @@ print(p_cluster_summary)
 
 
 ```{r}
-# ══════════════════════════════════════════════════════════════════════════════
 # STEP 6: BAR PLOTS — PFT, CLIMATE, PRECIP REGIME PER CLUSTER
-# ══════════════════════════════════════════════════════════════════════════════
 
-# ── Helper function to avoid repeating bar plot code ─────────────────────────
+# Helper function to avoid repeating bar plot code 
 make_bar_plot <- function(data, group_var, fill_colours, legend_title) {
   data %>%
     count(cluster_multi, {{ group_var }}) %>%
@@ -1056,15 +1043,14 @@ make_bar_plot <- function(data, group_var, fill_colours, legend_title) {
     )
 }
 
-# ── Check column names match your data ───────────────────────────────────────
-# update "koppen", "PFT", "Precip_regime" if your columns are named differently
+# Check column names match data 
 names(site_slopes)
 
 p_pft     <- make_bar_plot(site_slopes, PFT,          pft_colours,    "PFT")
 p_climate <- make_bar_plot(site_slopes, koppen,        climate_colours, "Climate")
 p_precip  <- make_bar_plot(site_slopes, Precip_regime, precip_colours,  "Precipitation\nregime")
 
-# ── Print individually ────────────────────────────────────────────────────────
+# Print individually
 print(p_pft)
 print(p_climate)
 print(p_precip)
@@ -1088,7 +1074,7 @@ site_map_data <- site_slopes %>%
     by = "site"
   ) %>%
   filter(!is.na(lat), !is.na(lon), !is.na(R2_with_VPD)) %>%
-  mutate(R2_with_VPD = pmax(R2_with_VPD, 0))  # clamp negative R² to 0
+  mutate(R2_with_VPD = pmax(R2_with_VPD, 0))  # clamp negative R-squared to 0
 
 # Check it looks right
 glimpse(site_map_data)
@@ -1099,7 +1085,7 @@ library(rnaturalearth)
 library(rnaturalearthdata)
 library(sf)
 
-# ── Get Australia shapefile ───────────────────────────────────────────────────
+# Get Australia shapefile
 australia_sf <- ne_countries(
   country    = "Australia",
   scale      = "medium",
@@ -1141,7 +1127,7 @@ p_map <- ggplot() +
     segment.colour = "grey50"
   ) +
 
-  # Continuous colour scale for R² — low = warm/red, high = cool/blue
+  # Continuous colour scale for R-squared — low = warm/red, high = cool/blue
 scale_colour_gradientn(
     colours = c("#CC3311", "#EE8866", "#FFFFCC", "#6699CC", "#004488"),
     values  = scales::rescale(c(0, 0.2, 0.4, 0.6, 0.8)),
@@ -1194,7 +1180,7 @@ print(p_map)
 ```
 
 ```{r}
-# ── Northern Territory zoom ───────────────────────────────────────────────────
+# Northern Territory zoom 
 p_map_NT <- ggplot() +
 
   geom_sf(
@@ -1249,7 +1235,7 @@ p_map_NT <- ggplot() +
     name = "VPD sensitivity"
   ) +
 
-  # ── Zoom to Northern Territory ─────────────────────────────────────────────
+  # Zoom to Northern Territory 
   coord_sf(
     xlim = c(129, 137),
     ylim = c(-16, -11)
@@ -1282,7 +1268,7 @@ p_map_NT <- ggplot() +
 
 print(p_map_NT)
 
-# ── Southeastern Australia zoom ───────────────────────────────────────────────
+# Southeastern Australia zoom 
 p_map_SE <- ggplot() +
 
   geom_sf(
@@ -1337,7 +1323,7 @@ p_map_SE <- ggplot() +
     name = "VPD sensitivity"
   ) +
 
-  # ── Zoom to Southeastern Australia ─────────────────────────────────────────
+  # Zoom to Southeastern Australia 
   coord_sf(
     xlim = c(143, 152),
     ylim = c(-39, -30)
@@ -1377,7 +1363,7 @@ install.packages("dplyr")
 
 
 ```{r}
-# ── Install/load required packages ───────────────────────────────────────────
+# Install/load required packages 
 library(terra)
 library(tidyterra)
 library(rnaturalearth)
@@ -1393,20 +1379,19 @@ library(ggrepel)
 # Load raster
 koppen_rast <- rast("/Users/alicerolfe/year_4_project/fluxnet_project/Data/Beck_KG_V1_present_0p0083.tif")
 
-# ── Step 2: Crop to Australia extent ─────────────────────────────────────────
+# Step 2: Crop to Australia extent 
 aus_extent   <- ext(113, 154, -44, -10)
 koppen_aus   <- crop(koppen_rast, aus_extent)
 
-# ── Step 3: Define Köppen zone colours ───────────────────────────────────────
+# ── Step 3: Define Köppen zone colours
 # Beck et al. use integer codes 1-30 for climate zones
 # Below are the codes relevant to Australia with matched colours
 # Full legend: https://www.nature.com/articles/sdata2018214
 
-
 ```
 
 ```{r}
-# ── Simplified Köppen colour mapping ─────────────────────────────────────────
+# Simplified Köppen colour mapping
 # Remap individual zone codes to broader categories first
 
 koppen_categories <- c(
@@ -1451,7 +1436,7 @@ koppen_df <- as.data.frame(koppen_aus, xy = TRUE) %>%
   ) %>%
   filter(!is.na(broad_zone))
 
-# ── Build map ─────────────────────────────────────────────────────────────────
+# Build map 
 p_map_koppen <- ggplot() +
 
   # Simplified Köppen background
@@ -1481,7 +1466,7 @@ p_map_koppen <- ggplot() +
     linewidth = 0.4
   ) +
 
-  # Site points — R² as colour, cluster as shape, no labels
+  # Site points — R-squared as colour, cluster as shape, no labels
   geom_point(
     data  = site_map_data,
     aes(x      = lon,
@@ -1502,7 +1487,7 @@ p_map_koppen <- ggplot() +
   segment.colour = "grey50"
 ) +
 
-  # R² colour scale
+  # R-squared colour scale
   scale_colour_gradientn(
     colours = c("#CC3311", "#EE8866", "#FFFFCC", "#6699CC", "#004488"),
     values  = scales::rescale(c(0, 0.2, 0.4, 0.6, 0.8)),
@@ -1883,6 +1868,7 @@ p_map_SE <- ggplot() +
 
 print(p_map_SE)
 ```
+
 ```{r}
 summary(site_slopes_env$vpd_at_peak)
 ```

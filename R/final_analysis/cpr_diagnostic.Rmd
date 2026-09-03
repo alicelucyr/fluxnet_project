@@ -8,7 +8,9 @@ date: "2026-03-25"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-Testing if Cpr - pre-fire, during-fire/recovery, and post-recovery disturbance contributes to model fit
+Site Calperum has extremely low RF model performance despite 15 years of observation. Violates assumption that longer records will have higher model fit/performance as the model is able to learn climate-GPP relationships across time. 
+
+Fire at Calperum - See Sun & Marschner 2024, here we are going to test whether pre-fire, during fire/recovery and post-recovery contribute to model fit.
 
 ```{r}
 library(tidyverse)
@@ -29,7 +31,7 @@ compute_metrics <- function(obs, pred) {
   )
 }
 
-# ── Prepare Cpr ───────────────────────────────────────────────────────────────
+# Prepare the site
 cpr <- sites_daily[["Cpr"]] %>%
   drop_na(GPP, Tair, SW_rad, VPD, cwd, Precip, date) %>%
   arrange(date) %>%
@@ -45,10 +47,10 @@ cpr <- sites_daily[["Cpr"]] %>%
 formula  <- as.formula(paste("GPP ~", paste(predictors, collapse = " + ")))
 mtry_val <- max(2, floor(sqrt(length(predictors))))
 
-# ── Define periods ────────────────────────────────────────────────────────────
-# Pre-fire:            2010-2013 — stable mature woodland
-# During-fire/recovery:2014-2019 — active disturbance and early recovery
-# Post-recovery:       2020-2025 — recovered vegetation, new stable regime
+# Define periods
+# Pre-fire:            2010-2013 
+# During-fire/recovery:2014-2019 
+# Post-recovery:       2020-2025 
 cpr_pre    <- cpr %>% filter(year >= 2010 & year <= 2013)
 cpr_during <- cpr %>% filter(year >= 2014 & year <= 2019)
 cpr_post   <- cpr %>% filter(year >= 2020 & year <= 2025)
@@ -59,7 +61,7 @@ cat("During-fire/recovery rows:  ", nrow(cpr_during), " | years:", paste(unique(
 cat("Post-recovery rows:         ", nrow(cpr_post),   " | years:", paste(unique(cpr_post$year),   collapse = ", "), "\n")
 cat("Full record rows:           ", nrow(cpr_full),   " | years:", paste(unique(cpr_full$year),   collapse = ", "), "\n")
 
-# ── Helper: LOYO within a data subset ────────────────────────────────────────
+# Helper: LOYO within a data subset
 run_loyo_subset <- function(df, label) {
   years <- unique(df$year)
   if (length(years) < 2) {
@@ -85,19 +87,19 @@ run_loyo_subset <- function(df, label) {
   })
 }
 
-# ── Test 1: Full record LOYO ──────────────────────────────────────────────────
+# Test 1: Full record LOYO 
 loyo_full <- run_loyo_subset(cpr_full, "Full record LOYO\n(2010-2025)")
 
-# ── Test 2: Pre-fire LOYO (2010-2013) ─────────────────────────────────────────
+# Test 2: Pre-fire LOYO (2010-2013)
 loyo_pre <- run_loyo_subset(cpr_pre, "Pre-fire LOYO\n(2010-2013)")
 
-# ── Test 3: During-fire/recovery LOYO (2014-2019) ────────────────────────────
+# Test 3: During-fire/recovery LOYO (2014-2019) 
 loyo_during <- run_loyo_subset(cpr_during, "During-fire/recovery LOYO\n(2014-2019)")
 
-# ── Test 4: Post-recovery LOYO (2020-2025) ────────────────────────────────────
+# Test 4: Post-recovery LOYO (2020-2025) 
 loyo_post <- run_loyo_subset(cpr_post, "Post-recovery LOYO\n(2020-2025)")
 
-# ── Test 5: Train pre-fire, test post-recovery ────────────────────────────────
+# Test 5: Train pre-fire, test post-recovery
 # Direct test of regime shift — if fire changed GPP-climate relationship,
 # pre-fire training should predict post-recovery poorly
 rf_pre <- randomForest(formula, data = cpr_pre,
@@ -111,7 +113,7 @@ cross_fire <- data.frame(
   GPP_pred = predict(rf_pre, cpr_post)
 )
 
-# ── Metrics ───────────────────────────────────────────────────────────────────
+# Metrics 
 all_results <- bind_rows(loyo_full, loyo_pre, loyo_during, loyo_post, cross_fire) %>%
   mutate(label = factor(label, levels = c(
     "Full record LOYO\n(2010-2025)",
@@ -130,12 +132,11 @@ print(metrics)
 
 ```
 ```{r}
-# ── Step 1: Run LOYO predictions for each period and combine ──────────────────
-# You already have these from your script:
+# Step 1: Run LOYO predictions for each period and combine 
+# Already have these:
 # loyo_pre, loyo_during, loyo_post, loyo_full
-# If not, re-run run_loyo_subset() for each period
 
-# Combine all period predictions into one dataframe
+# Combine all period predictions into one data frame
 ts_combined <- bind_rows(
   loyo_pre %>% mutate(period = "Pre-fire"),
   loyo_during %>% mutate(period = "During Fire / Recovery"),
@@ -155,7 +156,7 @@ ts_combined <- bind_rows(
 
 ```{r}
 
-# ── Step 2: Compute R² and RMSE per period ────────────────────────────────────
+# Step 2: Compute R-squared and RMSE per period
 period_metrics <- ts_combined %>%
   group_by(period) %>%
   summarise(
@@ -170,7 +171,7 @@ full_r2   <- round(cor(loyo_full$GPP_obs, loyo_full$GPP_pred, use = "complete.ob
 full_rmse <- round(sqrt(mean((loyo_full$GPP_obs - loyo_full$GPP_pred)^2, na.rm = TRUE)), 3)
 full_nrmse <- round(full_rmse / mean(loyo_full$GPP_obs, na.rm = TRUE), 3)
 
-# ── Step 3: Define period bands ───────────────────────────────────────────────
+# Step 3: Define period bands
 period_bands <- tibble(
   period = factor(c("Pre-fire", "During Fire / Recovery", "Post-fire"),
                   levels = c("Pre-fire", "During Fire / Recovery", "Post-fire")),
@@ -178,19 +179,19 @@ period_bands <- tibble(
   xmax   = as.Date(c("2013-12-31", "2019-12-31", "2024-12-31"))
 )
 
-# ── Step 4: Build period_labels from period_metrics (NOT period_r2) ───────────
+# Step 4: Build period_labels from period_metrics
 period_labels <- period_bands %>%
   mutate(x_mid = xmin + (xmax - xmin) / 2) %>%
-  left_join(period_metrics, by = "period")  # <-- period_metrics, not period_r2
+  left_join(period_metrics, by = "period")  # <-- period_metrics
 
-# ── Step 4: Period colours ─────────────────────────────────────────────────────
+# Step 4: Period colours 
 period_fill_cols <- c(
   "Pre-fire"               ="darkolivegreen",
   "During Fire / Recovery" = "#BF812D",
   "Post-fire"              = "#01665E" 
 )
 
-# ── Step 5: Build the plot ────────────────────────────────────────────────────
+# Step 5: Build the plot
 ggplot() +
 
   # Background shading per period
@@ -228,8 +229,8 @@ ggplot() +
     linewidth = 0.5
   ) +
 
-  # Period R² annotations — inside each shaded band, top
-# R² annotation
+  # Period R-squared annotations — inside each shaded band, top
+# R-squared annotation
   geom_text(
     data = period_labels,
     aes(x = x_mid, y = Inf,
@@ -241,7 +242,7 @@ ggplot() +
     inherit.aes = FALSE
   ) +
 
-  # RMSE annotation — just below R²
+  # RMSE annotation — just below R-squared
   geom_text(
     data = period_labels,
     aes(x = x_mid, y = Inf,
@@ -318,14 +319,9 @@ ts_combined %>%
 ```
 
 
-
-
-
-
-
 ```{r}
 
-# ── Plot 1: Obs vs predicted time series per test ─────────────────────────────
+# Plot 1: Obs vs predicted time series per test
 ts_df <- all_results %>%
   pivot_longer(cols = c(GPP_obs, GPP_pred),
                names_to = "type", values_to = "GPP") %>%
@@ -379,8 +375,8 @@ p_ts <- ggplot(ts_df, aes(x = date, y = GPP, colour = type, alpha = type)) +
     axis.text.x      = element_text(angle = 45, hjust = 1)
   )
 
-# ── Plot 2: R² comparison bar chart ───────────────────────────────────────────
-# Extract full-record baseline R² dynamically
+# Plot 2: R-squared comparison bar chart
+# Extract full-record baseline R-squared dynamically
 baseline_r2 <- metrics %>%
   filter(grepl("Full record", label)) %>%
   pull(R2)
@@ -416,7 +412,7 @@ print(p_ts)
 print(p_r2)
 ```
 
-Is VPD importance different pre-fire, during-fire/recovery, and post-fire recovery?
+Is VPD importance to model fit different pre-fire, during-fire/recovery, and post-fire recovery?
 
 ```{r}
 library(tidyverse)
@@ -436,11 +432,11 @@ standardise_train_test <- function(train_df, test_df, predictors) {
   list(train = train_df, test = test_df)
 }
 
-# ── Predictor sets — same as main analysis ────────────────────────────────────
+# Predictor sets — same as main analysis
 predictors_with    <- c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day")
 predictors_without <- c("Tair", "SW_rad",         "cumulative_cwd_7day")
 
-# ── Prepare Cpr ───────────────────────────────────────────────────────────────
+# Prepare Cpr
 cpr_full <- sites_daily[["Cpr"]] %>%
   drop_na(GPP, Tair, SW_rad, VPD, cwd, date) %>%
   arrange(date) %>%
@@ -458,7 +454,7 @@ cpr_pre    <- cpr_full %>% filter(year >= 2010 & year <= 2013)
 cpr_during <- cpr_full %>% filter(year >= 2014 & year <= 2019)
 cpr_post   <- cpr_full %>% filter(year >= 2020 & year <= 2025)
 
-# ── LOYO with and without VPD for a given dataset ────────────────────────────
+# LOYO with and without VPD for a given dataset
 run_vpd_importance <- function(df, period_label) {
 
   fit_loyo <- function(predictors, model_label) {
@@ -527,13 +523,13 @@ run_vpd_importance <- function(df, period_label) {
   )
 }
 
-# ── Run for each period ───────────────────────────────────────────────────────
+# Run for each period 
 results_pre    <- run_vpd_importance(cpr_pre,    "Pre-fire (2010-2013)")
 results_during <- run_vpd_importance(cpr_during, "During-fire/recovery (2014-2019)")
 results_post   <- run_vpd_importance(cpr_post,   "Post-recovery (2020-2025)")
 results_full   <- run_vpd_importance(cpr_full,   "Full record (2010-2025)")
 
-# ── Compile metrics ───────────────────────────────────────────────────────────
+# Compile metrics
 all_metrics <- bind_rows(
   results_full$metrics,
   results_pre$metrics,
@@ -547,7 +543,7 @@ all_metrics <- bind_rows(
     "Post-recovery (2020-2025)"
   )))
 
-# ── ΔR² from adding VPD per period ───────────────────────────────────────────
+# change in R-squared from adding VPD per period 
 delta_r2 <- all_metrics %>%
   select(period, model, R2) %>%
   pivot_wider(names_from = model, values_from = R2) %>%
@@ -556,7 +552,7 @@ delta_r2 <- all_metrics %>%
 cat("\n── VPD importance by period at AU-Cpr ──\n")
 print(delta_r2)
 
-# ── Variable importance across periods ───────────────────────────────────────
+# Variable importance across periods 
 all_importance <- bind_rows(
   results_full$importance,
   results_pre$importance,
@@ -571,7 +567,7 @@ all_importance <- bind_rows(
     "Post-recovery (2020-2025)"
   )))
 
-# ── Plot 1: ΔR² from adding VPD by period ────────────────────────────────────
+# Plot 1: change in R-squared from adding VPD by period 
 p_delta <- delta_r2 %>%
   ggplot(aes(x = period, y = delta_R2, fill = delta_R2)) +
   geom_col(width = 0.6, alpha = 0.9) +
@@ -597,7 +593,7 @@ p_delta <- delta_r2 %>%
     panel.grid.major.y = element_line(colour = "grey92", linewidth = 0.3)
   )
 
-# ── Plot 2: R² with and without VPD side by side by period ───────────────────
+# Plot 2: R-squared with and without VPD side by side by period 
 p_r2 <- all_metrics %>%
   mutate(
     model = recode(model,
@@ -629,7 +625,7 @@ p_r2 <- all_metrics %>%
     panel.grid.major.y = element_line(colour = "grey92", linewidth = 0.3)
   )
 
-# ── Plot 3: Variable importance by period ────────────────────────────────────
+# Plot 3: Variable importance by period 
 p_imp <- ggplot(all_importance,
                 aes(x = reorder(variable, importance),
                     y = importance, fill = period)) +

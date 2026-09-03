@@ -183,7 +183,7 @@ filter_low_coverage_days <- function(df, min_frac = 0.8, steps_per_day = 48) {
 sites_clean <- sites_clean %>%
   imap(~ filter_low_coverage_days(.x, steps_per_day = if (.y=="Tum") 24 else 48))
 
-#Basically saying if it is Tum, it is hourly, so should be 24 not 48. There might be a quicker way to do this, but this is what it will be for now. For reproducibility, just plonk in the known hourly sites into this part. 
+#Basically saying if it is Tumbarumba, it is hourly, so should be 24 not 48.
   
 ```
 
@@ -193,10 +193,7 @@ Convert to daily:
 
 ```{r}
 ####
-##  Convert the 30 min to daily ... someone should add something to check
-##. if the data is hourly ...
-##
-##
+##  Convert the 30 min to daily
 ##  author: Martin De Kauwe
 ##  date: 27th February, 2025
 ##  email: mdekauwe@gmail.com
@@ -290,7 +287,7 @@ convert_hourly_to_daily <- function(df) {
 ```
 
 ```{r}
-#so basically, apply hourly to daily if it equals Tum, but if not apply half-hourly to daily conversion. Save in a list called sites_daily
+# Apply hourly to daily if it equals Tum, but if not apply half-hourly to daily conversion. Save in a list called sites_daily
 
 sites_daily <- sites_clean %>%
   imap(~ if (.y == "Tum") {
@@ -298,10 +295,6 @@ sites_daily <- sites_clean %>%
   } else {
     convert_to_daily(.x)
   })
-```
-
-```{r}
-plot(sites_daily$Boy$date, sites_daily$Boy$GPP)
 ```
 
 ```{r}
@@ -398,7 +391,7 @@ vcmax_raster <- rast(gome_file)
 
 lcc_nc <- "/Users/alicerolfe/year_4_project/fluxnet_project/Chl_2003_2011_weeklyAll_01Deg_sf100.nc"
 
-# --- 1. Functions to get VCmax and daily LCC ---
+# 1. Functions to get VCmax and daily LCC 
 get_vcmax <- function(lat, lon, vcmax_raster) {
   coords <- data.frame(lon = lon, lat = lat)
   vcmax <- terra::extract(vcmax_raster, coords)
@@ -436,7 +429,7 @@ get_daily_LCC <- function(lcc_nc, lat, lon) {
   approx(weeks, weekly_clim, xout = daily_weeks)$y
 }
 
-# --- 2. Function to attach VCmax and LCC to a site dataframe ---
+# 2. Function to attach VCmax and LCC to a site dataframe 
 attach_site_data <- function(df, lat, lon, vcmax_raster, lcc_nc) {
   vcmax_val <- get_vcmax(lat, lon, vcmax_raster)
   daily_LCC <- get_daily_LCC(lcc_nc, lat, lon)  # ~365 values
@@ -450,7 +443,7 @@ attach_site_data <- function(df, lat, lon, vcmax_raster, lcc_nc) {
     )
 }
 
-# --- 3. Map over sites_daily using site metadata ---
+# 3. Map over sites_daily using site metadata 
 site_meta <- tibble(
   name = names(sites_daily),
   lat  = c(-12.4943, 14.1593, -14.0633, -15.2588, -17.1507, -22.2830, -33.6152, -23.8587, -12.5452, -31.3764, -30.1913, -14.5636, -36.6499, -37.4259, -36.6732, -37.4222, -34.9893, -34.0021, -35.6566, -17.1175, -13.0769, -32.4771),
@@ -459,18 +452,10 @@ site_meta <- tibble(
 )
 sites_daily <- pmap(
   list(sites_daily, site_meta$lat, site_meta$lon),
-  function(df, lat, lon) attach_site_data(df, lat, lon, vcmax_raster, lcc_nc)
+  function(df, lat, lon) attach_site_data(df, lat, lon, vcmax_raster)
 )
 
 ```
-
-```{r}
-list2env(
-  setNames(sites_daily, paste0(names(sites_daily), "_daily")),
-  envir = .GlobalEnv
-)
-```
-
 
 ```{r}
 wet_to_dry_order <- c("Wac", "Rob", "How", "Das", "Fog", "Ade", "Dap", "Rdf", "Tum", "Dry", "Cum", "Wom", "Stp", "Gin", "Emr", "Boy", "Rig", "Whr", "Gww", "Ync", "Cpr", "Asm")

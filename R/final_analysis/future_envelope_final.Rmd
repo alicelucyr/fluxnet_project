@@ -8,7 +8,6 @@ date: "2026-03-16"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-Future envelope final script
 
 1) *Frequency vs magnitude*
 Is GPP more sensitive to increases in frequency of VPD extremes or magnitude of VPD extremes?
@@ -17,10 +16,9 @@ Is GPP more sensitive to increases in frequency of VPD extremes or magnitude of 
 
 15, 30 and 50% increase in magnitude of the 90th percentile VPD extremes (Extremes get more intense). Summer VPD values equal to or above 90th percentile get increased in magnitude. Whilst the other days stay the same.
 
-Random Forest is leave-one-year out trained and tested for each scenario. Trained on all years bar one, tested on one year. Repeated for all years and concatenated together. 
+Random Forest is leave-one-year out trained and tested for each scenario. Trained on all years except one, tested on one year. Repeated for all years and concatenated together. 
 
-Lets try this again:
-- Increase in frequency
+**Increase in frequency**
 
 ```{r}
 library(dplyr)
@@ -67,7 +65,7 @@ run_loyo_summer_extreme <- function(df, site_name) {
     return(NULL)
   }
   
-  # 90th percentile VPD from summer obs across all years
+  #90th percentile VPD from summer obs across all years
   vpd_90 <- df %>%
     filter(summer) %>%
     pull(VPD) %>%
@@ -111,7 +109,7 @@ run_loyo_summer_extreme <- function(df, site_name) {
     
     map2_dfr(vpd_scalars, scenario_labels, function(extra_frac, label) {
       
-      # ── Manipulate summer days only 
+      # Manipulate summer days only 
       if (extra_frac == 0) {
         summer_scenario <- test_summer
         
@@ -174,7 +172,7 @@ library(ggplot2)
 library(tidyr)
 library(ggrepel)
 
-#Plot 1: R² per site (full year only) 
+#Plot 1: R-squared per site (full year only) 
 
 r2_loyo <- all_scenarios %>%
   filter(scenario == "Observed") %>%
@@ -240,7 +238,7 @@ ggplot(scenario_summary_long, aes(x = site, y = pct_change, fill = scenario)) +
     axis.text.y     = element_text(size = 10)
   )
 
-# ── Plot 3: R² vs % change coloured by cluster group ─────────────────────────
+#Plot 3: R-squared vs % change coloured by cluster group
 
 # Use summer R² as most relevant for the scenario
 r2_sites <- all_scenarios %>%
@@ -306,27 +304,16 @@ ggplot(plot_data, aes(x = R2, y = pct_change)) +
   )
 ```
 
-Increase in magnitude:
-
-Need to do
-
-
-
-
-
-
 2) *Baseline and extremes*
 
 Sort sites into tropical, arid and temperate
-Tropical (+0.524 kPa), Arid (+0.644 kPa) and Temperate (+0.344 Kpa) increase to ALL daily VPD values (Fang et al., 2022)
+Tropical (+0.524 kPa), Arid (+0.644 kPa) and Temperate (+0.344 Kpa) increase to ALL daily VPD values (Fang et al., 2022).
 
-Biome-specific background increases, accounts for the fact that arid systems will face larger increases in VPD stress than temperate ones.
-Make sure site biome assignment is unambiguous
-Clearly state you are applying a uniform shift to every daily value in the whole dataset
+Biome-specific background increases, accounts for the fact that arid systems will face larger increases in VPD stress than temperate ones. Applying a uniform shift to every daily value in the whole dataset.
 
 Background rising VPD for each climate AND +28% magnitude of VPD values equal to and above the 90th percentile of VPD in the summer (Zhou et al., 2019)
 
-Random Forest is leave-one-year out trained and tested for each scenario. Trained on all years bar one, tested on one year. Repeated for all years and concatenated together. 
+Random Forest is leave-one-year out trained and tested for each scenario. Trained on all years except one, tested on one year. Repeated for all years and concatenated together. 
 
 Tropical - Ade, Dap, Das, Dry, Fog, Gin, How, Rdf, Stp
 Arid - Asm, Cpr, Emr Gww, Ync
@@ -475,7 +462,7 @@ message("Total rows: ", nrow(all_scenarios))
 ```
 
 ```{r}
-#Plot 1: R² per site coloured by biome 
+#Plot 1: R-squared per site coloured by biome 
 
 r2_loyo <- all_scenarios %>%
   filter(scenario == "Observed") %>%
@@ -527,7 +514,7 @@ ggplot(scenario_summary_long, aes(x = site, y = pct_change, fill = biome)) +
   theme(legend.position = "none", axis.text.y = element_text(size = 10),
         strip.text = element_text(face = "bold"))
 
-#Plot 3: R² vs % change coloured by cluster group, faceted by biome
+#Plot 3: R-squared vs % change coloured by cluster group, faceted by biome
 
 r2_sites <- all_scenarios %>%
   filter(scenario == "Observed", summer) %>%

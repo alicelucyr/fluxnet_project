@@ -9,14 +9,14 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-# ── Updated period colours ────────────────────────────────────────────────────
+# Updated period colours
 period_colours <- c(
   "Pre-fire"              = "darkolivegreen",
   "During Fire / Recovery" = "#BF812D",
   "Post-fire"             = "#01665E"
 )
 
-# ── Partition Calperum by fire period ─────────────────────────────────────────
+# Partition Calperum by fire period 
 cpr <- sites_daily_capped[["Cpr"]] %>%
   mutate(year = lubridate::year(date))
 
@@ -24,7 +24,7 @@ cpr_pre    <- cpr %>% filter(year >= 2010 & year <= 2013)
 cpr_during <- cpr %>% filter(year >= 2014 & year <= 2019)
 cpr_post   <- cpr %>% filter(year >= 2020 & year <= 2025)
 
-# ── Run slope fitting per period ──────────────────────────────────────────────
+# Run slope fitting per period 
 fit_vpd_slope <- function(df, period_name) {
   
   binned <- df %>%
@@ -63,7 +63,7 @@ fit_vpd_slope <- function(df, period_name) {
 ```
 
 ```{r}
-# ── Apply to each period ──────────────────────────────────────────────────────
+# Apply to each period 
 calperum_slopes <- bind_rows(
   fit_vpd_slope(cpr_pre,    "Pre-fire"),
   fit_vpd_slope(cpr_during, "During Fire / Recovery"),
@@ -77,7 +77,7 @@ calperum_slopes <- bind_rows(
 
 print(calperum_slopes)
 
-# ── Build binned point cloud per period ───────────────────────────────────────
+# Build binned point cloud per period 
 make_cloud <- function(df, period_name) {
   
   cap <- quantile(df$GPP, 0.99, na.rm = TRUE)
@@ -111,7 +111,7 @@ calperum_cloud <- bind_rows(
     "Post-fire"
   )))
 
-# ── Build fitted lines ────────────────────────────────────────────────────────
+# Build fitted lines 
 calperum_fitted <- calperum_slopes %>%
   filter(!is.na(slope)) %>%
   rowwise() %>%
@@ -126,7 +126,7 @@ calperum_fitted <- calperum_slopes %>%
     "Post-fire"
   )))
 
-# ── Raw daily point cloud per period ─────────────────────────────────────────
+# Raw daily point cloud per period 
 calperum_raw <- bind_rows(
   cpr_pre    %>% mutate(period = "Pre-fire"),
   cpr_during %>% mutate(period = "During Fire / Recovery"),
@@ -149,7 +149,7 @@ calperum_raw <- bind_rows(
 ```
 
 ```{r}
-# ── Faceted plot with raw cloud + binned points + fitted line ─────────────────
+# Faceted plot with raw cloud + binned points + fitted line
 p_cpr_facet <- ggplot() +
 
   # Raw daily scatter — background layer, very transparent

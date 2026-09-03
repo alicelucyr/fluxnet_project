@@ -8,14 +8,12 @@ date: "2026-03-16"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-1. Model without and with VPD to get VPD importance
-2. Total site predictability with full model of VPD
+1. **VPD importance** - Model without and with VPD
+2. **Total site predictability** -  with full model of VPD
 
-Need to ensure all models are leave-one-year out validation
-
+Leave-one-year out validation. 
 Compare model without VPD and model with VPD
-
-meta data of MAP, MAT and MAL stored in site_meta
+Site meta data of MAP, MAT and MAL stored in site_meta
 
 ```{r}
 library(tidyverse)
@@ -180,7 +178,7 @@ Plots:
 
 
 ```{r}
-# --- Compute number of years per site ---
+# Compute number of years per site
 n_years_df <- purrr::map_df(rf_results_vpd, function(res) {
   if (is.null(res)) return(NULL)
   data.frame(
@@ -189,7 +187,7 @@ n_years_df <- purrr::map_df(rf_results_vpd, function(res) {
   )
 })
 
-# --- Add n_years to site_meta ---
+# Add n_years to site_meta
 site_meta <- site_meta %>%
   left_join(n_years_df, by = "site")
 
@@ -197,7 +195,7 @@ site_meta <- site_meta %>%
 
 ```{r}
 
-# --- Prepare plot_data for MAP, MAT, MAL vs R² ---
+# Prepare plot_data for MAP, MAT, MAL vs R-squared
 plot_data <- all_metrics_vpd %>%
   filter(model == "with_VPD") %>%
   select(site, R2) %>%
@@ -212,7 +210,7 @@ plot_data <- all_metrics_vpd %>%
     values_to = "value"
   )
 
-# 1) Change in R² across sites
+# 1) Change in R-squared across sites
 all_metrics_vpd %>%
   select(site, model, R2) %>%
   pivot_wider(names_from = model, values_from = R2) %>%
@@ -232,7 +230,7 @@ all_metrics_vpd %>%
   theme_classic() +
   theme(legend.position = "none")
 
-# 2) R² (with_VPD only) - wet to dry order
+# 2) R-squared (with_VPD only) - wet to dry order
 all_metrics_vpd %>%
   filter(model == "with_VPD") %>%
   mutate(site = factor(site, levels = wet_to_dry_order)) %>%
@@ -246,7 +244,7 @@ all_metrics_vpd %>%
   theme_classic(base_size = 13) +
   theme(axis.text.y = element_text(size = 10))
 
-# 3) MAP, MAT, MAL vs R²
+# 3) MAP, MAT, MAL vs R-squared
 library(ggrepel)
 ggplot(plot_data, aes(x = value, y = R2)) +
   geom_point(size = 3, colour = thesis_cols["main"]) +
@@ -273,7 +271,7 @@ facet_wrap(~ variable, scales = "free_x", ncol = 3,
 
 ```{r}
   
-# 4) Number of years vs R² 
+# 4) Number of years vs R-squared
 ggplot(plot_data %>% distinct(site, R2, n_years), aes(x = n_years, y = R2)) +
   geom_point(size = 3, colour = thesis_cols["main"]) +
   geom_text(aes(label = site), vjust = -0.8, size = 2.8, colour = "grey30") +
@@ -287,7 +285,7 @@ library(dplyr)
 library(tidyr)
 library(ggrepel)
 
-# ── Shared theme and palette ──────────────────────────────────────────────────
+# Shared theme and palette
 
 thesis_theme <- theme_classic(base_size = 12) +
   theme(
@@ -299,9 +297,9 @@ thesis_theme <- theme_classic(base_size = 12) +
     legend.position  = "none"
   )
 
-main_col <- thesis_cols["main"]   # your existing single colour
+main_col <- thesis_cols["main"]   
 
-# ── Plot 1: ΔR² from adding VPD ──────────────────────────────────────────────
+# Plot 1: change in R-squared from adding VPD 
 
 delta_r2_data <- all_metrics_vpd %>%
   select(site, model, R2) %>%
@@ -339,7 +337,7 @@ p1 <- ggplot(delta_r2_data, aes(x = R2_gain, y = site)) +
 
 print(p1)
 
-# ── Plot 2: R² (with VPD) ordered by GPP variability ─────────────────────────
+# Plot 2: R-squared (with VPD) ordered by GPP variability
 
 median_r2 <- median(
   all_metrics_vpd %>% filter(model == "with_VPD") %>% pull(R2),
@@ -375,7 +373,7 @@ p2 <- all_metrics_vpd %>%
 
 print(p2)
 
-# ── Plot 3: MAP, MAT, MAL vs R² ──────────────────────────────────────────────
+# Plot 3: MAP, MAT, MAL vs R-squared
 
 var_labels <- c(
   "MAP" = "MAP (mm / year)",
@@ -405,7 +403,7 @@ p3 <- ggplot(plot_data, aes(x = value, y = R2)) +
     colour    = "grey40",
     fill      = "grey85",
     linewidth = 0.6,
-    span      = 1.3       # increase if the line is too wiggly, decrease for more flex
+    span      = 1.3       
   ) +
   geom_point(size = 3, colour = main_col) +
   geom_text_repel(
@@ -437,7 +435,7 @@ p3 <- ggplot(plot_data, aes(x = value, y = R2)) +
 
 print(p3)
 
-# ── Plot 4: Record length vs R² (null result — include only if needed) ────────
+# Plot 4: Record length vs R-squared
 
 record_data <- plot_data %>%
   distinct(site, R2, n_years.x)
@@ -479,10 +477,6 @@ print(p4)
 
 ```
 
-
-
-Units on the MAP, MAT and MAL? 
-Also a line of best fit to show the trend?
 
 ```{r}
 metrics_wide <- all_metrics_vpd %>%
@@ -539,11 +533,11 @@ model_years <- lm(R2 ~ n_years.x, data = years_r2_df)
 
 summary(model_years)
 ```
-NEED TO FIGURE OUT: 
+
 Time series of observed and predicted GPP:
 
 ```{r}
-# ── Build ts_long ─────────────────────────────────────────────────────────────
+# Build ts_long 
 ts_long <- purrr::map_dfr(rf_results_vpd, function(res) {
   if (is.null(res)) return(NULL)
   res$predictions %>%
@@ -557,17 +551,17 @@ ts_long <- purrr::map_dfr(rf_results_vpd, function(res) {
   ) %>%
   mutate(date = as.Date(date))
 
-# ── Build site R² labels ──────────────────────────────────────────────────────
+# Build site R-squared labels 
 site_r2 <- all_metrics_vpd %>%
   filter(model == "with_VPD") %>%
   select(site, R2) %>%
   mutate(label = paste0("R² = ", round(R2, 2)))
 
-# ── Order sites wet to dry, 4 per page ───────────────────────────────────────
+# Order sites wet to dry, 4 per page
 ordered_sites <- wet_to_dry_order[wet_to_dry_order %in% unique(ts_long$site)]
 site_pages    <- split(ordered_sites, ceiling(seq_along(ordered_sites) / 4))
 
-# ── Plot function ─────────────────────────────────────────────────────────────
+# Plot 
 plot_ts_page <- function(site_group) {
 
   plot_df <- ts_long %>%
@@ -617,7 +611,7 @@ plot_ts_page <- function(site_group) {
     )
 }
 
-# ── Print all pages ───────────────────────────────────────────────────────────
+# Print all pages 
 purrr::walk(site_pages, ~ print(plot_ts_page(.x)))
 
 ```
