@@ -1,0 +1,731 @@
+---
+title: "future_envelope_02"
+output: html_document
+date: "2026-03-21"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Train once on observed full site record for each site
+Predict on observed data
+Predict on scenario 1, 2, 3
+Compare each scenario to baseline predicted GPP
+
+Scenario 1: 
+Temperate +0.344 kPa
+Tropical +0.524 kPa
+Arid +0.644 kPa
+
+Tropical - Ade, Dap, Das, Dry, Fog, Gin, How, Rdf, Stp
+Arid - Asm, Cpr, Emr Gww, Ync
+Temperate - Boy, Cum, Rig, Tum, Wac, Whr, Wom
+
+REMOVE - Cpr, Emr, Gww, Wac and Ync
+
+```{r}
+library(tidyverse)
+library(randomForest)
+library(zoo)
+library(lubridate)
+library(purrr)
+
+set.seed(42)
+
+predictors <- c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day")
+
+tropical_sites  <- c("Ade", "Dap", "Dry", "Das", "Fog", "Gin", "How", "Rdf", "Stp")
+arid_sites      <- c("Asm")
+temperate_sites <- c("Boy", "Cum", "Rig", "Tum", "Whr", "Wom")
+
+# Biome-specific VPD shifts from Fang et al. 2022
+biome_vpd_shift <- c(
+  tropical  = 0.524,
+  arid      = 0.644,
+  temperate = 0.344
+)
+
+extreme_magnitude_increase <- 1.28  # Hermann et al. 2024
+
+prepare_site_envelope <- function(df, site_name) {
+
+  df <- df %>%
+    drop_na(GPP, Tair, SW_rad, VPD, cwd, date) %>%
+    arrange(date) %>%
+    mutate(
+      year = year(date),
+      cumulative_cwd_7day = rollapply(
+        cwd, width = 7, FUN = sum,
+        align = "right", fill = NA, na.rm = TRUE
+      )
+    ) %>%
+    drop_na(all_of(predictors), GPP)
+
+  if (nrow(df) < 100) {
+    message("Skipping ", site_name, ": insufficient data")
+    return(NULL)
+  }
+
+  message("Prepared ", site_name, ": ", nrow(df), " rows")
+  df
+}
+
+
+# FUTURE ENVELOPE — train once on observed, predict on all scenarios
+
+run_future_envelope <- function(df, site_name) {
+
+  message("Running future envelope: ", site_name)
+
+  vpd_shift <- case_when(
+    site_name %in% tropical_sites  ~ biome_vpd_shift["tropical"],
+    site_name %in% arid_sites      ~ biome_vpd_shift["arid"],
+    site_name %in% temperate_sites ~ biome_vpd_shift["temperate"],
+    TRUE ~ NA_real_
+  )
+
+  if (is.na(vpd_shift)) {
+    warning(site_name, " not assigned to a biome — skipping")
+    return(NULL)
+  }
+
+  # ── Train RF once on full observed record 
+  formula  <- as.formula(paste("GPP ~", paste(predictors, collapse = " + ")))
+  mtry_val <- max(2, floor(sqrt(length(predictors))))
+
+  rf_model <- randomForest(
+    formula, data = df,
+    ntree = 500, mtry = mtry_val, importance = FALSE
+  )
+
+  # ── Site-specific 90th percentile VPD threshold 
+  vpd_90 <- quantile(df$VPD, 0.90, na.rm = TRUE)
+
+  # ── Scenario datasets — only VPD changes, all else held at observed 
+
+  # Scenario 1: uniform biome-specific mean VPD shift on all days
+  df_s1 <- df %>% mutate(VPD = VPD + vpd_shift)
+
+  # Scenario 2: 28% magnitude increase on days above 90th percentile only
+  df_s2 <- df %>%
+    mutate(VPD = ifelse(VPD >= vpd_90, VPD * extreme_magnitude_increase, VPD))
+
+  # Scenario 3: combined — mean shift first, then extreme magnitude
+  # threshold shifts with the mean so extremes are defined relative to future baseline
+  vpd_90_shifted <- vpd_90 + vpd_shift
+  df_s3 <- df %>%
+    mutate(
+      VPD = VPD + vpd_shift,
+      VPD = ifelse(VPD >= vpd_90_shifted, VPD * extreme_magnitude_increase, VPD)
+    )
+
+  # ── Predict — delta always vs baseline predicted not observed 
+  GPP_baseline <- predict(rf_model, df)
+  GPP_s1       <- predict(rf_model, df_s1)
+  GPP_s2       <- predict(rf_model, df_s2)
+  GPP_s3       <- predict(rf_model, df_s3)
+
+  df %>%
+    mutate(
+      site              = site_name,
+      biome             = case_when(
+        site_name %in% tropical_sites  ~ "Tropical",
+        site_name %in% arid_sites      ~ "Arid",
+        site_name %in% temperate_sites ~ "Temperate"
+      ),
+      vpd_shift         = vpd_shift,
+      vpd_90_threshold  = vpd_90,
+      GPP_obs           = GPP,
+      GPP_baseline      = GPP_baseline,
+      GPP_s1            = GPP_s1,
+      GPP_s2            = GPP_s2,
+      GPP_s3            = GPP_s3,
+      delta_s1_abs      = GPP_s1 - GPP_baseline,
+      delta_s2_abs      = GPP_s2 - GPP_baseline,
+      delta_s3_abs      = GPP_s3 - GPP_baseline,
+      delta_s1_pct      = (delta_s1_abs / GPP_baseline) * 100,
+      delta_s2_pct      = (delta_s2_abs / GPP_baseline) * 100,
+      delta_s3_pct      = (delta_s3_abs / GPP_baseline) * 100
+    )
+}
+
+
+# RUN ACROSS ALL SITES
+
+prepared_envelope <- map2(sites_daily, names(sites_daily),
+                          prepare_site_envelope)
+prepared_envelope <- Filter(Negate(is.null), prepared_envelope)
+
+envelope_results <- map2_dfr(prepared_envelope, names(prepared_envelope),
+                              run_future_envelope)
+
+message("\nSites completed: ", n_distinct(envelope_results$site))
+
+
+# ANNUAL SUMMARIES
+
+annual_summary <- envelope_results %>%
+  group_by(site, biome, year) %>%
+  summarise(
+    GPP_baseline_annual = sum(GPP_baseline, na.rm = TRUE),
+    GPP_s1_annual       = sum(GPP_s1,       na.rm = TRUE),
+    GPP_s2_annual       = sum(GPP_s2,       na.rm = TRUE),
+    GPP_s3_annual       = sum(GPP_s3,       na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    delta_s1_abs = GPP_s1_annual - GPP_baseline_annual,
+    delta_s2_abs = GPP_s2_annual - GPP_baseline_annual,
+    delta_s3_abs = GPP_s3_annual - GPP_baseline_annual,
+    delta_s1_pct = (delta_s1_abs / GPP_baseline_annual) * 100,
+    delta_s2_pct = (delta_s2_abs / GPP_baseline_annual) * 100,
+    delta_s3_pct = (delta_s3_abs / GPP_baseline_annual) * 100
+  )
+
+site_summary <- annual_summary %>%
+  group_by(site, biome) %>%
+  summarise(
+    mean_delta_s1_pct = round(mean(delta_s1_pct, na.rm = TRUE), 2),
+    mean_delta_s2_pct = round(mean(delta_s2_pct, na.rm = TRUE), 2),
+    mean_delta_s3_pct = round(mean(delta_s3_pct, na.rm = TRUE), 2),
+    mean_delta_s1_abs = round(mean(delta_s1_abs, na.rm = TRUE), 3),
+    mean_delta_s2_abs = round(mean(delta_s2_abs, na.rm = TRUE), 3),
+    mean_delta_s3_abs = round(mean(delta_s3_abs, na.rm = TRUE), 3),
+    .groups = "drop"
+  ) %>%
+  arrange(mean_delta_s3_pct)
+
+cat("\n── Mean annual GPP change by site and scenario ──\n")
+print(site_summary)
+
+
+# SHARED PLOT ELEMENTS
+
+scenario_colours <- c(
+  "Mean VPD shift"         = "#4682B4",
+  "+28% extreme magnitude" = "#E06C4B",
+  "Combined"               = "#8B1A1A"
+)
+
+scenario_levels <- c("Mean VPD shift", "+28% extreme magnitude", "Combined")
+
+# Helper to reshape site_summary for plotting
+make_plot_df <- function(data, pct_or_abs) {
+  if (pct_or_abs == "pct") {
+    data %>%
+      pivot_longer(
+        cols      = c(mean_delta_s1_pct, mean_delta_s2_pct, mean_delta_s3_pct),
+        names_to  = "scenario", values_to = "delta"
+      ) %>%
+      mutate(scenario = recode(scenario,
+        mean_delta_s1_pct = "Mean VPD shift",
+        mean_delta_s2_pct = "+28% extreme magnitude",
+        mean_delta_s3_pct = "Combined"
+      ))
+  } else {
+    data %>%
+      pivot_longer(
+        cols      = c(mean_delta_s1_abs, mean_delta_s2_abs, mean_delta_s3_abs),
+        names_to  = "scenario", values_to = "delta"
+      ) %>%
+      mutate(scenario = recode(scenario,
+        mean_delta_s1_abs = "Mean VPD shift",
+        mean_delta_s2_abs = "+28% extreme magnitude",
+        mean_delta_s3_abs = "Combined"
+      ))
+  }
+}
+```
+
+```{r}
+
+# PLOT 1: Mean % GPP change per site — wet to dry order
+
+p_pct <- make_plot_df(site_summary, "pct") %>%
+  mutate(
+    scenario = factor(scenario, levels = scenario_levels),
+    site     = factor(site, levels = wet_to_dry_order)
+  ) %>%
+  ggplot(aes(x = site, y = delta, fill = scenario)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7, alpha = 0.9) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey30") +
+  coord_flip() +
+  scale_fill_manual(values = scenario_colours) +
+  labs(
+    title    = "Projected GPP change under future VPD scenarios",
+    subtitle = "Mean annual % change vs baseline predicted GPP",
+    x        = "Site (Wet to Dry)",
+    y        = "Mean annual ΔGPP (%)",
+    fill     = "Scenario"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title      = element_text(face = "bold", size = 13),
+    plot.subtitle   = element_text(colour = "grey40", size = 10),
+    legend.position = "bottom"
+  )
+
+
+# PLOT 2: Mean absolute GPP change per site — wet to dry order
+
+p_abs <- make_plot_df(site_summary, "abs") %>%
+  mutate(
+    scenario = factor(scenario, levels = scenario_levels),
+    site     = factor(site, levels = wet_to_dry_order)
+  ) %>%
+  ggplot(aes(x = site, y = delta, fill = scenario)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7, alpha = 0.9) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey30") +
+  coord_flip() +
+  scale_fill_manual(values = scenario_colours) +
+  labs(
+    title    = "Projected GPP change under future VPD scenarios",
+    subtitle = "Mean annual absolute change vs baseline predicted GPP",
+    x        = "Site (Wet to Dry)",
+    y        = expression(Mean ~ annual ~ Delta*GPP ~ (g ~ C ~ m^{-2} ~ yr^{-1})),
+    fill     = "Scenario"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title      = element_text(face = "bold", size = 13),
+    plot.subtitle   = element_text(colour = "grey40", size = 10),
+    legend.position = "bottom"
+  )
+
+
+# PLOT 3: Boxplot of annual % change by biome and scenario
+
+p_biome_pct <- annual_summary %>%
+  pivot_longer(
+    cols      = c(delta_s1_pct, delta_s2_pct, delta_s3_pct),
+    names_to  = "scenario", values_to = "delta_pct"
+  ) %>%
+  mutate(
+    scenario = recode(scenario,
+      delta_s1_pct = "Mean VPD shift",
+      delta_s2_pct = "+28% extreme magnitude",
+      delta_s3_pct = "Combined"
+    ),
+    scenario = factor(scenario, levels = scenario_levels)
+  ) %>%
+  ggplot(aes(x = biome, y = delta_pct, fill = scenario)) +
+  geom_boxplot(alpha = 0.8, outlier.shape = NA,
+               position = position_dodge(width = 0.8)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey30") +
+  scale_fill_manual(values = scenario_colours) +
+  labs(
+    title    = "Annual GPP change by biome and scenario",
+    subtitle = "Distribution across site-years — % change vs baseline",
+    x        = "Biome",
+    y        = "Annual ΔGPP (%)",
+    fill     = "Scenario"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title      = element_text(face = "bold", size = 13),
+    plot.subtitle   = element_text(colour = "grey40", size = 10),
+    legend.position = "bottom"
+  )
+
+
+# PLOT 4: Boxplot of annual absolute change by biome and scenario
+
+p_biome_abs <- annual_summary %>%
+  pivot_longer(
+    cols      = c(delta_s1_abs, delta_s2_abs, delta_s3_abs),
+    names_to  = "scenario", values_to = "delta_abs"
+  ) %>%
+  mutate(
+    scenario = recode(scenario,
+      delta_s1_abs = "Mean VPD shift",
+      delta_s2_abs = "+28% extreme magnitude",
+      delta_s3_abs = "Combined"
+    ),
+    scenario = factor(scenario, levels = scenario_levels)
+  ) %>%
+  ggplot(aes(x = biome, y = delta_abs, fill = scenario)) +
+  geom_boxplot(alpha = 0.8, outlier.shape = NA,
+               position = position_dodge(width = 0.8)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey30") +
+  scale_fill_manual(values = scenario_colours) +
+  labs(
+    title    = "Annual GPP change by biome and scenario",
+    subtitle = "Distribution across site-years — absolute change vs baseline",
+    x        = "Biome",
+    y        = expression(Annual ~ Delta*GPP ~ (g ~ C ~ m^{-2} ~ yr^{-1})),
+    fill     = "Scenario"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title      = element_text(face = "bold", size = 13),
+    plot.subtitle   = element_text(colour = "grey40", size = 10),
+    legend.position = "bottom"
+  )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PRINT ALL PLOTS TO MARKBOOK
+# ══════════════════════════════════════════════════════════════════════════════
+print(p_pct)
+print(p_abs)
+print(p_biome_pct)
+print(p_biome_abs)
+```
+
+
+```{r}
+# Check how many future VPD values exceed the training range per site
+vpd_range_check <- map_dfr(names(prepared_envelope), function(s) {
+  
+  df <- prepared_envelope[[s]]
+  vpd_shift <- case_when(
+    s %in% tropical_sites  ~ biome_vpd_shift["tropical"],
+    s %in% arid_sites      ~ biome_vpd_shift["arid"],
+    s %in% temperate_sites ~ biome_vpd_shift["temperate"]
+  )
+  
+  vpd_max_observed <- max(df$VPD, na.rm = TRUE)
+  vpd_max_s1       <- max(df$VPD + vpd_shift, na.rm = TRUE)
+  vpd_90           <- quantile(df$VPD, 0.90, na.rm = TRUE)
+  vpd_max_s2       <- max(ifelse(df$VPD >= vpd_90,
+                                 df$VPD * 1.28, df$VPD), na.rm = TRUE)
+  
+  data.frame(
+    site             = s,
+    vpd_max_observed = round(vpd_max_observed, 3),
+    vpd_max_s1       = round(vpd_max_s1, 3),
+    vpd_max_s2       = round(vpd_max_s2, 3),
+    s1_exceeds_obs   = vpd_max_s1 > vpd_max_observed,
+    s2_exceeds_obs   = vpd_max_s2 > vpd_max_observed,
+    pct_days_s1_beyond = round(mean((df$VPD + vpd_shift) > vpd_max_observed,
+                                    na.rm = TRUE) * 100, 1),
+    pct_days_s2_beyond = round(mean(ifelse(df$VPD >= vpd_90,
+                                           df$VPD * 1.28,
+                                           df$VPD) > vpd_max_observed,
+                                    na.rm = TRUE) * 100, 1)
+  )
+})
+
+print(vpd_range_check)
+```
+
+
+```{r}
+# How much do scenario VPDs exceed the observed maximum?
+vpd_exceedance <- map_dfr(names(prepared_envelope), function(s) {
+  
+  df <- prepared_envelope[[s]]
+  vpd_shift <- case_when(
+    s %in% tropical_sites  ~ biome_vpd_shift["tropical"],
+    s %in% arid_sites      ~ biome_vpd_shift["arid"],
+    s %in% temperate_sites ~ biome_vpd_shift["temperate"]
+  )
+  
+  vpd_max_obs <- max(df$VPD, na.rm = TRUE)
+  vpd_90      <- quantile(df$VPD, 0.90, na.rm = TRUE)
+  
+  vpd_s1 <- df$VPD + vpd_shift
+  vpd_s2 <- ifelse(df$VPD >= vpd_90, df$VPD * 1.28, df$VPD)
+  vpd_s3_step1 <- df$VPD + vpd_shift
+  vpd_s3 <- ifelse(vpd_s3_step1 >= vpd_90 + vpd_shift,
+                   vpd_s3_step1 * 1.28, vpd_s3_step1)
+  
+  data.frame(
+    site             = s,
+    vpd_max_obs      = round(vpd_max_obs, 3),
+    
+    # How far beyond the observed max does each scenario go?
+    s1_max_exceedance = round(max(vpd_s1, na.rm = TRUE) - vpd_max_obs, 3),
+    s2_max_exceedance = round(max(vpd_s2, na.rm = TRUE) - vpd_max_obs, 3),
+    s3_max_exceedance = round(max(vpd_s3, na.rm = TRUE) - vpd_max_obs, 3),
+    
+    # What % of days exceed the observed max?
+    s1_pct_beyond = round(mean(vpd_s1 > vpd_max_obs, na.rm = TRUE) * 100, 1),
+    s2_pct_beyond = round(mean(vpd_s2 > vpd_max_obs, na.rm = TRUE) * 100, 1),
+    s3_pct_beyond = round(mean(vpd_s3 > vpd_max_obs, na.rm = TRUE) * 100, 1)
+  )
+})
+
+print(vpd_exceedance)
+```
+
+```{r}
+library(tidyverse)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SHARED PLOT ELEMENTS
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Colourblind-friendly palette consistent with thesis style
+# Using the same palette family as your cluster and PFT colours
+scenario_colours <- c(
+  "Mean VPD shift"          = "#88CCEE",  # light blue
+  "+28% extreme magnitude"  = "#CC6677",  # muted red
+  "Combined"                = "#332288"   # deep purple
+)
+
+scenario_levels <- c("Mean VPD shift", "+28% extreme magnitude", "Combined")
+
+# Helper to reshape site_summary for plotting
+make_plot_df <- function(data, pct_or_abs) {
+  if (pct_or_abs == "pct") {
+    data %>%
+      pivot_longer(
+        cols      = c(mean_delta_s1_pct, mean_delta_s2_pct, mean_delta_s3_pct),
+        names_to  = "scenario", values_to = "delta"
+      ) %>%
+      mutate(scenario = recode(scenario,
+        mean_delta_s1_pct = "Mean VPD shift",
+        mean_delta_s2_pct = "+28% extreme magnitude",
+        mean_delta_s3_pct = "Combined"
+      ))
+  } else {
+    data %>%
+      pivot_longer(
+        cols      = c(mean_delta_s1_abs, mean_delta_s2_abs, mean_delta_s3_abs),
+        names_to  = "scenario", values_to = "delta"
+      ) %>%
+      mutate(scenario = recode(scenario,
+        mean_delta_s1_abs = "Mean VPD shift",
+        mean_delta_s2_abs = "+28% extreme magnitude",
+        mean_delta_s3_abs = "Combined"
+      ))
+  }
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PLOT 1: Mean % GPP change per site — wet to dry order
+# ══════════════════════════════════════════════════════════════════════════════
+p_pct <- make_plot_df(site_summary, "pct") %>%
+  mutate(
+    scenario = factor(scenario, levels = scenario_levels),
+    site     = factor(site, levels = wet_to_dry_order)
+  ) %>%
+  ggplot(aes(x = site, y = delta, fill = scenario)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7, alpha = 0.9) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey30") +
+  coord_flip() +
+  scale_fill_manual(values = scenario_colours) +
+  labs(
+    title    = "Projected GPP change under future VPD scenarios",
+    subtitle = "Mean annual % change vs baseline predicted GPP",
+    x        = "Site (Wet to Dry)",
+    y        = "Mean annual ΔGPP (%)",
+    fill     = "Scenario"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title      = element_text(face = "bold", size = 13),
+    plot.subtitle   = element_text(colour = "grey40", size = 10),
+    legend.position = "bottom"
+  )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PLOT 2: Mean absolute GPP change per site — wet to dry order
+# ══════════════════════════════════════════════════════════════════════════════
+p_abs <- make_plot_df(site_summary, "abs") %>%
+  mutate(
+    scenario = factor(scenario, levels = scenario_levels),
+    site     = factor(site, levels = wet_to_dry_order)
+  ) %>%
+  ggplot(aes(x = site, y = delta, fill = scenario)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7, alpha = 0.9) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey30") +
+  coord_flip() +
+  scale_fill_manual(values = scenario_colours) +
+  labs(
+    title    = "Projected GPP change under future VPD scenarios",
+    subtitle = "Mean annual absolute change vs baseline predicted GPP",
+    x        = "Site (Wet to Dry)",
+    y        = expression(Mean ~ annual ~ Delta*GPP ~ (g ~ C ~ m^{-2} ~ yr^{-1})),
+    fill     = "Scenario"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title      = element_text(face = "bold", size = 13),
+    plot.subtitle   = element_text(colour = "grey40", size = 10),
+    legend.position = "bottom"
+  )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# BIOME LABEL HELPER
+# Adds biome name above the grouped boxes for each biome on the x-axis
+# Uses annotate with a data frame of label positions
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Compute y position for biome labels — just above the plot area
+# We'll use geom_text with a fixed y position above the zero line
+biome_label_df <- data.frame(
+  biome = c("Arid", "Temperate", "Tropical"),
+  y     = Inf  # places label at top of each facet / group
+)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PLOT 3: Boxplot of annual % change by biome and scenario
+# ══════════════════════════════════════════════════════════════════════════════
+p_biome_pct <- annual_summary %>%
+  pivot_longer(
+    cols      = c(delta_s1_pct, delta_s2_pct, delta_s3_pct),
+    names_to  = "scenario", values_to = "delta_pct"
+  ) %>%
+  mutate(
+    scenario = recode(scenario,
+      delta_s1_pct = "Mean VPD shift",
+      delta_s2_pct = "+28% extreme magnitude",
+      delta_s3_pct = "Combined"
+    ),
+    scenario = factor(scenario, levels = scenario_levels),
+    biome    = factor(biome, levels = c("Tropical", "Arid", "Temperate"))
+  ) %>%
+  ggplot(aes(x = scenario, y = delta_pct, fill = scenario)) +
+  geom_boxplot(alpha = 0.85, outlier.shape = NA, width = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey30",
+             linewidth = 0.5) +
+  # Biome label at top of each facet panel
+  geom_text(
+    data        = biome_label_df %>%
+                    mutate(biome = factor(biome,
+                                         levels = c("Tropical", "Arid", "Temperate"))),
+    aes(x = 2, y = Inf, label = biome),
+    inherit.aes = FALSE,
+    vjust       = 1.5, size = 4, fontface = "bold", colour = "grey20"
+  ) +
+  facet_wrap(~ biome, ncol = 3) +
+  scale_fill_manual(values = scenario_colours) +
+  scale_x_discrete(labels = NULL) +  # remove x axis labels — legend handles this
+  labs(
+    title    = "Annual GPP change by biome and scenario",
+    subtitle = "Distribution across site-years — % change vs baseline predicted GPP",
+    x        = NULL,
+    y        = "Annual ΔGPP (%)",
+    fill     = "Scenario"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title       = element_text(face = "bold", size = 13),
+    plot.subtitle    = element_text(colour = "grey40", size = 10),
+    strip.background = element_blank(),
+    strip.text       = element_blank(),  # biome label handled by geom_text above
+    legend.position  = "bottom",
+    axis.ticks.x     = element_blank(),
+    panel.grid.major.y = element_line(colour = "grey92", linewidth = 0.3)
+  )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PLOT 4: Boxplot of annual absolute change by biome and scenario
+# ══════════════════════════════════════════════════════════════════════════════
+p_biome_abs <- annual_summary %>%
+  pivot_longer(
+    cols      = c(delta_s1_abs, delta_s2_abs, delta_s3_abs),
+    names_to  = "scenario", values_to = "delta_abs"
+  ) %>%
+  mutate(
+    scenario = recode(scenario,
+      delta_s1_abs = "Mean VPD shift",
+      delta_s2_abs = "+28% extreme magnitude",
+      delta_s3_abs = "Combined"
+    ),
+    scenario = factor(scenario, levels = scenario_levels),
+    biome    = factor(biome, levels = c("Tropical", "Arid", "Temperate"))
+  ) %>%
+  ggplot(aes(x = scenario, y = delta_abs, fill = scenario)) +
+  geom_boxplot(alpha = 0.85, outlier.shape = NA, width = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey30",
+             linewidth = 0.5) +
+  # Biome label at top of each facet panel
+  geom_text(
+    data        = biome_label_df %>%
+                    mutate(biome = factor(biome,
+                                         levels = c("Tropical", "Arid", "Temperate"))),
+    aes(x = 2, y = Inf, label = biome),
+    inherit.aes = FALSE,
+    vjust       = 1.5, size = 4, fontface = "bold", colour = "grey20"
+  ) +
+  facet_wrap(~ biome, ncol = 3) +
+  scale_fill_manual(values = scenario_colours) +
+  scale_x_discrete(labels = NULL) +
+  labs(
+    title    = "Annual GPP change by biome and scenario",
+    subtitle = "Distribution across site-years — absolute change vs baseline predicted GPP",
+    x        = NULL,
+    y        = expression(Annual ~ Delta*GPP ~ (g ~ C ~ m^{-2} ~ yr^{-1})),
+    fill     = "Scenario"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title         = element_text(face = "bold", size = 13),
+    plot.subtitle      = element_text(colour = "grey40", size = 10),
+    strip.background   = element_blank(),
+    strip.text         = element_blank(),
+    legend.position    = "bottom",
+    axis.ticks.x       = element_blank(),
+    panel.grid.major.y = element_line(colour = "grey92", linewidth = 0.3)
+  )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PRINT ALL PLOTS TO MARKBOOK
+# ══════════════════════════════════════════════════════════════════════════════
+print(p_pct)
+print(p_abs)
+print(p_biome_pct)
+print(p_biome_abs)
+```
+```{r}
+library(tidyverse)
+
+# ── Build site order from most negative slope to least negative ───────────────
+# Most negative = highest sensitivity, so arrange ascending (most negative first)
+sensitivity_order <- site_slopes %>%
+  filter(!is.na(slope)) %>%
+  arrange(slope) %>%          # most negative slope first = highest sensitivity
+  pull(site)
+
+```
+
+```{r}
+print(sensitivity_order)
+
+```
+
+```{r}
+library(tidyverse)
+
+# ── Hardcoded sensitivity order — most negative slope first (Fog) to least (Tum)
+sensitivity_order <- c(
+  "Fog", "Ade", "Dap", "Rdf", "Das", "Asm", "How", "Dry",
+  "Rig", "Ync", "Stp", "Emr", "Gin", "Cpr", "Boy", "Wac",
+  "Wom", "Whr", "Cum", "Gww", "Tum"
+)
+
+# ── Plot ──────────────────────────────────────────────────────────────────────
+p_pct_sensitivity <- make_plot_df(site_summary, "pct") %>%
+  mutate(
+    scenario = factor(scenario, levels = scenario_levels),
+    site     = factor(site, levels = rev(sensitivity_order))
+    # rev() so Fog (most sensitive) appears at the TOP of the flipped chart
+  ) %>%
+  filter(!is.na(site)) %>%
+  ggplot(aes(x = site, y = delta, fill = scenario)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7, alpha = 0.9) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey30") +
+  coord_flip() +
+  scale_fill_manual(values = scenario_colours) +
+  labs(
+    title    = "Projected GPP change under future VPD scenarios",
+    subtitle = "Sites ordered from highest to lowest GPP–VPD sensitivity (Fog = steepest slope)",
+    x        = "Site (High → Low Sensitivity)",
+    y        = "Mean annual ΔGPP (%)",
+    fill     = "Scenario"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    plot.title      = element_text(face = "bold", size = 13),
+    plot.subtitle   = element_text(colour = "grey40", size = 10),
+    legend.position = "bottom"
+  )
+
+print(p_pct_sensitivity)
+```
+
+

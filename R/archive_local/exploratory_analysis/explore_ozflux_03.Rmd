@@ -1,0 +1,715 @@
+---
+title: "explore_ozflux_03"
+output: html_document
+date: "2026-02-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Monday 2nd Feb:
+
+- Add vcmax and LLC to GAMs
+
+```{r}
+rm(list = ls())
+```
+
+```{r}
+library(tidyverse)
+
+read_flux <- function(fname) {
+  
+  #Ensure it reads one file at a time
+  if (length(fname) != 1) {
+    stop("read_flux() expects a single filename")
+  }
+  
+  df <- read.csv(fname)
+  
+  #extract site code from file name
+  base <- basename(fname)
+  no_ext <- gsub("\\.csv$", "", base)
+  
+ site <- regmatches(
+  no_ext,
+  regexpr("[A-Z]{2}-[A-Za-z]{2,3}[0-9]?", no_ext)
+)
+ 
+ if(length(site) == 0) {
+   stop(paste("Could not extract site code from filename:", base))
+ }
+ 
+  #add site column
+  df$site <- site
+  
+   # Convert TIMESTAMP_START to datetime and set as index
+  df <- df %>%
+    mutate(date = ymd_hm(TIMESTAMP_START)) %>%
+    select(-TIMESTAMP_START, -TIMESTAMP_END) %>%
+    relocate(date)
+
+  df <- df %>%
+    mutate(
+      year = year(date),
+      doy = yday(date),
+      hod = hour(date)
+    )
+  
+#renaming some variables
+  
+   df <- df %>%
+    rename(
+      GPP = GPP_NT_VUT_REF,
+      LE = LE_F_MDS,
+      Precip = P_ERA,
+      Tair = TA_F_MDS,
+      SW_rad = SW_IN_F_MDS,
+      Rn = NETRAD,
+      Pa = PA_F,
+      VPD = VPD_F_MDS,
+      Rn = NETRAD
+    )
+
+  vars_to_keep <- c("GPP", "Tair", "SW_rad", "Rn", "VPD", "Precip", "Pa", "Rn", "LE")
+  df <- df %>% select(date, all_of(vars_to_keep), year, doy, hod, site)
+  
+  return(df)
+  
+}
+```
+```{r}
+AU_How <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUX/halfhourly/FLX_AU-How_FLUXNET2015_FULLSET_HH_2001-2014_1-4.csv") 
+
+AU_Dap <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUX/halfhourly/FLX_AU-DaP_FLUXNET2015_FULLSET_HH_2007-2013_2-4.csv")
+
+AU_Das <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUX/halfhourly/FLX_AU-DaS_FLUXNET2015_FULLSET_HH_2008-2014_2-4.csv")
+
+AU_Dry <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUX/halfhourly/FLX_AU-Dry_FLUXNET2015_FULLSET_HH_2008-2014_2-4.csv")
+
+AU_Stp <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUX/halfhourly/FLX_AU-Stp_FLUXNET2015_FULLSET_HH_2008-2014_1-4.csv")
+
+AU_Asm <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/FLUX/halfhourly/FLX_AU-ASM_FLUXNET2015_FULLSET_HH_2010-2014_2-4.csv")
+```
+
+```{r}
+flux_vars <- c("GPP", "LE", "Tair", "SW_rad", "Rn", "Precip", "Pa")
+
+AU_How <- AU_How %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+AU_Dap <- AU_Dap %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+AU_Das <- AU_Das %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+AU_Dry <- AU_Dry %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+
+AU_Stp <- AU_Stp %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+AU_Asm <- AU_Asm %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+```
+
+```{r}
+convert_to_daily <- function(df) {
+  
+  #Conversion constants
+  
+  UMOL_TO_MOL <- 1E-6
+  MOL_C_TO_GRAMS_C <- 12.0
+  SEC_2_HALF_HOUR <- 1800.
+  WM2_TO_KG_M2_S <- 1.0 /  ( 2.45 * 1E6)
+  PA_2_KPA = 0.001
+  HPA_2_KPA = 0.1
+  
+  df <- df %>%
+    mutate(
+      GPP = GPP * UMOL_TO_MOL * MOL_C_TO_GRAMS_C * SEC_2_HALF_HOUR,
+      ET = LE * WM2_TO_KG_M2_S * SEC_2_HALF_HOUR, 
+      VPD = VPD * HPA_2_KPA,
+      Precip = Precip * SEC_2_HALF_HOUR
+    )
+  
+  df$date <- ymd_hms(df$date)
+  
+  #Resample to daily
+  
+  df <- df %>%
+    mutate(date = floor_date(date, "day")) %>%
+    group_by(site, date) %>%
+    summarise(
+      Precip = ifelse(
+        sum(!is.na(Precip)) > 0,
+        sum(Precip, na.rm = TRUE),
+        NA
+      ),
+      GPP = sum(GPP, na.rm = TRUE),
+      ET = sum(ET, na.rm = TRUE), 
+      LE = mean(LE, na.rm = TRUE), 
+      SW_rad = mean(SW_rad, na.rm = TRUE),
+      Tair = mean(Tair, na.rm = TRUE), 
+      VPD = mean(VPD, na.rm = TRUE),
+      Pa = mean(Pa, na.rm = TRUE),
+      Rn = mean(Rn, na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+  return(df)
+  
+}
+```
+
+```{r}
+How_daily <- convert_to_daily(AU_How)
+Dap_daily <- convert_to_daily(AU_Dap)
+Das_daily <- convert_to_daily(AU_Das)
+Dry_daily <- convert_to_daily(AU_Dry)
+Stp_daily <- convert_to_daily(AU_Stp)
+Asm_daily <- convert_to_daily(AU_Asm)
+```
+
+```{r}
+How_daily <- How_daily %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+
+Dap_daily <- Dap_daily %>%
+  mutate(across(where(is.numeric), ~ifelse(is.nan(.), NA, .)))
+
+Das_daily <- Das_daily %>%
+  mutate(across(where(is.numeric), ~ifelse(is.nan(.), NA, .)))
+
+Dry_daily <- Dry_daily %>%
+  mutate(across(where(is.numeric), ~ifelse(is.nan(.), NA, .)))
+
+Stp_daily <- Stp_daily %>%
+  mutate(across(where(is.numeric), ~ifelse(is.nan(.), NA, .)))
+
+Asm_daily <- Asm_daily %>%
+  mutate(across(where(is.numeric), ~ifelse(is.nan(.), NA, .)))
+```
+
+```{r}
+How_daily <- How_daily %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, SW_rad, LE)
+
+Dap_daily <- Dap_daily %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, SW_rad, LE)
+
+Das_daily <- Das_daily %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, SW_rad, LE)
+
+Dry_daily <- Dry_daily %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, SW_rad, LE)
+
+Stp_daily <- Stp_daily %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, SW_rad, LE)
+
+Asm_daily <- Asm_daily %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Rn, ET, SW_rad, LE)
+```
+
+Add in doy and year again:
+
+```{r}
+How_daily <- How_daily %>%
+  mutate(
+    year = lubridate::year(date),
+    doy  = lubridate::yday(date)
+  )
+
+Dap_daily <- Dap_daily %>%
+  mutate(
+    year = lubridate::year(date),
+    doy = lubridate::yday(date)
+  )
+
+Das_daily <- Das_daily %>%
+  mutate(
+    year = lubridate::year(date),
+    doy = lubridate::yday(date)
+    )
+
+Dry_daily <- Dry_daily %>%
+  mutate(
+    year = lubridate::year(date),
+    doy = lubridate::yday(date)
+  )
+
+Stp_daily <- Stp_daily %>%
+  mutate(
+    year = lubridate::year(date),
+    doy = lubridate::yday(date)
+  )
+
+Asm_daily <- Asm_daily %>%
+  mutate(
+    year = lubridate::year(date),
+    doy = lubridate::yday(date)
+  )
+```
+
+
+```{r}
+install.packages("ncdf4")
+```
+
+Load in Vcmax data:
+
+```{r}
+library(terra)
+library(ncdf4)
+
+#AU How 
+latitude <- -12.4943
+longitude <- 131.1523
+
+#
+## Vcmax from GOME-2 SIF
+#
+gome_file <- "/Users/alicerolfe/year_4_project/fluxnet_project/GOME2_VcmaxTg_05deg.tif"
+
+vcmax_gome_raster <- rast(gome_file)
+coords <- data.frame(lon = longitude, lat = latitude)
+vcmax_gome <- terra::extract(vcmax_gome_raster, coords)
+vcmax_gome <- data.frame(lat = latitude, lon = longitude, 
+                           Vcmax = vcmax_gome)
+vcmax_gome <- vcmax_gome$Vcmax.GOME2_VcmaxTg_05deg
+
+print(vcmax_gome)
+```
+
+```{r}
+# Vcmax data -> https://zenodo.org/records/14848098
+
+library(terra)
+library(ncdf4)
+
+# AU How
+latitude <- -12.4943
+longitude <- 131.1523
+
+
+
+latlon_to_line_sample <- function(lat, lon, nlines = 1800, nsamples = 3600) {
+ 
+  lat_res <- 180. / nlines  
+  line <- round((90. - lat) / lat_res)
+  
+  lon_res <- 360. / nsamples
+  sample <- round((lon + 180.) / lon_res)
+  
+  line <- pmin(pmax(line, 1), nlines)
+  sample <- pmin(pmax(sample, 1), nsamples)
+  
+  return(list(line = line, sample = sample))
+}
+
+#
+## global leaf chlorophyll content
+#
+nc <- nc_open("/Users/alicerolfe/year_4_project/fluxnet_project/Chl_2003_2011_weeklyAll_01Deg_sf100.nc")
+
+# Pixel coordinates
+line_idx   <- 500   # 1..1800
+sample_idx <- 1000  # 1..3600
+
+coords <- latlon_to_line_sample(latitude, longitude)
+
+pixel_time_series <- ncvar_get(nc, "chl_all",
+                               start = c(coords$line, coords$sample, 1, 1),
+                               count = c(1, 1, -1, -1))
+fillvalue <- ncatt_get(nc, "chl_all", "_FillValue")$value
+pixel_time_series[pixel_time_series == fillvalue] <- NA
+
+dim(pixel_time_series)  # 52 x 9 (weeks x years)
+pixel_time_series
+
+LCC <- pixel_time_series / 100 # ug/cm²
+
+# LCC: 52 weeks × 9 years
+weekly_climatology <- rowMeans(LCC, na.rm = TRUE)
+weeks <- 1:52
+
+plot(1:52, weekly_climatology, type='l', xlab='Week', ylab='LCC (μg/cm²)')
+
+# Create a sequence days
+daily_weeks <- seq(1, 52, by = 1/7) 
+
+# Interpolate linearly
+daily_climatology <- approx(x = weeks, y = weekly_climatology, xout = daily_weeks)$y
+
+# Plot
+plot(daily_weeks, daily_climatology, type='l', xlab='Week', ylab='LCC (μg/cm²)')
+points(weeks, weekly_climatology, col='red')  # show original weekly points
+
+nc_close(nc)
+```
+Right now:
+- Vcmax is a single constant per site
+- LCC = weekly climatology 
+- GPP = daily, year-specific
+
+Need to:
+- Attach Vcmax to daily flux data
+- Turn LCC climatology into a daily series
+
+```{r}
+
+How_daily <- How_daily %>%
+  mutate(Vcmax = vcmax_gome)
+```
+
+Day-of-year values of LCC and attach to flux data
+
+```{r}
+lcc_day <- data.frame(
+  doy = round(seq(1, 365, length.out = length(daily_climatology))), 
+  LCC = daily_climatology
+)
+```
+
+```{r}
+How_daily <- How_daily %>%
+  mutate(doy = yday(date)) %>%
+  left_join(lcc_day, by = "doy")
+```
+
+GAMs:
+- Start simple
+- Does the addition of plant traits improve GPP predictability across Australian sites?
+
+Compare GAM within site AU_How
+
+1. GAM - SW_rad, VPD, Tair
+
+```{r}
+
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(zoo)
+library(mgcv)
+
+idx <- createDataPartition(How_daily$GPP, p=0.8, list=FALSE)
+train_data <- How_daily[idx, ]
+test_data <- How_daily[-idx, ]
+
+gam_basic <- gam(GPP ~ s(Tair) + s(VPD) + s(SW_rad), data=train_data, 
+                 method = "REML")
+
+predictions <- predict(gam_basic, newdata=test_data)
+results <- data.frame(observed=test_data$GPP, predicted=predictions)
+
+rmse_gam <- sqrt(mean((results$observed - results$predicted)^2))
+rsq_gam <- cor(results$observed, results$predicted)^2
+mean_observed_gam <- mean(results$observed)
+nse_gam <- (1 - sum((results$observed - results$predicted)^2) / 
+              sum((results$observed - mean_observed_gam)^2))
+cat("RMSE:", rmse_gam, "\n")
+cat("R-squared:", rsq_gam, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
+```
+RMSE: 1.753954
+R-squared: 0.5600302
+NSE: 0.5565368
+
+2. GAM - SW_rad, VPD, Tair, LCC
+
+```{r}
+How_daily <- How_daily %>%
+  drop_na(LCC)
+
+```
+
+
+```{r}
+idx <- createDataPartition(How_daily$GPP, p=0.8, list=FALSE)
+train_data2 <- How_daily[idx, ]
+test_data2 <- How_daily[-idx, ]
+
+gam_2 <- gam(GPP ~ s(Tair) + s(VPD) + s(SW_rad) + s(LCC), data=train_data2, 
+                 method = "REML")
+
+predictions <- predict(gam_2, newdata=test_data2)
+results <- data.frame(observed=test_data2$GPP, predicted=predictions)
+
+rmse_gam <- sqrt(mean((results$observed - results$predicted)^2))
+rsq_gam <- cor(results$observed, results$predicted)^2
+mean_observed_gam <- mean(results$observed)
+nse_gam <- (1 - sum((results$observed - results$predicted)^2) / 
+              sum((results$observed - mean_observed_gam)^2))
+cat("RMSE:", rmse_gam, "\n")
+cat("R-squared:", rsq_gam, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
+```
+
+Only slightly improved with the addition of LCC
+
+Now let's compare across sites and see if Vcmax or LCC can improve cross-site prediction:
+
+Let's compare AU_How to AU_Asm and AU_Das, Alice Springs is very dry whereas Daly Savanna is more similar to AU_How (seasonally wet)
+
+Vcmax and LCC data for Asm:
+
+```{r}
+library(terra)
+library(ncdf4)
+
+#AU Asm 
+latitude <- -22.2830
+longitude <- 133.2490
+
+#
+## Vcmax from GOME-2 SIF
+#
+gome_file <- "/Users/alicerolfe/year_4_project/fluxnet_project/GOME2_VcmaxTg_05deg.tif"
+
+vcmax_gome_raster <- rast(gome_file)
+coords <- data.frame(lon = longitude, lat = latitude)
+vcmax_gome <- terra::extract(vcmax_gome_raster, coords)
+vcmax_gome <- data.frame(lat = latitude, lon = longitude, 
+                           Vcmax = vcmax_gome)
+vcmax_gome <- vcmax_gome$Vcmax.GOME2_VcmaxTg_05deg
+
+print(vcmax_gome)
+
+```
+
+```{r}
+# Vcmax data -> https://zenodo.org/records/14848098
+
+library(terra)
+library(ncdf4)
+
+# AU Asm
+latitude <- -22.2830
+longitude <- 133.2490
+
+
+
+latlon_to_line_sample <- function(lat, lon, nlines = 1800, nsamples = 3600) {
+ 
+  lat_res <- 180. / nlines  
+  line <- round((90. - lat) / lat_res)
+  
+  lon_res <- 360. / nsamples
+  sample <- round((lon + 180.) / lon_res)
+  
+  line <- pmin(pmax(line, 1), nlines)
+  sample <- pmin(pmax(sample, 1), nsamples)
+  
+  return(list(line = line, sample = sample))
+}
+
+#
+## global leaf chlorophyll content
+#
+nc <- nc_open("/Users/alicerolfe/year_4_project/fluxnet_project/Chl_2003_2011_weeklyAll_01Deg_sf100.nc")
+
+# Pixel coordinates
+line_idx   <- 500   # 1..1800
+sample_idx <- 1000  # 1..3600
+
+coords <- latlon_to_line_sample(latitude, longitude)
+
+pixel_time_series <- ncvar_get(nc, "chl_all",
+                               start = c(coords$line, coords$sample, 1, 1),
+                               count = c(1, 1, -1, -1))
+fillvalue <- ncatt_get(nc, "chl_all", "_FillValue")$value
+pixel_time_series[pixel_time_series == fillvalue] <- NA
+
+dim(pixel_time_series)  # 52 x 9 (weeks x years)
+pixel_time_series
+
+LCC <- pixel_time_series / 100 # ug/cm²
+
+# LCC: 52 weeks × 9 years
+weekly_climatology <- rowMeans(LCC, na.rm = TRUE)
+weeks <- 1:52
+
+plot(1:52, weekly_climatology, type='l', xlab='Week', ylab='LCC (μg/cm²)')
+
+# Create a sequence days
+daily_weeks <- seq(1, 52, by = 1/7) 
+
+# Interpolate linearly
+daily_climatology <- approx(x = weeks, y = weekly_climatology, xout = daily_weeks)$y
+
+# Plot
+plot(daily_weeks, daily_climatology, type='l', xlab='Week', ylab='LCC (μg/cm²)')
+points(weeks, weekly_climatology, col='red')  # show original weekly points
+
+nc_close(nc)
+```
+
+Attach Vcmax to AU_Asm
+
+```{r}
+Asm_daily <- Asm_daily %>%
+  mutate(Vcmax = vcmax_gome)
+```
+
+```{r}
+lcc_day <- data.frame(
+  doy = round(seq(1, 365, length.out = length(daily_climatology))), 
+  LCC = daily_climatology
+)
+```
+
+```{r}
+Asm_daily <- Asm_daily %>%
+  mutate(doy = yday(date)) %>%
+  left_join(lcc_day, by = "doy")
+```
+
+Get rid of NAs
+
+```{r}
+Asm_daily <- Asm_daily %>%
+  drop_na(LCC)
+
+```
+
+
+Now, lets compare AU_How and AU_Asm
+
+```{r}
+train_data3 <- How_daily
+test_data3 <- Asm_daily
+
+gam_3 <- gam(GPP ~ s(Tair) + s(VPD) + s(SW_rad) + s(LCC), data=train_data3, 
+                 method = "REML")
+
+predictions <- predict(gam_3, newdata=test_data3)
+results <- data.frame(observed=test_data3$GPP, predicted=predictions)
+
+rmse_gam <- sqrt(mean((results$observed - results$predicted)^2))
+rsq_gam <- cor(results$observed, results$predicted)^2
+mean_observed_gam <- mean(results$observed)
+nse_gam <- (1 - sum((results$observed - results$predicted)^2) / 
+              sum((results$observed - mean_observed_gam)^2))
+cat("RMSE:", rmse_gam, "\n")
+cat("R-squared:", rsq_gam, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
+```
+
+```{r}
+summary(gam_basic)
+
+```
+
+```{r}
+summary(gam_2)
+```
+
+```{r}
+par(mfrow = c(2, 2))
+plot(gam_2, pages = 1, shade = TRUE)
+```
+
+3. GAM - VPD, Tair, SW_rad, LCC, Vcmax
+
+```{r}
+idx <- createDataPartition(How_daily$GPP, p=0.8, list=FALSE)
+train_data4 <- How_daily[idx, ]
+test_data4 <- How_daily[-idx, ]
+
+gam_4 <- gam(GPP ~ s(Tair) + s(VPD) + s(SW_rad) + s(LCC) + Vcmax, data=train_data4, 
+                 method = "REML")
+
+predictions <- predict(gam_4, newdata=test_data4)
+results <- data.frame(observed=test_data4$GPP, predicted=predictions)
+
+rmse_gam <- sqrt(mean((results$observed - results$predicted)^2))
+rsq_gam <- cor(results$observed, results$predicted)^2
+mean_observed_gam <- mean(results$observed)
+nse_gam <- (1 - sum((results$observed - results$predicted)^2) / 
+              sum((results$observed - mean_observed_gam)^2))
+cat("RMSE:", rmse_gam, "\n")
+cat("R-squared:", rsq_gam, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
+```
+
+VPD stress days:
+
+```{r}
+How_stress_days <- How_daily %>% filter(VPD > quantile(VPD, 0.9))
+
+Asm_stress_days <- Asm_daily %>% filter(VPD > quantile(VPD, 0.9))
+```
+
+Let's compare the predictability of AU_How high VPD days versus Asm high VPD days
+
+```{r}
+train_data5 <- How_stress_days
+test_data5 <- Asm_stress_days
+
+gam_5 <- gam(GPP ~ s(Tair) + s(VPD) + s(SW_rad) + s(LCC) + Vcmax, data=train_data5, 
+                 method = "REML")
+
+predictions <- predict(gam_5, newdata=test_data5)
+results <- data.frame(observed=test_data5$GPP, predicted=predictions)
+
+rmse_gam <- sqrt(mean((results$observed - results$predicted)^2))
+rsq_gam <- cor(results$observed, results$predicted)^2
+mean_observed_gam <- mean(results$observed)
+nse_gam <- (1 - sum((results$observed - results$predicted)^2) / 
+              sum((results$observed - mean_observed_gam)^2))
+cat("RMSE:", rmse_gam, "\n")
+cat("R-squared:", rsq_gam, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse_gam, "\n")
+```
+
+```{r}
+plot(How_daily$VPD)
+```
+
+

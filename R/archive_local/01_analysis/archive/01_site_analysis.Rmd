@@ -1,0 +1,1957 @@
+---
+title: "Untitled"
+output: html_document
+date: "2026-02-06"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Site analysis:
+- Which site has the most predictable GPP?
+- What variables are the most important drivers of GPP across bioclimatic gradients? (structural, physiology, climate)
+- How well do models generalize to new sites?
+
+```{r}
+rm(list = ls())
+```
+
+```{r}
+library(tidyverse)
+read_flux <- function(fname) {
+  
+  #Ensure it reads one file at a time
+  if (length(fname) != 1) {
+    stop("read_flux() expects a single filename")
+  }
+  
+  df <- read.csv(fname)
+  
+  #extract site code from file name
+  base <- basename(fname)
+  no_ext <- gsub("\\.csv$", "", base)
+  
+ site <- regmatches(
+  no_ext,
+  regexpr("[A-Z]{2}-[A-Za-z]{2,3}[0-9]?", no_ext)
+)
+ 
+ if(length(site) == 0) {
+   stop(paste("Could not extract site code from filename:", base))
+ }
+ 
+  #add site column
+  df$site <- site
+  
+   # Convert TIMESTAMP_START to datetime and set as index
+  df <- df %>%
+    mutate(date = ymd_hm(TIMESTAMP_START)) %>%
+    select(-TIMESTAMP_START, -TIMESTAMP_END) %>%
+    relocate(date)
+
+  df <- df %>%
+    mutate(
+      year = year(date),
+      doy = yday(date),
+      hod = hour(date)
+    )
+  
+#renaming some variables
+  
+   df <- df %>%
+    rename(
+      GPP = GPP_NT_VUT_REF,
+      Qle = LE_F_MDS,
+      Precip = P_ERA,
+      Tair = TA_F_MDS,
+      SW_rad = SW_IN_F_MDS,
+      Rn = NETRAD,
+      Pa = PA_F,
+      VPD = VPD_F_MDS,
+      Rn = NETRAD
+    )
+
+  vars_to_keep <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "VPD", "Precip", "Pa", "Rn")
+  df <- df %>% select(date, all_of(vars_to_keep), year, doy, hod, site)
+  
+  return(df)
+  
+}
+```
+
+Sites:
+- Howard Springs
+- Adelaide River
+- Daly Pasture
+- Daly savanna
+- Dry river
+- Sturt plains
+- Alice springs
+
+
+```{r}
+How_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-How_FLUXNET2015_FULLSET_HH_2001-2014_1-4.csv")
+
+Ade_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Ade_FLUXNET2015_FULLSET_HH_2007-2009_1-4.csv")
+
+Dap_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-DaP_FLUXNET2015_FULLSET_HH_2007-2013_2-4.csv")
+
+Das_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-DaS_FLUXNET2015_FULLSET_HH_2008-2014_2-4.csv")
+
+Dry_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Dry_FLUXNET2015_FULLSET_HH_2008-2014_2-4.csv")
+
+Stp_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-Stp_FLUXNET2015_FULLSET_HH_2008-2014_1-4.csv")
+
+Asm_HH <- read_flux("/Users/alicerolfe/year_4_project/fluxnet_project/Data/FLUX/halfhourly/FLX_AU-ASM_FLUXNET2015_FULLSET_HH_2010-2014_2-4.csv")
+
+```
+
+Convert -9999 to NA
+```{r}
+flux_vars <- c("GPP", "Qle", "Tair", "SW_rad", "Rn", "Precip", "Pa", "VPD")
+
+#Clean dataframe, convert to 'na' if '-9999'
+
+How_HH <- How_HH %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+Ade_HH <- Ade_HH %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+Das_HH <- Das_HH %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+Dap_HH <- Dap_HH %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+Dry_HH <- Dry_HH %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+Stp_HH <- Stp_HH %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+
+Asm_HH <- Asm_HH %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999)
+  )) %>%
+  mutate(across(
+    all_of(flux_vars),
+    ~na_if(., -9999.9)
+  ))
+```
+
+
+Filter missing data before daily conversion
+
+```{r}
+filter_low_coverage_days <- function(df, min_frac = 0.9, steps_per_day = 48) {
+
+  min_steps <- ceiling(min_frac * steps_per_day)
+
+  df %>%
+    group_by(date = floor_date(date, "day")) %>%
+    mutate(n_steps = n()) %>%
+    ungroup() %>%
+    filter(n_steps >= min_steps) %>%
+    select(-n_steps)
+}
+```
+
+```{r}
+How_HH <- filter_low_coverage_days(How_HH)
+Ade_HH <- filter_low_coverage_days(Ade_HH)
+Das_HH <- filter_low_coverage_days(Das_HH)
+Dap_HH <- filter_low_coverage_days(Dap_HH)
+Dry_HH <- filter_low_coverage_days(Dry_HH)
+Stp_HH <- filter_low_coverage_days(Stp_HH)
+Asm_HH <- filter_low_coverage_days(Asm_HH)
+```
+
+```{r}
+####
+##  Convert the 30 min to daily ... someone should add something to check
+##. if the data is hourly ...
+##
+##
+##  author: Martin De Kauwe
+##  date: 27th February, 2025
+##  email: mdekauwe@gmail.com
+####
+library(tidyverse)
+
+convert_to_daily <- function(df) {
+
+  # Conversion constants
+  UMOL_TO_MOL <- 1E-6
+  MOL_C_TO_GRAMS_C <- 12.0
+  SEC_2_HLFHOUR <- 1800.
+  WM2_TO_KG_M2_S <- 1.0 / ( 2.45 * 1E6 )
+  PA_2_KPA = 0.001
+  HPA_2_KPA = 0.1
+
+  df <- df %>%
+    mutate(
+      GPP = GPP * UMOL_TO_MOL * MOL_C_TO_GRAMS_C * SEC_2_HLFHOUR,
+      ET = Qle * WM2_TO_KG_M2_S * SEC_2_HLFHOUR,
+      VPD = VPD * HPA_2_KPA
+    )
+
+
+  # Resample to daily
+  df <- df %>%
+    mutate(date = floor_date(date, "day")) %>%
+    group_by(date) %>%
+    summarise(
+      GPP = sum(GPP, na.rm=TRUE),
+      ET = sum(ET, na.rm=TRUE),
+      Precip = sum(Precip, na.rm=TRUE),
+      Qle = mean(Qle, na.rm=TRUE),
+      Tair = mean(Tair, na.rm=TRUE),
+      SW_rad = mean(SW_rad, na.rm=TRUE),
+      Rn = mean(Rn, na.rm=TRUE),
+      Pa = mean(Pa, na.rm=TRUE),
+      VPD = mean(VPD, na.rm=TRUE),
+      .groups = "drop"
+    )
+
+  return(df)
+}
+```
+
+```{r}
+How_daily <- convert_to_daily(How_HH)
+Ade_daily <- convert_to_daily(Ade_HH)
+Das_daily <- convert_to_daily(Das_HH)
+Dap_daily <- convert_to_daily(Dap_HH)
+Dry_daily <- convert_to_daily(Dry_HH)
+Stp_daily <- convert_to_daily(Stp_HH)
+Asm_daily <- convert_to_daily(Asm_HH)
+```
+
+Convert NaN back to NA
+
+```{r}
+#Convert NaN ('Not a number') back to NA
+
+How_daily <- How_daily %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+
+Ade_daily <- Ade_daily %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+
+Das_daily <- Das_daily %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+
+Dap_daily <- Dap_daily %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+
+Dry_daily <- Dry_daily %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+
+Stp_daily <- Stp_daily %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+
+Asm_daily <- Asm_daily %>%
+  mutate(across(where(is.numeric), ~ ifelse(is.nan(.), NA, .)))
+
+```
+
+
+```{r}
+plot(How_daily$VPD, How_daily$GPP)
+```
+Look at annual precipitation:
+
+```{r}
+library(dplyr)
+library(lubridate)
+
+convert_to_annual <- function(df_daily) {
+
+  # Add year column
+  df_daily <- df_daily %>%
+    mutate(year = year(date))
+
+  df_annual <- df_daily %>%
+    group_by(year) %>%
+    summarise(
+      GPP = sum(GPP, na.rm = TRUE),
+      ET = sum(ET, na.rm = TRUE),
+      Precip = sum(Precip, na.rm = TRUE),
+      Qle = mean(Qle, na.rm = TRUE),
+      Tair = mean(Tair, na.rm = TRUE),
+      SW_rad = mean(SW_rad, na.rm = TRUE),
+      Rn = mean(Rn, na.rm = TRUE),
+      Pa = mean(Pa, na.rm = TRUE),
+      VPD = mean(VPD, na.rm = TRUE),
+      .groups = "drop"
+    )
+
+  return(df_annual)
+}
+```
+
+```{r}
+How_annual <- convert_to_annual(How_daily)
+Asm_annual <- convert_to_annual(Asm_daily)
+```
+
+```{r}
+summary(How_annual$Precip)
+summary(Asm_annual$Precip)
+```
+Which sites are the most/least predictable?
+- Climate variables - Temp, VPD, Precip, SW radiation, water stress component, lagged climate variables
+- Physiology variables - Leaf chlorophyll content, vcmax
+
+Along a precipitation gradient, how well can atmospheric drivers and physiology predict GPP?
+
+Adding in water stress component for sites:
+
+
+```{r}
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(zoo)
+library(mgcv)
+library(lattice)
+
+priestley_taylor_pet <- function(Rn, Tair, P) {
+  
+  alpha = 1.26      # PT constant
+  cp <- 1.013e-3    # Specific heat of air (MJ/kg°C)
+  epsilon <- 0.622  # Ratio of molecular weights of water vapor to dry air
+  lambda <- 2.45    # Latent heat of vaporization (MJ/kg)
+  G = 0             # Going to assume no ground heat flux on daily timescales
+  
+  # Psychrometric constant (kPa/°C)
+  gamma <- (cp * P) / (epsilon * lambda)
+  
+  # Saturation vapor pressure (kPa)
+  es <- 0.6108 * exp((17.27 * Tair) / (Tair + 237.3))
+  
+  # Slope of saturation vapor pressure curve (kPa/°C)
+  delta <- (4098 * es) / ((Tair+ 237.3)^2)
+  
+  # Priestley-Taylor PET calculation (mm/day)
+  pet <- alpha * (delta / (delta + gamma)) * ((Rn - G) / (lambda * 1e6)) * 86400
+
+  return(pet)
+}
+
+```
+
+```{r}
+Asm_daily$pet <- priestley_taylor_pet(Asm_daily$Rn, Asm_daily$Tair, Asm_daily$Pa)
+Asm_daily$cwd <- Asm_daily$pet - Asm_daily$Qle
+
+How_daily$pet <- priestley_taylor_pet(How_daily$Rn, How_daily$Tair, How_daily$Pa)
+How_daily$cwd <- How_daily$pet - How_daily$Qle
+
+Das_daily$pet <- priestley_taylor_pet(Das_daily$Rn, Das_daily$Tair, Das_daily$Pa)
+Das_daily$cwd <- Das_daily$pet - Das_daily$Qle
+
+Dap_daily$pet <- priestley_taylor_pet(Dap_daily$Rn, Dap_daily$Tair, Dap_daily$Pa)
+Dap_daily$cwd <- Dap_daily$pet - Dap_daily$Qle
+
+Dry_daily$pet <- priestley_taylor_pet(Dry_daily$Rn, Dry_daily$Tair, Dry_daily$Pa)
+Dry_daily$cwd <- Dry_daily$pet - Dry_daily$Qle
+
+Ade_daily$pet <- priestley_taylor_pet(Ade_daily$Rn, Ade_daily$Tair, Ade_daily$Pa)
+Ade_daily$cwd <- Ade_daily$pet - Ade_daily$Qle
+
+Stp_daily$pet <- priestley_taylor_pet(Stp_daily$Rn, Stp_daily$Tair, Stp_daily$Pa)
+Stp_daily$cwd <- Stp_daily$pet - Stp_daily$Qle
+```
+
+Load in vcmax and LLC:
+
+Add in doy and year again:
+
+```{r}
+How_daily <- How_daily %>%
+  mutate(
+    year = lubridate::year(date),
+    doy  = lubridate::yday(date)
+  )
+
+Dap_daily <- Dap_daily %>%
+  mutate(
+    year = lubridate::year(date),
+    doy = lubridate::yday(date)
+  )
+
+Das_daily <- Das_daily %>%
+  mutate(
+    year = lubridate::year(date),
+    doy = lubridate::yday(date)
+    )
+
+Dry_daily <- Dry_daily %>%
+  mutate(
+    year = lubridate::year(date),
+    doy = lubridate::yday(date)
+  )
+
+Stp_daily <- Stp_daily %>%
+  mutate(
+    year = lubridate::year(date),
+    doy = lubridate::yday(date)
+  )
+
+Asm_daily <- Asm_daily %>%
+  mutate(
+    year = lubridate::year(date),
+    doy = lubridate::yday(date)
+  )
+```
+
+Add in vcmax and LCC:
+```{r}
+# -----------------------------
+# Libraries
+# -----------------------------
+library(terra)
+library(ncdf4)
+library(dplyr)
+
+# -----------------------------
+# File paths
+# -----------------------------
+gome_file <- "/Users/alicerolfe/year_4_project/fluxnet_project/Data/GOME2_VcmaxTg_05deg.tif"
+vcmax_raster <- rast(gome_file)
+
+lcc_nc <- "/Users/alicerolfe/year_4_project/fluxnet_project/Chl_2003_2011_weeklyAll_01Deg_sf100.nc"
+
+# -----------------------------
+# Helper: Convert lat/lon to NetCDF indices
+# -----------------------------
+latlon_to_line_sample <- function(lat, lon, nlines = 1800, nsamples = 3600) {
+  lat_res <- 180. / nlines  
+  line <- round((90. - lat) / lat_res)
+  
+  lon_res <- 360. / nsamples
+  sample <- round((lon + 180.) / lon_res)
+  
+  # keep indices in bounds
+  line <- pmin(pmax(line, 1), nlines)
+  sample <- pmin(pmax(sample, 1), nsamples)
+  
+  list(line = line, sample = sample)
+}
+
+# -----------------------------
+# Helper: Extract Vcmax from raster
+# -----------------------------
+get_vcmax <- function(lat, lon, raster) {
+  coords <- data.frame(lon = lon, lat = lat)
+  vcmax <- terra::extract(raster, coords)
+  
+  if (is.null(vcmax) || all(is.na(vcmax))) {
+    stop("Vcmax extraction failed for coordinates: ", lat, ", ", lon)
+  }
+  
+  as.numeric(vcmax[1,2])
+}
+
+# -----------------------------
+# Helper: Extract daily LCC from NetCDF
+# -----------------------------
+get_daily_LCC <- function(nc_file, lat, lon) {
+  nc <- nc_open(nc_file)
+  
+  coords <- latlon_to_line_sample(lat, lon)
+  
+  pixel_time_series <- ncvar_get(
+    nc, "chl_all",
+    start = c(coords$line, coords$sample, 1, 1),
+    count = c(1, 1, -1, -1)
+  )
+  
+  fillvalue <- ncatt_get(nc, "chl_all", "_FillValue")$value
+  pixel_time_series[pixel_time_series == fillvalue] <- NA
+  nc_close(nc)
+  
+  LCC <- pixel_time_series / 100   # convert units
+  weekly_climatology <- rowMeans(LCC, na.rm = TRUE)
+  
+  weeks <- 1:length(weekly_climatology)
+  daily_weeks <- seq(1, max(weeks), by = 1/7)
+  
+  daily_climatology <- approx(x = weeks, y = weekly_climatology, xout = daily_weeks)$y
+  return(daily_climatology)
+}
+
+# -----------------------------
+# Main function: Attach Vcmax + LCC
+# -----------------------------
+attach_site_data <- function(df, lat, lon, vcmax_raster, lcc_nc_file) {
+  
+  vcmax_val <- get_vcmax(lat, lon, vcmax_raster)
+  message("Vcmax extracted: ", round(vcmax_val, 2))
+  
+  daily_LCC <- get_daily_LCC(lcc_nc_file, lat, lon)
+  
+  # Repeat daily LCC to match df rows
+  daily_LCC_full <- rep(daily_LCC, length.out = nrow(df))
+  
+  df <- df %>%
+    mutate(
+      vcmax = vcmax_val,
+      LCC_daily = daily_LCC_full
+    )
+  
+  return(df)
+}
+
+
+# -----------------------------
+# Site metadata table
+# -----------------------------
+sites <- tibble(
+  name = c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm"),
+  lat  = c(-12.4943, -13.0769, -14.1593, -14.0633, -15.2588, -17.1507, -22.283),
+  lon  = c(131.1523, 131.1178, 131.3881, 131.3181, 132.3706, 133.3502, 133.2490),
+  df   = list(How_daily, Ade_daily, Das_daily, Dap_daily, Dry_daily, Stp_daily, Asm_daily)
+)
+
+# -----------------------------
+# Apply function to all sites
+# -----------------------------
+sites <- sites %>%
+  rowwise() %>%
+  mutate(
+    df_with_data = list(attach_site_data(df, lat, lon, vcmax_raster, lcc_nc))
+  )
+
+# -----------------------------
+# Extract updated dataframes
+# -----------------------------
+How_daily <- sites$df_with_data[[1]]
+Ade_daily <- sites$df_with_data[[2]]
+Das_daily <- sites$df_with_data[[3]]
+Dap_daily <- sites$df_with_data[[4]]
+Dry_daily <- sites$df_with_data[[5]]
+Stp_daily <- sites$df_with_data[[6]]
+Asm_daily <- sites$df_with_data[[7]]
+
+```
+
+Now, let's fit some models yaaaaaaay
+
+Filter by growing season:
+```{r}
+
+filter_gs <- function(df, rad_thresh = 100) {
+  df %>%
+    filter(SW_rad > rad_thresh, GPP > 0)
+}
+
+#Apply to dataset
+
+How_gs <- filter_gs(How_daily)
+Ade_gs <- filter_gs(Ade_daily)
+Das_gs <- filter_gs(Das_daily)
+Dap_gs <- filter_gs(Dap_daily)
+Dry_gs <- filter_gs(Dry_daily)
+Stp_gs <- filter_gs(Stp_daily)
+Asm_gs <- filter_gs(Asm_daily)
+Cum_gs <- filter_gs(Cum_daily)
+Emr_gs <- filter_gs(Emr_daily)
+Fog_gs <- filter_gs(Fog_daily)
+Gin_gs <- filter_gs(Gin_daily)
+Gww_gs <- filter_gs(Gww_daily)
+Lox_gs <- filter_gs(Lox_daily)
+Rdf_gs <- filter_gs(Rdf_daily)
+Rig_gs <- filter_gs(Rig_daily)
+Rob_gs <- filter_gs(Rob_daily)
+TTE_gs <- filter_gs(TTE_daily)
+Wac_gs <- filter_gs(Wac_daily)
+Wom_gs <- filter_gs(Wom_daily)
+Ync_gs <- filter_gs(Ync_daily)
+Whr_gs <- filter_gs(Whr_daily)
+```
+
+Drop NA values
+
+```{r}
+How_gs <- How_gs %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Qle, cwd, pet, vcmax, LCC_daily, ET, Rn)
+
+Ade_gs <- Ade_gs %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Qle, cwd, pet, vcmax, LCC_daily, ET, Rn)
+
+Das_gs <- Das_gs %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Qle, cwd, pet, vcmax, LCC_daily, ET, Rn)
+
+Dap_gs <- Dap_gs %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Qle, cwd, pet, vcmax, LCC_daily, ET, Rn)
+
+Dry_gs <- Dry_gs %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Qle, cwd, pet, vcmax, LCC_daily, ET, Rn)
+
+Stp_gs <- Stp_gs %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Qle, cwd, pet, vcmax, LCC_daily, ET, Rn)
+
+Asm_gs <- Asm_gs %>%
+  drop_na(GPP, VPD, Tair, Precip, Pa, Qle, cwd, pet, vcmax, LCC_daily, ET, Rn)
+
+```
+
+
+Diagnostic plots:
+
+```{r}
+library(ggplot2)
+library(GGally)
+library(dplyr)
+
+vars <- c("GPP", "VPD", "Tair", "Precip", "Pa", "Qle", "cwd", "pet", "vcmax", "LCC_daily", "ET", "Rn")
+
+diagnostic_plots <- function(df, site_name) {
+  
+  df <- df %>% select(all_of(vars))
+  
+  # 1. Histograms for each variable
+  hist_plots <- lapply(names(df), function(v) {
+    ggplot(df, aes_string(x = v)) +
+      geom_histogram(bins = 30, fill = "steelblue", color = "black") +
+      theme_minimal() +
+      labs(title = paste(site_name, "-", v))
+  })
+  
+  # Print histograms (one by one)
+  for (p in hist_plots) print(p)
+  
+  # 2. Scatterplots of GPP vs predictors
+  scatter_plots <- lapply(names(df)[-1], function(v) {
+    ggplot(df, aes_string(x = v, y = "GPP")) +
+      geom_point(alpha = 0.5) +
+      geom_smooth(method = "loess", color = "red") +
+      theme_minimal() +
+      labs(title = paste(site_name, "GPP vs", v))
+  })
+  
+  for (p in scatter_plots) print(p)
+  
+  # 3. Correlation matrix
+  cor_mat <- cor(df, use = "complete.obs")
+  print(site_name)
+  print(round(cor_mat, 2))
+  
+  return(list(histograms = hist_plots, scatter = scatter_plots, correlation = cor_mat))
+}
+
+How_diag <- diagnostic_plots(How_gs, "How")
+Ade_diag <- diagnostic_plots(Ade_gs, "Ade")
+Das_diag <- diagnostic_plots(Das_gs, "Das")
+Dap_diag <- diagnostic_plots(Dap_gs, "Dap")
+Dry_diag <- diagnostic_plots(Dry_gs, "Dry")
+Stp_diag <- diagnostic_plots(Stp_gs, "Stp")
+Asm_diag <- diagnostic_plots(Asm_gs, "Asm")
+
+
+
+
+```
+VPD ~ GPP plot
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# Add a 'site' column to each dataframe
+How_gs  <- How_gs  %>% mutate(site = "How")
+Ade_gs  <- Ade_gs  %>% mutate(site = "Ade")
+Das_gs  <- Das_gs  %>% mutate(site = "Das")
+Dap_gs  <- Dap_gs  %>% mutate(site = "Dap")
+Dry_gs  <- Dry_gs  %>% mutate(site = "Dry")
+Stp_gs  <- Stp_gs  %>% mutate(site = "Stp")
+Asm_gs  <- Asm_gs  %>% mutate(site = "Asm")
+
+# Combine all sites
+all_sites <- bind_rows(How_gs, Ade_gs, Das_gs, Dap_gs, Dry_gs, Stp_gs, Asm_gs)
+
+# Set wet → dry order
+all_sites$site <- factor(all_sites$site,
+                         levels = c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm"))
+
+```
+
+```{r}
+
+library(RColorBrewer)
+# Define 7 distinct colors for the sites
+site_colors <- brewer.pal(n = 7, name = "Set1")  # Set1 is bright and categorical
+
+
+ggplot(all_sites, aes(x = VPD, y = GPP, color = site)) +
+  geom_smooth(method = "loess", se = TRUE, size = 1.2, span = 0.3) +
+  scale_color_manual(values = site_colors, name = "Site (Wet → Dry)") +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "GPP response to VPD across FluxNet sites",
+    x = "VPD (kPa)",
+    y = "GPP (g C m-2 d-1)"
+  ) +
+  theme(
+    legend.position = "right"
+  )
+
+ggplot(all_sites, aes(x = Tair, y = GPP, color = site)) +
+  geom_smooth(method = "loess", se = TRUE, size = 1.2, span = 0.3) +
+  scale_color_manual(values = site_colors, name = "Site (Wet → Dry)") +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "GPP response to air temperature across FluxNet sites",
+    x = "Tair (°C)",
+    y = "GPP (g C m-2 d-1)"
+  ) +
+  theme(
+    legend.position = "right"
+  )
+
+ggplot(all_sites, aes(x = Precip, y = GPP, color = site)) +
+  geom_smooth(method = "gam", formula = y ~ s(x), se = TRUE, size = 1.2) +
+  scale_color_manual(values = site_colors, name = "Site (Wet → Dry)") +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "GPP response to Precipitation across FluxNet sites",
+    x = "Precipitation (mm/day)",
+    y = "GPP (g C m-2 d-1)"
+  )
+
+
+ggplot(all_sites, aes(x = pet, y = GPP, color = site)) +
+  geom_smooth(method = "loess", se = TRUE, size = 1.2, span = 0.3) +
+  scale_color_manual(values = site_colors, name = "Site (Wet → Dry)") +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "GPP response to pet across FluxNet sites",
+    x = "pet",
+    y = "GPP (g C m-2 d-1)"
+  ) +
+  theme(
+    legend.position = "right"
+  )
+```
+Interestingly, Das and Dap respond differently to VPD. Das is a savanna ecosystem and Dap is a grasslands/wetlands ecosystem. 
+
+As VPD increases, variability increases, likely because there are fewer data recorded when VPD is extremely high. 
+
+Let's visualise the sites on a map:
+
+```{r}
+install.packages("rnaturalearth")
+install.packages("rnaturalearthdata")
+```
+
+
+```{r}
+library(dplyr)
+
+# Site coordinates + name + rough "wetness" ordering
+sites <- tibble(
+  site = c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm"),
+  lat  = c(-12.4943, -13.0769, -14.1593, -14.0633, -15.2588, -17.1507, -22.283),
+  lon  = c(131.1523, 131.1178, 131.3881, 131.3181, 132.3706, 133.3502, 133.2490),
+  wetness_order = 1:7  # 1 = wettest (How), 7 = driest (Asm)
+)
+
+library(ggplot2)
+library(rnaturalearth)
+library(rnaturalearthdata)
+
+# Get Australia map
+aus <- ne_countries(scale = "medium", country = "Australia", returnclass = "sf")
+
+ggplot() +
+  geom_sf(data = aus, fill = "antiquewhite", color = "black") +
+  geom_point(data = sites, aes(x = lon, y = lat, color = factor(wetness_order)), size = 4) +
+  geom_text(data = sites, aes(x = lon, y = lat, label = site), nudge_y = 0.3, size = 4) +
+  scale_color_viridis_d(option = "C", direction = -1, name = "Wet → Dry") +
+  coord_sf(xlim = c(130, 135), ylim = c(-23, -12), expand = FALSE) +  # zoom to your region
+  theme_minimal() +
+  labs(title = "FluxNet Sites in Northern Australia",
+       x = "Longitude",
+       y = "Latitude")
+
+
+```
+Hierarchical GAM framework:
+- Climate only models (Tair, VPD, precip, cwd, SW_rad, + lags)
+- Physiology only models (LCC)
+- Full model (climate + physiology)
+
+```{r}
+
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(zoo)
+library(mgcv)
+
+set.seed(123)  # for reproducibility
+
+# Split data in test and training 
+idx <- createDataPartition(How_gs$GPP, p=0.8, list=FALSE)
+How_train <- How_gs[idx, ]
+How_test <- How_gs[-idx, ]
+
+idx <- createDataPartition(Ade_gs$GPP, p=0.8, list=FALSE)
+Ade_train <- Ade_gs[idx, ]
+Ade_test <- Ade_gs[-idx, ]
+
+idx <- createDataPartition(Das_gs$GPP, p=0.8, list=FALSE)
+Das_train <- Das_gs[idx, ]
+Das_test <- Das_gs[-idx, ]
+
+idx <- createDataPartition(Dap_gs$GPP, p=0.8, list=FALSE)
+Dap_train <- Dap_gs[idx, ]
+Dap_test <- Dap_gs[-idx, ]
+
+idx <- createDataPartition(Dry_gs$GPP, p=0.8, list=FALSE)
+Dry_train <- Dry_gs[idx, ]
+Dry_test <- Dry_gs[-idx, ]
+
+idx <- createDataPartition(Stp_gs$GPP, p=0.8, list=FALSE)
+Stp_train <- Stp_gs[idx, ]
+Stp_test <- Stp_gs[-idx, ]
+
+idx <- createDataPartition(Asm_gs$GPP, p=0.8, list=FALSE)
+Asm_train <- Asm_gs[idx, ]
+Asm_test <- Asm_gs[-idx, ]
+
+
+# Drop any rows with NA values in test data
+How_test <- How_test %>% drop_na()
+Ade_test <- Ade_test %>% drop_na()
+Das_test <- Das_test %>% drop_na()
+Dap_test <- Dap_test %>% drop_na()
+Dry_test <- Dry_test %>% drop_na()
+Stp_test <- Stp_test %>% drop_na()
+Asm_test <- Asm_test %>% drop_na()
+
+# Create a 7-day moving cumulative sum for CWD
+How_train$cumulative_cwd_7day <- rollapply(How_train$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+How_test$cumulative_cwd_7day <-  rollapply(How_test$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+
+
+Ade_train$cumulative_cwd_7day <- rollapply(Ade_train$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+Ade_test$cumulative_cwd_7day <-  rollapply(Ade_test$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+
+Das_train$cumulative_cwd_7day <- rollapply(Das_train$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+Das_test$cumulative_cwd_7day <-  rollapply(Das_test$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+
+Dap_train$cumulative_cwd_7day <- rollapply(Dap_train$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+Dap_test$cumulative_cwd_7day <-  rollapply(Dap_test$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+
+Dry_train$cumulative_cwd_7day <- rollapply(Dry_train$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+Dry_test$cumulative_cwd_7day <-  rollapply(Dry_test$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+
+Stp_train$cumulative_cwd_7day <- rollapply(Stp_train$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+Stp_test$cumulative_cwd_7day <-  rollapply(Stp_test$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+
+Asm_train$cumulative_cwd_7day <- rollapply(Asm_train$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+Asm_test$cumulative_cwd_7day <-  rollapply(Asm_test$cwd, width=7, FUN=sum, 
+                                            align="right", fill=NA, na.rm=TRUE)
+
+# Drop any rows with NA values after the rolling sum calculations
+How_train <- How_train%>% drop_na()
+How_test <- How_test %>% drop_na()
+
+Ade_train <- Ade_train%>% drop_na()
+Ade_test <- Ade_test %>% drop_na()
+
+Das_train <- Das_train%>% drop_na()
+Das_test <- Das_test %>% drop_na()
+
+Dap_train <- Dap_train%>% drop_na()
+Dap_test <- Dap_test %>% drop_na()
+
+Dry_train <- Dry_train%>% drop_na()
+Dry_test <- Dry_test %>% drop_na()
+
+Stp_train <- Stp_train%>% drop_na()
+Stp_test <- Stp_test %>% drop_na()
+
+Asm_train <- Asm_train%>% drop_na()
+Asm_test <- Asm_test %>% drop_na()
+
+# Lag the variables to add time-lag effects
+How_train <- How_train %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+How_test <- How_test %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+
+
+Ade_train <- Ade_train %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+Ade_test <- Ade_test %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+Das_train <- Das_train %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+Das_test <- Das_test %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+Dap_train <- Dap_train %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+Dap_test <- Dap_test %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+Dry_train <- Dry_train %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+Dry_test <- Dry_test %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+Stp_train <- Stp_train %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+Stp_test <- Stp_test %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+Asm_train <- Asm_train %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+Asm_test <- Asm_test %>%
+  mutate(
+    Tair_lag3 = lag(Tair, 3),
+    VPD_lag3 = lag(VPD, 3)
+  ) %>%
+  drop_na()
+
+```
+
+
+Function to fit GAM (one site)
+```{r}
+fit_gam_and_metrics <- function(train_data, test_data) {
+  
+  model <- gam(
+    GPP ~ s(Tair) + s(VPD) + s(SW_rad) +s(Precip) + s(cumulative_cwd_7day) +
+          s(Tair_lag3) + s(VPD_lag3),
+    data = train_data,
+    method = "REML"
+  )
+  
+  preds <- predict(model, newdata = test_data)
+  
+  rmse <- sqrt(mean((test_data$GPP - preds)^2))
+  rsq  <- cor(test_data$GPP, preds)^2
+  
+  tibble(
+    RMSE = rmse,
+    R2   = rsq
+  )
+}
+
+```
+
+Run function for each site, combine results. Saves R-squared and RMSE 
+
+```{r}
+climate_metrics <- bind_rows(
+  fit_gam_and_metrics(Asm_train, Asm_test) %>% mutate(site = "Asm"),
+  fit_gam_and_metrics(Stp_train, Stp_test) %>% mutate(site = "Stp"),
+  fit_gam_and_metrics(Dap_train, Dap_test) %>% mutate(site = "Dap"),
+  fit_gam_and_metrics(Das_train, Das_test) %>% mutate(site = "Das"),
+  fit_gam_and_metrics(Dry_train, Dry_test) %>% mutate(site = "Dry"),
+  fit_gam_and_metrics(How_train, How_test) %>% mutate(site = "How"),
+  fit_gam_and_metrics(Ade_train, Ade_test) %>% mutate(site = "Ade")
+  
+)
+```
+
+```{r}
+# Define wet → dry order
+wet_dry_order <- c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm")
+
+climate_metrics$site <- factor(climate_metrics$site, levels = wet_dry_order)
+
+ggplot(climate_metrics, aes(x = site, y = R2)) +
+  geom_col(fill = "violet") +
+  coord_flip() +
+  labs(
+    x = "Site",
+    y = expression(R^2),
+    title = "Predictability of GPP across OzFlux sites (Wet → Dry)"
+  ) +
+  theme_minimal()
+
+```
+
+2. Physiology only model (LCC)
+
+```{r}
+lcc_gam_and_metrics <- function(train_data, test_data) {
+  
+  model <- gam(
+    GPP ~ s(LCC_daily),
+    data = train_data,
+    method = "REML"
+  )
+  
+  preds <- predict(model, newdata = test_data)
+  
+  rmse <- sqrt(mean((test_data$GPP - preds)^2))
+  rsq  <- cor(test_data$GPP, preds)^2
+  
+  tibble(
+    RMSE = rmse,
+    R2   = rsq
+  )
+}
+
+```
+
+```{r}
+lcc_metrics <- bind_rows(
+  lcc_gam_and_metrics(Asm_train, Asm_test) %>% mutate(site = "Asm"),
+  lcc_gam_and_metrics(Stp_train, Stp_test) %>% mutate(site = "Stp"),
+  lcc_gam_and_metrics(Dap_train, Dap_test) %>% mutate(site = "Dap"),
+  lcc_gam_and_metrics(Das_train, Das_test) %>% mutate(site = "Das"),
+  lcc_gam_and_metrics(Dry_train, Dry_test) %>% mutate(site = "Dry"),
+  lcc_gam_and_metrics(How_train, How_test) %>% mutate(site = "How"),
+  lcc_gam_and_metrics(Ade_train, Ade_test) %>% mutate(site = "Ade")
+  
+)
+```
+
+```{r}
+wet_dry_order <- c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm")
+
+lcc_metrics$site <- factor(lcc_metrics$site, levels = wet_dry_order)
+
+ggplot(lcc_metrics, aes(x = site, y = R2)) +
+  geom_col(fill = "violet") +
+  coord_flip() +
+  labs(
+    x = "Site",
+    y = expression(R^2),
+    title = "Predictability of GPP across OzFlux sites (Wet → Dry)"
+  ) +
+  theme_minimal()
+
+```
+3. Full climate + LCC model
+
+```{r}
+full_model_gam_and_metrics <- function(train_data, test_data) {
+  
+  model <- gam(
+    GPP ~ s(Tair) + s(VPD) + s(SW_rad) +s(Precip) + s(cumulative_cwd_7day) +
+          s(Tair_lag3) + s(VPD_lag3) + s(LCC_daily),
+    data = train_data,
+    method = "REML"
+  )
+  
+  preds <- predict(model, newdata = test_data)
+  
+  rmse <- sqrt(mean((test_data$GPP - preds)^2))
+  rsq  <- cor(test_data$GPP, preds)^2
+  
+  tibble(
+    RMSE = rmse,
+    R2   = rsq
+  )
+}
+```
+
+```{r}
+full_metrics <- bind_rows(
+  full_model_gam_and_metrics(Asm_train, Asm_test) %>% mutate(site = "Asm"),
+  full_model_gam_and_metrics(Stp_train, Stp_test) %>% mutate(site = "Stp"),
+  full_model_gam_and_metrics(Dap_train, Dap_test) %>% mutate(site = "Dap"),
+  full_model_gam_and_metrics(Das_train, Das_test) %>% mutate(site = "Das"),
+  full_model_gam_and_metrics(Dry_train, Dry_test) %>% mutate(site = "Dry"),
+  full_model_gam_and_metrics(How_train, How_test) %>% mutate(site = "How"),
+  full_model_gam_and_metrics(Ade_train, Ade_test) %>% mutate(site = "Ade")
+  
+)
+
+```
+
+```{r}
+wet_dry_order <- c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm")
+
+full_metrics$site <- factor(full_metrics$site, levels = wet_dry_order)
+
+ggplot(full_metrics, aes(x = site, y = R2)) +
+  geom_col(fill = "violet") +
+  coord_flip() +
+  labs(
+    x = "Site",
+    y = expression(R^2),
+    title = "Predictability of GPP across OzFlux sites (Wet → Dry)"
+  ) +
+  theme_minimal()
+```
+Compare models:
+
+```{r}
+
+library(dplyr)
+
+gam_comparison <- climate_metrics %>%
+  select(site, R2) %>%
+  rename(R2_climate = R2) %>%
+  
+  inner_join(
+    lcc_metrics %>%
+      select(site, R2) %>%
+      rename(R2_LCC = R2),
+    by = "site"
+  ) %>%
+  
+  inner_join(
+    full_metrics %>%
+      select(site, R2) %>%
+      rename(R2_full = R2),
+    by = "site"
+  ) %>%
+  
+  mutate(
+    delta_R2_LCC = R2_full - R2_climate
+  )
+
+
+wet_dry_order <- c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm")
+
+gam_comparison <- gam_comparison %>%
+  mutate(site = factor(site, levels = wet_dry_order)) %>%
+  arrange(site)
+
+gam_comparison
+
+```
+
+```{r}
+ggplot(gam_comparison, aes(x = site, y = delta_R2_LCC)) +
+  geom_col(fill = "firebrick") +
+  coord_flip() +
+  theme_minimal(base_size = 14) +
+  labs(
+    x = "Site (Wet → Dry)",
+    y = expression(Delta*R^2),
+    title = "Added predictive value of LCC across OzFlux sites"
+  )
+
+```
+Inclusion of leaf chlorophyll content increased model explanatory power for Stp, Dry, Dap, Das and How. However, it decreased explanatory power in Ade and Asm. 
+
+Adelaide river is a wet site, chlorophyll content may likely be constant. Productivity at Ade is climate-driven rather than chlorophyll-limited.
+Alice springs is a dry site (lowest precipitation site), LCC may remain low most of the time, GPP is limited by water availability than LCC. 
+
+But, Howard springs is wetter than Adelaide river? Both are woody savanna ecosystems. 
+
+```{r}
+summary(How_daily$LCC_daily)
+```
+
+```{r}
+summary(Ade_daily$LCC_daily)
+```
+
+Both AU-How and AU-Ade have very similar LCC distributions and similar precipitation. Howard springs is slightly wetter. Both are woody savannas. 
+Differences in canopy structure could determine whether LCC still captures meaningful variation.
+Dominant species may differ
+LAI - if Adelaide river had more dense canopy (high LAI), this could be why. The canopy is more dense, some leaves are blocked by light, so LCC may not matter. In Howard springs, there may be a lower LAI - each leaf gets more light, so differences in LCC matter for productivity. So by adding LCC, the model improves because it explains variation. 
+
+Inclusion of LCC improved explanatory power of the models for the intermediate precipitation gradients. 
+Wet sites - LCC might be saturated, at dry sites LCC might be strongly constrained by stress. 
+Intermediate sites - large variation in LCC. 
+
+**Now I want to compare how VPD improves predictability**
+
+1. Climate model (no VPD)
+
+```{r}
+
+no_vpd_gam_and_metrics <- function(train_data, test_data) {
+  
+  model <- gam(
+    GPP ~ s(Tair) + s(SW_rad) +s(Precip) + s(cumulative_cwd_7day) +
+          s(Tair_lag3) + s(LCC_daily),
+    data = train_data,
+    method = "REML"
+  )
+  
+  preds <- predict(model, newdata = test_data)
+  
+  rmse <- sqrt(mean((test_data$GPP - preds)^2))
+  rsq  <- cor(test_data$GPP, preds)^2
+  
+  tibble(
+    RMSE = rmse,
+    R2   = rsq
+  )
+}
+
+c_metrics <- bind_rows(
+  no_vpd_gam_and_metrics(Asm_train, Asm_test) %>% mutate(site = "Asm"),
+  no_vpd_gam_and_metrics(Stp_train, Stp_test) %>% mutate(site = "Stp"),
+  no_vpd_gam_and_metrics(Dap_train, Dap_test) %>% mutate(site = "Dap"),
+  no_vpd_gam_and_metrics(Das_train, Das_test) %>% mutate(site = "Das"),
+  no_vpd_gam_and_metrics(Dry_train, Dry_test) %>% mutate(site = "Dry"),
+  no_vpd_gam_and_metrics(How_train, How_test) %>% mutate(site = "How"),
+  no_vpd_gam_and_metrics(Ade_train, Ade_test) %>% mutate(site = "Ade")
+  
+)
+
+```
+
+```{r}
+wet_dry_order <- c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm")
+
+c_metrics$site <- factor(c_metrics$site, levels = wet_dry_order)
+
+ggplot(c_metrics, aes(x = site, y = R2)) +
+  geom_col(fill = "violet") +
+  coord_flip() +
+  labs(
+    x = "Site",
+    y = expression(R^2),
+    title = "Predictability of GPP across OzFlux sites (Wet → Dry)"
+  ) +
+  theme_minimal()
+```
+2. VPD only
+
+```{r}
+vpd_gam_and_metrics <- function(train_data, test_data) {
+  
+  model <- gam(
+    GPP ~ s(VPD) + s(VPD_lag3),
+    data = train_data,
+    method = "REML"
+  )
+  
+  preds <- predict(model, newdata = test_data)
+  
+  rmse <- sqrt(mean((test_data$GPP - preds)^2))
+  rsq  <- cor(test_data$GPP, preds)^2
+  
+  tibble(
+    RMSE = rmse,
+    R2   = rsq
+  )
+}
+
+vpd_metrics <- bind_rows(
+  vpd_gam_and_metrics(Asm_train, Asm_test) %>% mutate(site = "Asm"),
+  vpd_gam_and_metrics(Stp_train, Stp_test) %>% mutate(site = "Stp"),
+  vpd_gam_and_metrics(Dap_train, Dap_test) %>% mutate(site = "Dap"),
+  vpd_gam_and_metrics(Das_train, Das_test) %>% mutate(site = "Das"),
+  vpd_gam_and_metrics(Dry_train, Dry_test) %>% mutate(site = "Dry"),
+  vpd_gam_and_metrics(How_train, How_test) %>% mutate(site = "How"),
+  vpd_gam_and_metrics(Ade_train, Ade_test) %>% mutate(site = "Ade")
+  
+)
+
+```
+
+```{r}
+wet_dry_order <- c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm")
+
+vpd_metrics$site <- factor(vpd_metrics$site, levels = wet_dry_order)
+
+ggplot(vpd_metrics, aes(x = site, y = R2)) +
+  geom_col(fill = "violet") +
+  coord_flip() +
+  labs(
+    x = "Site",
+    y = expression(R^2),
+    title = "Predictability of GPP across OzFlux sites (Wet → Dry)"
+  ) +
+  theme_minimal()
+```
+
+3. Full model
+
+```{r}
+full_model_gam_and_metrics <- function(train_data, test_data) {
+  
+  model <- gam(
+    GPP ~ s(Tair) + s(VPD) + s(SW_rad) +s(Precip) + s(cumulative_cwd_7day) +
+          s(Tair_lag3) + s(VPD_lag3) + s(LCC_daily),
+    data = train_data,
+    method = "REML"
+  )
+  
+  preds <- predict(model, newdata = test_data)
+  
+  rmse <- sqrt(mean((test_data$GPP - preds)^2))
+  rsq  <- cor(test_data$GPP, preds)^2
+  
+  tibble(
+    RMSE = rmse,
+    R2   = rsq
+  )
+}
+
+full_metrics <- bind_rows(
+  full_model_gam_and_metrics(Asm_train, Asm_test) %>% mutate(site = "Asm"),
+  full_model_gam_and_metrics(Stp_train, Stp_test) %>% mutate(site = "Stp"),
+  full_model_gam_and_metrics(Dap_train, Dap_test) %>% mutate(site = "Dap"),
+  full_model_gam_and_metrics(Das_train, Das_test) %>% mutate(site = "Das"),
+  full_model_gam_and_metrics(Dry_train, Dry_test) %>% mutate(site = "Dry"),
+  full_model_gam_and_metrics(How_train, How_test) %>% mutate(site = "How"),
+  full_model_gam_and_metrics(Ade_train, Ade_test) %>% mutate(site = "Ade")
+  
+)
+```
+
+```{r}
+wet_dry_order <- c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm")
+
+full_metrics$site <- factor(full_metrics$site, levels = wet_dry_order)
+
+ggplot(full_metrics, aes(x = site, y = R2)) +
+  geom_col(fill = "violet") +
+  coord_flip() +
+  labs(
+    x = "Site",
+    y = expression(R^2),
+    title = "Predictability of GPP across OzFlux sites (Wet → Dry)"
+  ) +
+  theme_minimal()
+```
+
+Compare the models:
+
+```{r}
+# Add a column to identify model type
+no_vpd_metrics <- c_metrics %>% mutate(Model = "No VPD")
+vpd_metrics    <- vpd_metrics %>% mutate(Model = "VPD Only")
+full_metrics   <- full_metrics %>% mutate(Model = "Full Model")
+
+# Combine into one data frame
+all_metrics <- bind_rows(no_vpd_metrics, vpd_metrics, full_metrics)
+
+# Ensure sites are ordered from wet to dry
+wet_dry_order <- c("How", "Ade", "Das", "Dap", "Dry", "Stp", "Asm")
+all_metrics$site <- factor(all_metrics$site, levels = wet_dry_order)
+
+# View combined table
+all_metrics
+
+```
+```{r}
+library(ggplot2)
+
+ggplot(all_metrics, aes(x = site, y = R2, fill = Model)) +
+  geom_col(position = "dodge") +   # side-by-side bars
+  coord_flip() +                   # horizontal bars
+  scale_fill_manual(values = c("No VPD" = "violet", "VPD Only" = "skyblue", "Full Model" = "forestgreen")) +
+  labs(
+    x = "Site",
+    y = expression(R^2),
+    title = "Comparison of GPP Predictability Across OzFlux Sites",
+    fill = "Model"
+  ) +
+  theme_minimal(base_size = 14)
+
+```
+
+```{r}
+# Merge R2 from no VPD and full model
+gam_comparison <- no_vpd_metrics %>%
+  select(site, R2_no_VPD = R2) %>%
+  left_join(full_metrics %>% select(site, R2_with_VPD = R2), by = "site") %>%
+  mutate(delta_R2_VPD = R2_with_VPD - R2_no_VPD)
+
+ggplot(gam_comparison, aes(x = site, y = delta_R2_VPD)) +
+  geom_col(fill = "firebrick") +
+  coord_flip() +
+  theme_minimal(base_size = 14) +
+  labs(
+    x = "Site (Wet → Dry)",
+    y = expression(Delta*R^2),
+    title = "Added predictive value of VPD across OzFlux sites"
+  )
+
+
+```
+Now, I want to fit a random forest to determine which variables are most important across sites:
+
+```{r}
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(zoo)
+library(mgcv)
+
+standardise <- function(df, vars_to_scale) {
+  df_scaled <- df
+  df_scaled[vars_to_scale] <- scale(df[vars_to_scale])
+  
+  return(df_scaled)
+}
+
+###
+# Random forest
+###
+
+# Rescale the training and test data predictors
+predictors <- c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day", "Precip", "LCC_daily" )  
+How_train <- standardise(How_train, predictors)
+How_test <- standardise(How_test, predictors)
+
+Ade_train <- standardise(Ade_train, predictors)
+Ade_test <- standardise(Ade_test, predictors)
+
+Das_train <- standardise(Das_train, predictors)
+Das_test <- standardise(Das_test, predictors)
+
+Dap_train <- standardise(Dap_train, predictors)
+Dap_test <- standardise(Dap_test, predictors)
+
+Dry_train <- standardise(Dry_train, predictors)
+Dry_test <- standardise(Dry_test, predictors)
+
+Stp_train <- standardise(Stp_train, predictors)
+Stp_test <- standardise(Stp_test, predictors)
+
+Asm_train <- standardise(Asm_train, predictors)
+Asm_test <- standardise(Asm_test, predictors)
+
+
+
+# Train the random forest model
+simpler_model <- randomForest(GPP ~ Tair + SW_rad, data=How_train, ntree=500, 
+                              mtry=2)
+How_model <- randomForest(GPP ~ Tair + SW_rad + VPD + cumulative_cwd_7day + Precip, 
+                      data=How_train, 
+                      ntree=500, mtry=3)
+print(How_model)
+
+# Predict on the testing data
+predictions <- predict(How_model, How_test)
+results <- data.frame(Observed=How_test$GPP, Predicted=predictions)
+
+# Dumps some stats
+rmse <- sqrt(mean((results$Observed - results$Predicted)^2))
+rsq <- cor(results$Observed, results$Predicted)^2
+mean_observed <- mean(results$Observed)
+nse <- (1 - sum((results$Observed - results$Predicted)^2) / 
+          sum((results$Observed - mean_observed)^2))
+
+cat("RMSE:", rmse, "\n")
+cat("R-squared:", rsq, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse, "\n")
+
+ggplot(results, aes(x=Observed, y=Predicted)) +
+  geom_point() +
+  geom_abline(intercept=0, slope=1, color="red") +
+  theme_minimal() +
+  labs(x="Observed GPP", y="Predicted GPP")
+
+
+importance_values <- importance(How_model)
+print(importance_values)
+
+# the higher the score, the more important the variable is in predicting GPP
+varImpPlot(How_model, main = "")
+
+# the model with the lower Out-of-Bag (OOB) MSE is better.
+print(simpler_model$mse[length(simpler_model$mse)])  
+print(How_model$mse[length(How_model$mse)])  
+```
+```{r}
+# Train the random forest model
+simpler_model <- randomForest(GPP ~ Tair + SW_rad, data=Ade_train, ntree=500, 
+                              mtry=2)
+Ade_model <- randomForest(GPP ~ Tair + SW_rad + VPD + cumulative_cwd_7day + Precip, 
+                      data=Ade_train, 
+                      ntree=500, mtry=3)
+print(Ade_model)
+
+# Predict on the testing data
+predictions <- predict(Ade_model, Ade_test)
+results <- data.frame(Observed=Ade_test$GPP, Predicted=predictions)
+
+# Dumps some stats
+rmse <- sqrt(mean((results$Observed - results$Predicted)^2))
+rsq <- cor(results$Observed, results$Predicted)^2
+mean_observed <- mean(results$Observed)
+nse <- (1 - sum((results$Observed - results$Predicted)^2) / 
+          sum((results$Observed - mean_observed)^2))
+
+cat("RMSE:", rmse, "\n")
+cat("R-squared:", rsq, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse, "\n")
+
+ggplot(results, aes(x=Observed, y=Predicted)) +
+  geom_point() +
+  geom_abline(intercept=0, slope=1, color="red") +
+  theme_minimal() +
+  labs(x="Observed GPP", y="Predicted GPP")
+
+
+importance_values <- importance(Ade_model)
+print(importance_values)
+
+# the higher the score, the more important the variable is in predicting GPP
+varImpPlot(Ade_model, main = "")
+
+# the model with the lower Out-of-Bag (OOB) MSE is better.
+print(simpler_model$mse[length(simpler_model$mse)])  
+print(Ade_model$mse[length(Ade_model$mse)])  
+```
+```{r}
+# Train the random forest model
+simpler_model <- randomForest(GPP ~ Tair + SW_rad, data=Das_train, ntree=500, 
+                              mtry=2)
+Das_model <- randomForest(GPP ~ Tair + SW_rad + VPD + cumulative_cwd_7day + Precip, 
+                      data=Das_train, 
+                      ntree=500, mtry=3)
+print(Das_model)
+
+# Predict on the testing data
+predictions <- predict(Das_model, Das_test)
+results <- data.frame(Observed=Das_test$GPP, Predicted=predictions)
+
+# Dumps some stats
+rmse <- sqrt(mean((results$Observed - results$Predicted)^2))
+rsq <- cor(results$Observed, results$Predicted)^2
+mean_observed <- mean(results$Observed)
+nse <- (1 - sum((results$Observed - results$Predicted)^2) / 
+          sum((results$Observed - mean_observed)^2))
+
+cat("RMSE:", rmse, "\n")
+cat("R-squared:", rsq, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse, "\n")
+
+ggplot(results, aes(x=Observed, y=Predicted)) +
+  geom_point() +
+  geom_abline(intercept=0, slope=1, color="red") +
+  theme_minimal() +
+  labs(x="Observed GPP", y="Predicted GPP")
+
+
+importance_values <- importance(Das_model)
+print(importance_values)
+
+# the higher the score, the more important the variable is in predicting GPP
+varImpPlot(Das_model, main = "")
+
+# the model with the lower Out-of-Bag (OOB) MSE is better.
+print(simpler_model$mse[length(simpler_model$mse)])  
+print(Das_model$mse[length(Das_model$mse)])  
+```
+```{r}
+# Train the random forest model
+simpler_model <- randomForest(GPP ~ Tair + SW_rad, data=Dap_train, ntree=500, 
+                              mtry=2)
+Dap_model <- randomForest(GPP ~ Tair + SW_rad + VPD + cumulative_cwd_7day + Precip, 
+                      data=Dap_train, 
+                      ntree=500, mtry=3)
+print(Dap_model)
+
+# Predict on the testing data
+predictions <- predict(Dap_model, Dap_test)
+results <- data.frame(Observed=Dap_test$GPP, Predicted=predictions)
+
+# Dumps some stats
+rmse <- sqrt(mean((results$Observed - results$Predicted)^2))
+rsq <- cor(results$Observed, results$Predicted)^2
+mean_observed <- mean(results$Observed)
+nse <- (1 - sum((results$Observed - results$Predicted)^2) / 
+          sum((results$Observed - mean_observed)^2))
+
+cat("RMSE:", rmse, "\n")
+cat("R-squared:", rsq, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse, "\n")
+
+ggplot(results, aes(x=Observed, y=Predicted)) +
+  geom_point() +
+  geom_abline(intercept=0, slope=1, color="red") +
+  theme_minimal() +
+  labs(x="Observed GPP", y="Predicted GPP")
+
+
+importance_values <- importance(Dap_model)
+print(importance_values)
+
+# the higher the score, the more important the variable is in predicting GPP
+varImpPlot(Dap_model, main = "")
+
+# the model with the lower Out-of-Bag (OOB) MSE is better.
+print(simpler_model$mse[length(simpler_model$mse)])  
+print(Dap_model$mse[length(Dap_model$mse)])  
+```
+```{r}
+# Train the random forest model
+simpler_model <- randomForest(GPP ~ Tair + SW_rad, data=Dry_train, ntree=500, 
+                              mtry=2)
+Dry_model <- randomForest(GPP ~ Tair + SW_rad + VPD + cumulative_cwd_7day + Precip, 
+                      data=Dry_train, 
+                      ntree=500, mtry=3)
+print(Dry_model)
+
+# Predict on the testing data
+predictions <- predict(Dry_model, Dry_test)
+results <- data.frame(Observed=Dry_test$GPP, Predicted=predictions)
+
+# Dumps some stats
+rmse <- sqrt(mean((results$Observed - results$Predicted)^2))
+rsq <- cor(results$Observed, results$Predicted)^2
+mean_observed <- mean(results$Observed)
+nse <- (1 - sum((results$Observed - results$Predicted)^2) / 
+          sum((results$Observed - mean_observed)^2))
+
+cat("RMSE:", rmse, "\n")
+cat("R-squared:", rsq, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse, "\n")
+
+ggplot(results, aes(x=Observed, y=Predicted)) +
+  geom_point() +
+  geom_abline(intercept=0, slope=1, color="red") +
+  theme_minimal() +
+  labs(x="Observed GPP", y="Predicted GPP")
+
+
+importance_values <- importance(Dry_model)
+print(importance_values)
+
+# the higher the score, the more important the variable is in predicting GPP
+varImpPlot(Dry_model, main = "")
+
+# the model with the lower Out-of-Bag (OOB) MSE is better.
+print(simpler_model$mse[length(simpler_model$mse)])  
+print(Dry_model$mse[length(Dry_model$mse)])  
+```
+```{r}
+# Train the random forest model
+simpler_model <- randomForest(GPP ~ Tair + SW_rad, data=Stp_train, ntree=500, 
+                              mtry=2)
+Stp_model <- randomForest(GPP ~ Tair + SW_rad + VPD + cumulative_cwd_7day + Precip, 
+                      data=Stp_train, 
+                      ntree=500, mtry=3)
+print(Stp_model)
+
+# Predict on the testing data
+predictions <- predict(Stp_model, Stp_test)
+results <- data.frame(Observed=Stp_test$GPP, Predicted=predictions)
+
+# Dumps some stats
+rmse <- sqrt(mean((results$Observed - results$Predicted)^2))
+rsq <- cor(results$Observed, results$Predicted)^2
+mean_observed <- mean(results$Observed)
+nse <- (1 - sum((results$Observed - results$Predicted)^2) / 
+          sum((results$Observed - mean_observed)^2))
+
+cat("RMSE:", rmse, "\n")
+cat("R-squared:", rsq, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse, "\n")
+
+ggplot(results, aes(x=Observed, y=Predicted)) +
+  geom_point() +
+  geom_abline(intercept=0, slope=1, color="red") +
+  theme_minimal() +
+  labs(x="Observed GPP", y="Predicted GPP")
+
+
+importance_values <- importance(Stp_model)
+print(importance_values)
+
+# the higher the score, the more important the variable is in predicting GPP
+varImpPlot(Stp_model, main = "")
+
+# the model with the lower Out-of-Bag (OOB) MSE is better.
+print(simpler_model$mse[length(simpler_model$mse)])  
+print(Stp_model$mse[length(Stp_model$mse)])  
+```
+```{r}
+# Train the random forest model
+simpler_model <- randomForest(GPP ~ Tair + SW_rad, data=Asm_train, ntree=500, 
+                              mtry=2)
+Asm_model <- randomForest(GPP ~ Tair + SW_rad + VPD + cumulative_cwd_7day + Precip, 
+                      data=Asm_train, 
+                      ntree=500, mtry=3)
+print(Asm_model)
+
+# Predict on the testing data
+predictions <- predict(Asm_model, Asm_test)
+results <- data.frame(Observed=Asm_test$GPP, Predicted=predictions)
+
+# Dumps some stats
+rmse <- sqrt(mean((results$Observed - results$Predicted)^2))
+rsq <- cor(results$Observed, results$Predicted)^2
+mean_observed <- mean(results$Observed)
+nse <- (1 - sum((results$Observed - results$Predicted)^2) / 
+          sum((results$Observed - mean_observed)^2))
+
+cat("RMSE:", rmse, "\n")
+cat("R-squared:", rsq, "\n")
+cat("Nash-Sutcliffe Efficiency (NSE):", nse, "\n")
+
+ggplot(results, aes(x=Observed, y=Predicted)) +
+  geom_point() +
+  geom_abline(intercept=0, slope=1, color="red") +
+  theme_minimal() +
+  labs(x="Observed GPP", y="Predicted GPP")
+
+
+importance_values <- importance(Asm_model)
+print(importance_values)
+
+# the higher the score, the more important the variable is in predicting GPP
+varImpPlot(Asm_model, main = "")
+
+# the model with the lower Out-of-Bag (OOB) MSE is better.
+print(simpler_model$mse[length(simpler_model$mse)])  
+print(Asm_model$mse[length(Asm_model$mse)])  
+```
+1. AU-How
+R-squared = 0.71
+Model explains 71% of GPP variance
+Water availability dominates variable importance, then precipitation, then VPD
+Full model significantly improves predictive performance over simpler Tair + SW_rad model
+
+2. AU-Ade
+R-squared = 0.78
+Model explains 79.7% variation
+Cumulative water deficit most important predictor, lower than Howard springs
+Moderate VPD importance, lower than VPD
+
+Note: Even though both How and Ade are wet woody savannas, the sensitivity of GPP to water stress differs. In Adelaide river, water stress contributes less (canopy structure?)
+
+3. AU-Das
+R-squared = 0.58
+Lower variance explained than both How and Ade - more unpredictable
+Cumulative water deficit strongly influences GPP (less extreme than How and Ade)
+VPD important, similar magnitude to How
+Full model dramatically improves prediction, water variables are significant at Daly Savanna
+
+4. AU-Dap
+R-squared = 0.79
+GPP is highly predictable at Daly Pasture compared to Daly savanna
+cwd by far dominant driver
+VPD also important but secondary to cwd
+Full model performs much better than simpler model
+
+5. AU-Dry
+R-squared = 0.71
+cwd most important predictor, consistent with other sites
+VPD moderately important
+GPP at Dry river is water-limited, like other savannas, but the magnitude of water stress importance is smaller than Daly pasture
+
+6. AU-Stp
+R-squared = 0.61
+Lower than How, Ade and Dap, slightly better than DaS
+cwd dominant predictor
+VPD moderate predictor - importance is reduced compared to wetter sites
+
+7. AU-Asm
+R-squared = 0.82
+Highest predictability of all sites
+cwd dominant predictor with VPD, Tair and SW_rad showing minor contributions
+
+Overall:
+- Cumulative water stress dominates as the main driver of GPP across all sites
+- VPD is more important in intermediate sites (Das, Dap) than either very wet or very dry sites
+- Temperature and light contribute less, particularly in arid sites
+- R-squared varies across sites, the most predictable site is Asm, the least predictable site is Das (intermediate sites looking like they are harder to predict compared to very wet or dry sites)
+
+```{r}
+library(tidyverse)
+library(randomForest)
+
+#summary table of results
+# Manually enter your random forest outputs for each site
+rf_summary <- tibble(
+  site = c("How", "Ade", "DaS", "Dap", "Dry", "Stp", "Asm"),
+  R2 = c(0.7068, 0.7838, 0.5822, 0.7923, 0.7067, 0.6096, 0.8193),
+  RMSE = c(1.3882, 1.3032, 1.3391, 1.7917, 0.9496, 0.9913, 0.4550),
+  NSE = c(0.7060, 0.7819, 0.5793, 0.7917, 0.6933, 0.6000, 0.7815)
+)
+
+# table of variable importance
+rf_importance <- tibble(
+  site = rep(c("How", "Ade", "DaS", "Dap", "Dry", "Stp", "Asm"), each = 5),
+  predictor = rep(c("Tair", "SW_rad", "VPD", "cumulative_cwd_7day", "Precip"), times = 7),
+  IncNodePurity = c(
+    # How
+    766.7118, 891.2272, 1486.7957, 8761.5299, 2167.8357,
+    # Ade
+    192.8977, 260.1241, 684.5107, 1967.3974, 234.1872,
+    # DaS
+    734.6431, 1049.5602, 1445.8075, 4981.5791, 388.8658,
+    # Dap
+    1534.9140, 1641.1928, 3856.6355, 13037.0018, 540.9062,
+    # Dry
+    422.1659, 369.4501, 819.6674, 3270.0821, 164.9847,
+    # Stp
+    205.3568, 148.4749, 221.5760, 1872.6370, 55.1311,
+    # Asm
+    80.6751, 62.3052, 93.0421, 997.6977, 54.3148
+  )
+)
+
+# plot r-squared across sites
+rf_summary %>%
+  mutate(site = factor(site, levels = c("How", "Ade", "DaS", "Dap", "Dry", "Stp", "Asm"))) %>%
+  ggplot(aes(x = site, y = R2)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  theme_minimal(base_size = 14) +
+  labs(
+    x = "Site (Wet -> Dry)",
+    y = expression(R^2),
+    title = "Random Forest Predictability of GPP Across OzFlux Sites"
+  )
+
+# plot variable importance
+wet_mid_sites <- c("How", "Ade", "DaS", "Dap")
+dry_sites <- c("Dry", "Stp", "Asm")
+
+# Plot 1: Wet to intermediate sites
+rf_importance %>%
+  filter(site %in% wet_mid_sites) %>%
+  mutate(site = factor(site, levels = wet_mid_sites),
+         predictor = factor(predictor, levels = c("Tair","SW_rad","VPD","cumulative_cwd_7day","Precip"))) %>%
+  ggplot(aes(x = predictor, y = IncNodePurity, fill = predictor)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~site, ncol = 1, scales = "free_y") +
+  theme_minimal(base_size = 12) +
+  labs(
+    x = "Predictor",
+    y = "IncNodePurity",
+    title = "Random Forest Variable Importance – Wet/Intermediate Sites"
+  )
+
+# Plot 2: Dry sites
+rf_importance %>%
+  filter(site %in% dry_sites) %>%
+  mutate(site = factor(site, levels = dry_sites),
+         predictor = factor(predictor, levels = c("Tair","SW_rad","VPD","cumulative_cwd_7day","Precip"))) %>%
+  ggplot(aes(x = predictor, y = IncNodePurity, fill = predictor)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~site, ncol = 1, scales = "free_y") +
+  theme_minimal(base_size = 12) +
+  labs(
+    x = "Predictor",
+    y = "IncNodePurity",
+    title = "Random Forest Variable Importance – Dry Sites"
+  )
+
+```
+
