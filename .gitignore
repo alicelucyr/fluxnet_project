@@ -62,6 +62,7 @@ flux/
 *.RDataTmp4
 *RDataTmp5
 *.RDataTmp6
+*.RDataTmp2
 
 #MacOS DS store
 .DS_Store
