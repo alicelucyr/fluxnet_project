@@ -18,25 +18,22 @@ library(cluster)
 
 set.seed(42)  # important for reproducibility — k-means is random initialisation
 
-# ══════════════════════════════════════════════════════════════════════════════
 # STEP 1: Scale the same two variables as before
-# ══════════════════════════════════════════════════════════════════════════════
 slopes_mat_km <- site_slopes %>%
   filter(!is.na(slope)) %>%
   column_to_rownames("site") %>%
   select(slope, vpd_at_peak) %>%
   scale()
 
-# ══════════════════════════════════════════════════════════════════════════════
+
 # STEP 2: Fit k-means with k = 3
 # nstart = 25 means it tries 25 random initialisations and keeps the best
 # this reduces sensitivity to the random starting point
-# ══════════════════════════════════════════════════════════════════════════════
+
 km_fit <- kmeans(slopes_mat_km, centers = 3, nstart = 25)
 
-# ══════════════════════════════════════════════════════════════════════════════
 # STEP 3: Verify k = 3 is optimal using silhouette score
-# ══════════════════════════════════════════════════════════════════════════════
+
 sil_scores_km <- map_dbl(2:6, function(k) {
   km <- kmeans(slopes_mat_km, centers = k, nstart = 25)
   mean(silhouette(km$cluster, dist(slopes_mat_km))[, 3])
@@ -46,10 +43,10 @@ sil_table_km <- tibble(k = 2:6, silhouette = round(sil_scores_km, 3))
 cat("\n── K-means silhouette scores ──\n")
 print(sil_table_km)
 
-# ══════════════════════════════════════════════════════════════════════════════
+
 # STEP 4: Assign cluster labels — ordered by mean slope
 # most negative slope = High sensitivity
-# ══════════════════════════════════════════════════════════════════════════════
+
 site_slopes_km <- site_slopes %>%
   filter(!is.na(slope)) %>%
   mutate(cluster_raw = factor(km_fit$cluster))
@@ -82,9 +79,9 @@ site_slopes <- site_slopes_km %>%
     cluster_multi = factor(cluster_multi, levels = c("Low", "Medium", "High"))
   )
 
-# ══════════════════════════════════════════════════════════════════════════════
+
 # STEP 5: Verify — check mean slope and n per labelled cluster
-# ══════════════════════════════════════════════════════════════════════════════
+
 cat("\n── Labelled cluster verification ──\n")
 site_slopes %>%
   group_by(cluster_multi) %>%
@@ -95,9 +92,8 @@ site_slopes %>%
   ) %>%
   print()
 
-# ══════════════════════════════════════════════════════════════════════════════
 # STEP 6: Rebuild cluster objects for plotting
-# ══════════════════════════════════════════════════════════════════════════════
+
 cluster_lookup  <- site_slopes %>% select(site, cluster_multi)
 all_clouds_cl   <- all_clouds   %>% left_join(cluster_lookup, by = "site")
 fitted_lines_cl <- fitted_lines %>% left_join(cluster_lookup, by = "site")
@@ -110,9 +106,9 @@ all_clouds_cl   <- all_clouds_cl   %>% mutate(site = factor(site, levels = site_
 fitted_lines_cl <- fitted_lines_cl %>% mutate(site = factor(site, levels = site_order))
 site_slopes_cl  <- site_slopes     %>% mutate(site = factor(site, levels = site_order))
 
-# ══════════════════════════════════════════════════════════════════════════════
+
 # STEP 7: Cluster summary plot — three panels with mean slope line
-# ══════════════════════════════════════════════════════════════════════════════
+
 cluster_colours <- c(
   "Low"    = "#44AA99",
   "Medium" = "#DDCC77",
@@ -198,9 +194,9 @@ p_cluster_summary <- ggplot() +
 
 print(p_cluster_summary)
 
-# ══════════════════════════════════════════════════════════════════════════════
+
 # STEP 8: Dot plot of slopes wet to dry coloured by cluster
-# ══════════════════════════════════════════════════════════════════════════════
+
 ggplot(site_slopes %>% mutate(site = factor(site, levels = wet_to_dry_order)),
        aes(x = site, y = slope, colour = cluster_multi)) +
   geom_point(size = 3) +

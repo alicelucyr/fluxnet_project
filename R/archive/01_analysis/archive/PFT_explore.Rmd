@@ -8,9 +8,6 @@ date: "2026-02-13"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-
-
-Not sure if there is any pattern here. 
 TTE - interestingly VPD reduces site predictability. 
 *Explore this further*. - think this could be interesting
 Could be interesting to add in LAI to this, so there can be some sort of mechanistic interpretation of these results. 
