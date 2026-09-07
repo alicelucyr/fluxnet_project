@@ -24,6 +24,12 @@ I combined **machine learning, statistical modelling and VPD-response analysis**
 
 The analysis was conducted in **R** using eddy-covariance observations from 2001–2024.
 
+**Key findings:**
+
+- GPP predictability varied widely across sites (R² 0.05 - 0.78) and was **not** explained by site record length
+- VPD sensitivity was strongly linked to temperature and precipitation timing, not only total
+- Fire disturbance altered both GPP predictability and VPD sensitivity, suggesting non-stationary climate-productivity relationships
+
 ---
 
 ## Why does VPD matter?
@@ -269,7 +275,7 @@ Australian ecosystems showed large differences in both the VPD threshold at whic
 
 ### Climate and precipitation timing partly explain ecosystem responses to VPD
 
-Warmer, summer wet season ecosystems tended to show stronger sensitivity to high VPD. This is could be attributed to the wet season coinciding with periods of the highest annual VPD, therefore, high sensitivity to VPD through isohydric strategies such as stomatal closure are appropriate during infrequent low rainfall/high VPD periods. 
+Warmer, summer wet season ecosystems tended to show stronger sensitivity to high VPD. This could be attributed to the wet season coinciding with periods of the highest annual VPD, therefore, high sensitivity to VPD through isohydric strategies such as stomatal closure is appropriate during infrequent low rainfall/high VPD periods. 
 
 In contrast, at winter wet season sites, plant species must tolerate a long, dry summer with high VPD, relying on other hydraulic mechanisms to conserve water.
 
