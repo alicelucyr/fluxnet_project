@@ -107,32 +107,6 @@ Raw FLUXNET/OzFlux data are **not stored in this repository**.
 
 ---
 
-# Analysis workflow
-
-The project was organised into five main analytical stages:
-
-```text
-Raw FLUXNET/OzFlux data
-          │
-          ▼
-01 — Data cleaning & preparation
-          │
-          ▼
-02 — GPP–VPD sensitivity analysis
-          │
-          ├───────────────┐
-          ▼               ▼
-03 — Random Forest     04 — Calperum
-    predictability          disturbance
-          │               │
-          └───────┬───────┘
-                  ▼
-05 — Cluster analysis /
-    synthesis
-```
-
----
-
 # Results
 
 ## 01 — GPP predictability
